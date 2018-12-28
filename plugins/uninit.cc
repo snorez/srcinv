@@ -71,7 +71,7 @@ static struct use_at_list *first_use_in_cp(struct var_node *vn, struct list_head
 		if (tmp0->cp->cond_head) {
 			struct use_at_list *tmp2;
 			list_for_each_entry(tmp2, &vn->used_at, sibling) {
-				if (tmp2->gimple_stmt == tmp1->head)
+				if (tmp2->gimple_stmt == tmp0->cp->cond_head)
 					return tmp2;
 			}
 		}
@@ -114,10 +114,12 @@ static void first_use_as_read_check_in_cp(struct var_node *vn, struct list_head 
 	case GIMPLE_ASSIGN:
 	{
 		tree *ops = gimple_ops(gs);
-		int idx = first_ua->op_idx;
-		if ((idx != 0) && ((void *)ops[idx] == vn->node)) {
-			log_uninit_use(cp, xloc);
-			*res = 1;
+		for (int idx = 1; idx < gimple_num_ops(gs); idx++) {
+			if ((void *)ops[idx] == vn->node) {
+				log_uninit_use(cp, xloc);
+				*res = 1;
+				break;
+			}
 		}
 		/* TODO, what if op_idx not zero, and is ADDR_EXPR */
 		break;
@@ -169,6 +171,16 @@ static void uninit_check_func(struct sinode *fsn)
 	struct list_head head;
 	utils__gen_code_pathes(fsn, 0, fsn, -1, &head);
 
+#if 0
+	unsigned long path_count = 0;
+	struct path_list_head *tmp;
+	list_for_each_entry(tmp, &head, sibling) {
+		path_count++;
+	}
+	fprintf(stderr, "paths: %ld\n", path_count);
+#endif
+	show_func_gimples(fsn);
+
 	struct var_node_list *vnl;
 	list_for_each_entry(vnl, &fn->local_vars, sibling) {
 		tree node = (tree)vnl->var.node;
@@ -177,6 +189,24 @@ static void uninit_check_func(struct sinode *fsn)
 
 		first_use_as_read_check(&vnl->var, &head);
 	}
+
+	utils__drop_code_pathes(&head);
+	resfile__resfile_unload(fsn->buf);
+}
+
+static char *status_str = NULL;
+static unsigned int processed = 0;
+static unsigned int total = 0;
+static unsigned long print_args[4];
+static void show_progress(int signo, siginfo_t *si, void *arg)
+{
+	long *args = (long *)arg;
+	pthread_t id = (pthread_t)args[0];
+	char *status = (char *)args[1];
+	unsigned int p = *(unsigned int *)args[2];
+	unsigned int t = *(unsigned int *)args[3];
+
+	mt_print1(id, "%s: processed(%d) total(%d)\n", status, p, t);
 }
 
 static void uninit_cb(void)
@@ -186,24 +216,54 @@ static void uninit_cb(void)
 	unsigned long func_id = 0;
 	union siid *tid = (union siid *)&func_id;
 
+	status_str = (char *)"UNINIT_GLOBAL_FUNCS";
+	processed = 0;
+	total = si->id_idx[TYPE_FUNC_GLOBAL].id0.id_value;
+	print_args[0] = (long)pthread_self();
+	print_args[1] = (long)status_str;
+	print_args[2] = (long)&processed;
+	print_args[3] = (long)&total;
+
+	mt_print_add();
+	mt_add_timer(1, show_progress, print_args);
+
 	tid->id0.id_type = TYPE_FUNC_GLOBAL;
 	for (; func_id < si->id_idx[TYPE_FUNC_GLOBAL].id1; func_id++) {
 		struct sinode *fsn;
 		fsn = sinode__sinode_search(siid_get_type(tid), SEARCH_BY_ID, tid);
+		processed++;
 		if (!fsn)
 			continue;
 		uninit_check_func(fsn);
 	}
+
+	mt_del_timer();
+	mt_print_del();
+
+	status_str = (char *)"UNINIT_STATIC_FUNCS";
+	processed = 0;
+	total = si->id_idx[TYPE_FUNC_STATIC].id0.id_value;
+	print_args[0] = (long)pthread_self();
+	print_args[1] = (long)status_str;
+	print_args[2] = (long)&processed;
+	print_args[3] = (long)&total;
+
+	mt_print_add();
+	mt_add_timer(1, show_progress, print_args);
 
 	func_id = 0;
 	tid->id0.id_type = TYPE_FUNC_STATIC;
 	for (; func_id < si->id_idx[TYPE_FUNC_STATIC].id1; func_id++) {
 		struct sinode *fsn;
 		fsn = sinode__sinode_search(siid_get_type(tid), SEARCH_BY_ID, tid);
+		processed++;
 		if (!fsn)
 			continue;
 		uninit_check_func(fsn);
 	}
+
+	mt_del_timer();
+	mt_print_del();
 
 	si_log("checking uninitialized variables done\n");
 	return;

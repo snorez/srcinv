@@ -32,7 +32,7 @@ static long cmd0_cb(int argc, char *argv[])
 		return -1;
 	}
 
-	unsigned long id1 = atol(argv[1]);
+	unsigned int id1 = atol(argv[1]);
 	if (!id1) {
 		err_dbg(0, err_fmt("argv[1] invalid"));
 		return -1;

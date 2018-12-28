@@ -195,8 +195,12 @@ mmap_again1:
 		}
 
 		rf->buf_start = (unsigned long)unmap_end;
+#if 0
 		rf->buf_size = mmaplen + (unmap_end - unmap_addr);
 		rf->buf_offs = rf->buf_offs-(unmap_end-unmap_addr);
+#endif
+		rf->buf_size = mmaplen + (rf->buf_size - (unmap_end - unmap_addr));
+		rf->buf_offs = 0;
 		si->next_mmap_area += mmaplen;
 
 		start = ((char *)rf->buf_start) + rf->buf_offs;
@@ -266,6 +270,12 @@ void resfile_load(struct sibuf *buf)
 
 	char *addr;
 mmap_again0:
+	while ((atomic_read(&si->sibuf_mem_usage) + mmap_size) > SIBUF_LOADED_MAX) {
+		mutex_unlock(&gc_lock);
+		resfile_gc();
+		mutex_lock(&gc_lock);
+	}
+
 	addr = mmap((void *)mmap_addr, mmap_size, PROT_READ | PROT_WRITE,
 			MAP_FIXED | MAP_SHARED, rf->fd,
 			offs_of_resfile-(load_addr-mmap_addr));
@@ -279,15 +289,15 @@ mmap_again0:
 		err_dbg(1, err_fmt("mmap err"));
 		BUG();
 	}
+	atomic_add(buf->total_len, &si->sibuf_mem_usage);
 
 fill_buf:
 	buf->need_unload = 1;
 	BUG_ON(gettimeofday(&buf->access_at, NULL));
-	atomic_add(buf->total_len, &si->sibuf_mem_usage);
 	mutex_unlock(&gc_lock);
 }
 
-static void resfile_unload(struct sibuf *buf)
+void resfile_unload(struct sibuf *buf)
 {
 	if (!buf->need_unload)
 		return;
@@ -306,10 +316,10 @@ void resfile_unload_all(void)
 	mutex_lock(&gc_lock);
 	struct sibuf *tmp;
 	list_for_each_entry(tmp, &si->sibuf_head, sibling) {
-		resfile_unload(tmp);
+		resfile__resfile_unload(tmp);
 	}
-	mutex_unlock(&gc_lock);
 	atomic_set(&si->sibuf_mem_usage, 0);
+	mutex_unlock(&gc_lock);
 }
 
 /* XXX, this should be called very carefully, in case race condition happens */
@@ -341,7 +351,7 @@ int resfile_gc(void)
 	if (!gc_target)
 		err = -1;	/* no memory could be collect */
 	else
-		resfile_unload(gc_target);
+		resfile__resfile_unload(gc_target);
 	mutex_unlock(&gc_lock);
 	return err;
 }
@@ -360,105 +370,41 @@ int resfile_get_filecnt(struct resfile *rf)
 	}
 
 	unsigned long *cnt = &rf->total_files;
-	unsigned long *parsed = (unsigned long *)rf->parsed_files;
-	if (!*cnt)
-		goto read_filecnt;
-	else
-		goto sibuf_filecnt;
+	if (!*cnt) {
+		while (1) {
+			unsigned int *this_total = (unsigned int *)tmp_read_buf;
+			err = read(fd, this_total, sizeof(unsigned int));
+			if (err == -1) {
+				err_dbg(1, err_fmt("read err"));
+				close(fd);
+				rf->fd = -1;
+				return -1;
+			} else if (!err)
+				break;
 
-read_filecnt:
-	while (1) {
-		unsigned int *this_total = (unsigned int *)tmp_read_buf;
-		err = read(fd, this_total, sizeof(unsigned int));
-		if (err == -1) {
-			err_dbg(1, err_fmt("read err"));
-			close(fd);
-			rf->fd = -1;
-			return -1;
-		} else if (!err)
-			break;
+			err = read(fd, tmp_read_buf+sizeof(unsigned int),
+					*this_total-sizeof(unsigned int));
+			if (err == -1) {
+				err_dbg(1, err_fmt("read err"));
+				close(fd);
+				rf->fd = -1;
+				return -1;
+			} else if (!err) {
+				err_dbg(0, err_fmt("resfile format err"));
+				close(fd);
+				rf->fd = -1;
+				return -1;
+			} else if (err != (*this_total-sizeof(unsigned int))) {
+				err_dbg(0, err_fmt("resfile format err"));
+				close(fd);
+				rf->fd = -1;
+				return -1;
+			}
 
-		err = read(fd, tmp_read_buf+sizeof(unsigned int),
-				*this_total-sizeof(unsigned int));
-		if (err == -1) {
-			err_dbg(1, err_fmt("read err"));
-			close(fd);
-			rf->fd = -1;
-			return -1;
-		} else if (!err) {
-			err_dbg(0, err_fmt("resfile format err"));
-			close(fd);
-			rf->fd = -1;
-			return -1;
-		} else if (err != (*this_total-sizeof(unsigned int))) {
-			err_dbg(0, err_fmt("resfile format err"));
-			close(fd);
-			rf->fd = -1;
-			return -1;
+			*cnt += 1;
 		}
-
-		struct file_context *fc = (struct file_context *)tmp_read_buf;
-		if (fc->status >= FC_STATUS_GETINDCFG2)
-			parsed[FC_STATUS_GETINDCFG2] += 1;
-		if (fc->status >= FC_STATUS_GETINDCFG1)
-			parsed[FC_STATUS_GETINDCFG1] += 1;
-		if (fc->status >= FC_STATUS_GETXREFS)
-			parsed[FC_STATUS_GETXREFS] += 1;
-		if (fc->status >= FC_STATUS_GETDETAIL)
-			parsed[FC_STATUS_GETDETAIL] += 1;
-		if (fc->status >= FC_STATUS_GETBASE)
-			parsed[FC_STATUS_GETBASE] += 1;
-		*cnt += 1;
-	}
-	goto out;
-
-sibuf_filecnt:
-	for (int i = 0; i < FC_STATUS_MAX; i++) {
-		parsed[i] = 0;
-	}
-	read_lock(&si->lock);
-	struct sibuf *tmp;
-	list_for_each_entry(tmp, &si->sibuf_head, sibling) {
-		if (tmp->rf != rf)
-			continue;
-
-		if (tmp->status >= FC_STATUS_GETINDCFG2)
-			parsed[FC_STATUS_GETINDCFG2] += 1;
-		if (tmp->status >= FC_STATUS_GETINDCFG1)
-			parsed[FC_STATUS_GETINDCFG1] += 1;
-		if (tmp->status >= FC_STATUS_GETXREFS)
-			parsed[FC_STATUS_GETXREFS] += 1;
-		if (tmp->status >= FC_STATUS_GETDETAIL)
-			parsed[FC_STATUS_GETDETAIL] += 1;
-		if (tmp->status >= FC_STATUS_GETBASE)
-			parsed[FC_STATUS_GETBASE] += 1;
-	}
-	read_unlock(&si->lock);
-
-	if ((parsed[FC_STATUS_GETINDCFG2] != 0) &&
-		(parsed[FC_STATUS_GETINDCFG2] != *cnt)) {
-		BUG();
-	}
-	if ((parsed[FC_STATUS_GETINDCFG1] != 0) &&
-		(parsed[FC_STATUS_GETINDCFG1] != *cnt)) {
-		BUG();
-	}
-	if ((parsed[FC_STATUS_GETXREFS] != 0) &&
-		(parsed[FC_STATUS_GETXREFS] != *cnt)) {
-		BUG();
-	}
-	if ((parsed[FC_STATUS_GETDETAIL] != 0) &&
-		(parsed[FC_STATUS_GETDETAIL] != *cnt)) {
-		BUG();
-	}
-	if ((parsed[FC_STATUS_GETBASE] != 0) &&
-		(parsed[FC_STATUS_GETBASE] != *cnt)) {
-		BUG();
 	}
 
-	goto out;
-
-out:
 	close(fd);
 	rf->fd = -1;
 

@@ -16,7 +16,7 @@ CC_RELEASE=
 ifdef ver
 ifeq ($(ver), release)
 NCURSES_FLAG=-DUSE_NCURSES
-CC_DBG=
+CC_DBG=-g
 CC_RELEASE=-O3
 else
 ifeq ($(ver), quick_dbg)

@@ -1,0 +1,6 @@
+core
+si_core
+perf*
+*.so
+*.py
+test/

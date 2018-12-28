@@ -35,6 +35,8 @@ const unsigned char tree_code_length[] = {
 #undef DEFTREECODE
 #undef END_OF_BASE_TREE_CODES
 
+#ifndef HAS_TREE_CODE_NAME
+#define	HAS_TREE_CODE_NAME
 #define DEFTREECODE(SYM, NAME, TYPE, LEN) NAME,
 #define END_OF_BASE_TREE_CODES "@dummy",
 static const char *const tree_code_name[] = {
@@ -42,6 +44,7 @@ static const char *const tree_code_name[] = {
 };
 #undef DEFTREECODE
 #undef END_OF_BASE_TREE_CODES
+#endif
 
 #define DEFGSSTRUCT(SYM, STRUCT, HAS_TREE_OP) \
 	(HAS_TREE_OP ? sizeof (struct STRUCT) - sizeof (tree) : 0),

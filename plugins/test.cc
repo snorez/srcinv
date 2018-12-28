@@ -41,40 +41,14 @@ static long cmd0_cb(int argc, char *argv[])
 		return -1;
 	}
 
-	unsigned long from_id = 0x030000000000008c;
-	unsigned long to_id = 0x0300000000000014;
-	union siid *from_tid = (union siid *)&from_id;
-	union siid *to_tid = (union siid *)&to_id;
-	struct sinode *from, *to;
-	from = sinode__sinode_search(siid_get_type(from_tid), SEARCH_BY_ID,
-					from_tid);
-	to = sinode__sinode_search(siid_get_type(to_tid), SEARCH_BY_ID, to_tid);
-	BUG_ON(!from);
-	BUG_ON(!to);
-
-	struct list_head head;
-	utils__gen_func_pathes(from, to, &head, 0);
-	struct path_list_head *tmp0;
-	list_for_each_entry(tmp0, &head, sibling) {
-		struct func_path_list *tmp1;
-		list_for_each_entry(tmp1, &tmp0->path_head, sibling) {
-			fprintf(stderr, "%s ", tmp1->fsn->name);
+	struct sibuf *tmp;
+	int step3_cnt = 0;
+	list_for_each_entry(tmp, &si->sibuf_head, sibling) {
+		if (tmp->status >= STEP3) {
+			step3_cnt++;
 		}
-		fprintf(stderr, "\n");
 	}
-#if 0
-	struct list_head head;
-	utils__gen_code_pathes(from, 0, from, -1, &head);
-	fprintf(stderr, "codepath for %s\n", from->name);
-	struct path_list_head *tmp0;
-	list_for_each_entry(tmp0, &head, sibling) {
-		struct code_path_list *tmp1;
-		list_for_each_entry(tmp1, &tmp0->path_head, sibling) {
-			fprintf(stderr, "%p ", tmp1->cp);
-		}
-		fprintf(stderr, "\n");
-	}
-#endif
+	fprintf(stderr, "%d\n", step3_cnt);
 	return 0;
 }
 

@@ -25,7 +25,6 @@ CLIB_PLUGIN_NAME(itersn);
 CLIB_PLUGIN_NEEDED2(getinfo, debuild);
 static char cmdname0[] = "itersn";
 static FILE *s = NULL;
-static int idx_ = RB_NODE_BY_ID;
 
 static const char *tree_code_string(int code)
 {
@@ -71,7 +70,7 @@ static const char *tree_code_string(int code)
 
 static void sinode_print_file(struct sinode *sin)
 {
-	clib_pretty_fprint(s, 24, "id: %016lx", sinode_get_id_whole(sin));
+	clib_pretty_fprint(s, 16, "id: %08lx", sinode_get_id_whole(sin));
 	clib_pretty_fprint(s, 24, "data: %012lx", (long)sin->data);
 	clib_pretty_fprint(s, 24, "type: file");
 
@@ -83,7 +82,7 @@ static void sinode_print_file(struct sinode *sin)
 static void sinode_print_type(struct sinode *sin)
 {
 	struct type_node *t = NULL;
-	clib_pretty_fprint(s, 24, "id: %016lx", sinode_get_id_whole(sin));
+	clib_pretty_fprint(s, 16, "id: %08lx", sinode_get_id_whole(sin));
 	clib_pretty_fprint(s, 24, "data: %012lx", (long)sin->data);
 	if (sin->data)
 		t = (struct type_node *)sin->data;
@@ -93,19 +92,6 @@ static void sinode_print_type(struct sinode *sin)
 	if (sin->loc_file)
 		clib_pretty_fprint(s, 72, "loc: %s %d %d", sin->loc_file->name,
 					sin->loc_line, sin->loc_col);
-#if 0
-	if (t) {
-		if (!list_empty(&t->global_vars))
-			fprintf(s, "vars:");
-		struct sinode *sn;
-		struct id_list *tmp;
-		list_for_each_entry(tmp, &t->global_vars, sibling) {
-			sn = sinode__sinode_search(TYPE_VAR, SEARCH_BY_ID,
-							&tmp->id);
-			fprintf(s, " %s", sn->name);
-		}
-	}
-#endif
 
 	fprintf(s, "\n");
 	fflush(s);
@@ -114,20 +100,13 @@ static void sinode_print_type(struct sinode *sin)
 
 static void sinode_print_var(struct sinode *sin)
 {
-	clib_pretty_fprint(s, 24, "id: %016lx", sinode_get_id_whole(sin));
+	clib_pretty_fprint(s, 16, "id: %08lx", sinode_get_id_whole(sin));
 	clib_pretty_fprint(s, 24, "data: %012lx", (long)sin->data);
 	clib_pretty_fprint(s, 24, "type: var");
 	clib_pretty_fprint(s, 32, "name: %s", sin->name);
 	if (sin->loc_file)
 		clib_pretty_fprint(s, 72, "loc: %s %d %d", sin->loc_file->name,
 					sin->loc_line, sin->loc_col);
-#if 0
-	struct use_at_list *tmp;
-	struct var_node *vd = (struct var_node *)sin->data;
-	list_for_each_entry(tmp, &vd->used_at, sibling) {
-		fprintf(s, "used: %lx ", tmp->func_id.id1);
-	}
-#endif
 
 	fprintf(s, "\n");
 	fflush(s);
@@ -137,7 +116,7 @@ static void sinode_print_var(struct sinode *sin)
 static void sinode_print_func(struct sinode *sin)
 {
 	struct func_node *f = (struct func_node *)sin->data;
-	clib_pretty_fprint(s, 24, "id: %016lx", sinode_get_id_whole(sin));
+	clib_pretty_fprint(s, 16, "id: %08lx", sinode_get_id_whole(sin));
 	clib_pretty_fprint(s, 24, "data: %012lx", (long)f);
 	clib_pretty_fprint(s, 24, "type: func");
 	clib_pretty_fprint(s, 32, "name: %s", sin->name);
@@ -157,7 +136,7 @@ static void sinode_print_func(struct sinode *sin)
 	if (f && (!list_empty(&f->callers))) {
 		struct call_func_list *tmp;
 		list_for_each_entry(tmp, &f->callers, sibling) {
-			clib_pretty_fprint(s, 32, "caller: %d %016lx",
+			clib_pretty_fprint(s, 24, "caller: %d %08lx",
 						tmp->value_flag,
 						tmp->value);
 		}
@@ -166,7 +145,7 @@ static void sinode_print_func(struct sinode *sin)
 	if (f && (!list_empty(&f->callees))) {
 		struct call_func_list *tmp;
 		list_for_each_entry(tmp, &f->callees, sibling) {
-			clib_pretty_fprint(s, 32, "callee: %d %016lx",
+			clib_pretty_fprint(s, 24, "callee: %d %08lx",
 						tmp->value_flag,
 						tmp->value);
 		}
@@ -175,7 +154,7 @@ static void sinode_print_func(struct sinode *sin)
 	if (f && (!list_empty(&f->global_vars))) {
 		struct id_list *tmp;
 		list_for_each_entry(tmp, &f->global_vars, sibling) {
-			clib_pretty_fprint(s, 32, "gvar: %d %016lx",
+			clib_pretty_fprint(s, 24, "gvar: %d %08lx",
 						tmp->value_flag,
 						tmp->value);
 		}
@@ -197,7 +176,7 @@ static void sinode_print_func(struct sinode *sin)
 static void sinode_print_codep(struct sinode *sin)
 {
 	struct code_path *c = (struct code_path *)sin;
-	clib_pretty_fprint(s, 24, "id: %016lx", sinode_get_id_whole(sin));
+	clib_pretty_fprint(s, 16, "id: %08lx", sinode_get_id_whole(sin));
 	clib_pretty_fprint(s, 24, "data: %012lx", (long)c);
 	clib_pretty_fprint(s, 24, "type: code_path");
 	clib_pretty_fprint(s, 32, "func: %s", c->func->name);
@@ -216,17 +195,16 @@ static void sinode_print(struct sinode *sin)
 	case TYPE_FILE:
 		sinode_print_file(sin);
 		break;
-	case TYPE_TYPE_NAME:
-	case TYPE_TYPE_LOC:
+	case TYPE_TYPE:
 		sinode_print_type(sin);
-		break;
-	case TYPE_VAR_GLOBAL:
-	case TYPE_VAR_STATIC:
-		sinode_print_var(sin);
 		break;
 	case TYPE_FUNC_GLOBAL:
 	case TYPE_FUNC_STATIC:
 		sinode_print_func(sin);
+		break;
+	case TYPE_VAR_GLOBAL:
+	case TYPE_VAR_STATIC:
+		sinode_print_var(sin);
 		break;
 	case TYPE_CODEP:
 		sinode_print_codep(sin);
@@ -241,32 +219,18 @@ static void sinode_print(struct sinode *sin)
 static void cb(struct rb_node *node)
 {
 	struct sinode *sin;
-	sin = container_of(node, struct sinode, node_id.node[idx_]);
+	sin = container_of(node, struct sinode, node_id.node[RB_NODE_BY_ID]);
 	sinode_print(sin);
-	if (idx_ != RB_NODE_BY_ID) {
-		struct sinode *tmp;
-		list_for_each_entry(tmp, &sin->same_name_head, same_name_sibling) {
-				sinode_print(tmp);
-		}
-	}
 }
 
 static void do_iter(void)
 {
 	enum sinode_type type_min = TYPE_FILE, type_max = TYPE_MAX;
 	enum sinode_type i;
-	idx_ = RB_NODE_BY_ID;
 	for (i = type_min; i < type_max; i=(enum sinode_type)(i+1)) {
-		struct rb_root *root = &si->sinodes[i][idx_];
+		struct rb_root *root = &si->sinodes[i][RB_NODE_BY_ID];
 		sinode__sinode_iter(root->rb_node, cb);
 	}
-#if 0
-	idx_ = RB_NODE_BY_NAME;
-	for (i = type_min; i < type_max; i=(enum sinode_type)(i+1)) {
-		struct rb_root *root = &si->sinodes[i][idx_];
-		sinode__sinode_iter(root->rb_node, cb);
-	}
-#endif
 }
 
 static void itersn_usage(void)

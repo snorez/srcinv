@@ -62,6 +62,17 @@
 #include <tree-cfg.h>
 #include <cpplib.h>
 
+#ifndef HAS_TREE_CODE_NAME
+#define	HAS_TREE_CODE_NAME
+#define DEFTREECODE(SYM, NAME, TYPE, LEN) NAME,
+#define END_OF_BASE_TREE_CODES "@dummy",
+static const char *const tree_code_name[] = {
+#include "all-tree.def"
+};
+#undef DEFTREECODE
+#undef END_OF_BASE_TREE_CODES
+#endif
+
 #else
 
 #include "./treecodes.h"
@@ -85,14 +96,14 @@ DECL_BEGIN
  * structures and macros and variables declare
  * ************************************************************************
  */
-#define	ID_VALUE_BITS		56
-#define	ID_TYPE_BITS		8
+#define	ID_VALUE_BITS		28
+#define	ID_TYPE_BITS		4
 union siid {
 	struct {
-		unsigned long	id_value: ID_VALUE_BITS;
-		unsigned long	id_type: ID_TYPE_BITS;
+		unsigned int	id_value: ID_VALUE_BITS;
+		unsigned int	id_type: ID_TYPE_BITS;
 	} id0;
-	unsigned long		id1;
+	unsigned int		id1;
 };
 
 #define	MAX_OBJS_PER_FILE (unsigned long)0x800000
@@ -106,17 +117,36 @@ enum si_lang_type {
 
 /* default mode, not used */
 #define	MODE_TEST	0
-/* PHASE1, adjust the pointers for every compiled file, and get base info */
+/* PHASE1, adjust the pointers for every compiled file */
 #define	MODE_ADJUST	1
+/* PHASE2, get base info */
 #define	MODE_GETBASE	2
-/* PHASE2, setup every type var function data */
+/* PHASE3, setup every type var function data */
 #define	MODE_GETDETAIL	3
-/* PHASE3, get global vars initialising value */
+/* PHASE4, get global vars initialising value */
 #define	MODE_GETXREFS	4
-/* PHASE4, find where global vars and type field get called, func get assigned */
+/* PHASE5, find where global vars and type field get called, func get assigned */
 #define	MODE_GETINDCFG1	5
-/* PHASE5, check if every GIMPLE_CALL sentence are handled */
+/* PHASE6, check if every GIMPLE_CALL sentence are handled */
 #define	MODE_GETINDCFG2	6
+#define	MODE_MAX	7
+
+#define	STEP1			MODE_ADJUST
+#define	STEP2			MODE_GETBASE
+#define	STEP3			MODE_GETDETAIL
+#define	STEP4			MODE_GETXREFS
+#define	STEP5			MODE_GETINDCFG1
+#define	STEP6			MODE_GETINDCFG2
+#define	STEPMAX			MODE_MAX
+
+#define FC_STATUS_NONE		0
+#define	FC_STATUS_ADJUSTED	MODE_ADJUST
+#define	FC_STATUS_GETBASE	MODE_GETBASE
+#define	FC_STATUS_GETDETAIL	MODE_GETDETAIL
+#define FC_STATUS_GETXREFS	MODE_GETXREFS
+#define	FC_STATUS_GETINDCFG1	MODE_GETINDCFG1
+#define	FC_STATUS_GETINDCFG2	MODE_GETINDCFG2
+#define	FC_STATUS_MAX		MODE_MAX
 
 struct sibuf;
 struct lang_ops {
@@ -133,15 +163,6 @@ struct staticchk_method {
 	void			(*callback)(void);
 };
 
-#define FC_STATUS_NONE		0
-#define	FC_STATUS_ADJUSTED	1
-#define	FC_STATUS_GETBASE	2
-#define	FC_STATUS_GETDETAIL	3
-#define FC_STATUS_GETXREFS	4
-#define	FC_STATUS_GETINDCFG1	5
-#define	FC_STATUS_GETINDCFG2	6
-#define	FC_STATUS_MAX		7
-
 #define	FC_FORMAT_BEFORE_CFG	0
 #define	FC_FORMAT_AFTER_CFG	1
 #define	FC_FORMAT_AFTER_CGRAPH	2
@@ -152,7 +173,7 @@ struct file_context {
 	unsigned int		objs_offs;
 	unsigned int		objs_cnt;
 	unsigned char		type;
-	unsigned char		status	: 4;
+	unsigned char		status	: 4;	/* not used */
 	unsigned char		format	: 4;
 	unsigned short		path_len;
 
@@ -192,8 +213,13 @@ struct file_obj {
 
 /* this buf is expandable, the maxium size used is always RESFILE_BUF_SIZE */
 #define	RESFILE_BUF_START	(unsigned long)0x1000000000
-#define	RESFILE_BUF_SIZE	(unsigned long)0x40000000
+#define	RESFILE_BUF_SIZE	(unsigned long)0x80000000
 
+#define	SIBUF_LOADED_MAX	(unsigned long)0x100000000
+
+#define	TYPE_DEFINED	0
+#define	TYPE_UNDEFINED	1
+#define	TYPE_CANONICALED 2
 #define	VAR_IS_EXTERN	0
 #define	VAR_IS_STATIC	1
 #define	VAR_IS_GLOBAL	2
@@ -202,24 +228,18 @@ struct file_obj {
 #define	FUNC_IS_GLOBAL	2
 /* maxium 256 */
 enum sinode_type {
-	/* for all source files, including headers, from locations */
+	/* for all source files, headers */
 	TYPE_FILE,
 
-	/* types, (has location) (no location, has name) */
-	/* for type with loc, not <built_in> */
-	TYPE_TYPE_LOC,
-	TYPE_TYPE_NAME,
+	/* types, has name and location */
+	TYPE_TYPE,
 
 	/* all functions, TODO, nested functions? */
-	/* SEARCH_BY_NAME */
 	TYPE_FUNC_GLOBAL,
-	/* SEARCH_BY_LOC */
 	TYPE_FUNC_STATIC,
 
 	/* non-local vars */
-	/* SEARCH_BY_NAME */
 	TYPE_VAR_GLOBAL,
-	/* SEARCH_BY_LOC */
 	TYPE_VAR_STATIC,
 
 	/* all codepath, id only, not used */
@@ -231,14 +251,14 @@ enum sinode_type {
 
 #define	RB_NODE_BY_ID		0
 #define	RB_NODE_BY_SPEC		1
-#define	RB_NODE_BY_NAME		RB_NODE_BY_SPEC
-#define	RB_NODE_BY_LOC		RB_NODE_BY_SPEC
 #define	RB_NODE_BY_MAX		2
 /* for a whole project, all information unpacked here */
 struct src {
 	struct list_head	resfile_head;
 	/* sibuf, for one compiled file */
 	struct list_head	sibuf_head;
+	struct list_head	attr_name_head;
+
 	atomic_t		sibuf_mem_usage;
 	union siid		id_idx[TYPE_MAX];
 
@@ -297,7 +317,7 @@ struct resfile {
 /* presentation of file_context in memory */
 struct sibuf {
 	struct list_head	sibling;
-	/* for type(no location, no name) */
+	/* for type(no location or no name) */
 	struct rb_root		file_types;
 	lock_t			lock;
 	struct resfile		*rf;
@@ -320,16 +340,8 @@ struct sibuf {
 } __attribute__((packed));
 
 #define	SEARCH_BY_ID		0
-#define	SEARCH_BY_NAME		1
-#define	SEARCH_BY_LOC		2
-#if 0
-#define	SEARCH_GLOBAL_FUNC	1
-#define	SEARCH_STATIC_FUNC	2
-#define	SEARCH_GLOBAL_VAR	3
-#define	SEARCH_STATIC_VAR	4
-#define	SEARCH_TYPE_LOC		5
-#define	SEARCH_TYPE_NAME	6
-#endif
+#define	SEARCH_BY_SPEC		1
+#define	SEARCH_BY_TYPE_NAME	2
 
 /* the return value of check_tree_name_conflict, control how to insert */
 #define	TREE_NAME_CONFLICT_FAILED	-1
@@ -346,38 +358,11 @@ struct rb_node_id {
 	union siid		id;
 };
 #define	SINODE_BY_ID_NODE	node_id.node[RB_NODE_BY_ID]
-/* TYPE_FUNC_GLOBAL TYPE_VAR_GLOBAL TYPE_TYPE(no location, has name) TYPE_FILE */
-/* name conflict happens, only for weak strong symbols */
-#define	SINODE_BY_NAME_NODE	node_id.node[RB_NODE_BY_NAME]
-/* TYPE_FUNC_STATIC TYPE_VAR_STATIC TYPE_TYPE(has location) */
-#define	SINODE_BY_LOC_NODE	node_id.node[RB_NODE_BY_LOC]
+#define	SINODE_BY_SPEC_NODE	node_id.node[RB_NODE_BY_SPEC]
 
 struct sinode {
 	/* must be the first field */
 	struct rb_node_id	node_id;
-
-	union {
-		/* TYPE_*_GLOBAL TYPE_TYPE(no location, has name) */
-		struct {
-			union {
-				struct list_head	same_name_head;
-				struct list_head	same_name_sibling;
-			} same_name_list;
-		} name_list;
-
-		/* TYPE_*_STATIC TYPE_TYPE(has location) */
-		struct {
-			union {
-				struct rb_root		same_loc_file_root;
-				struct rb_node		same_loc_file_node;
-			} same_loc_file_rbtree;
-
-			union {
-				struct list_head	same_loc_line_head;
-				struct list_head	same_loc_line_sibling;
-			} same_loc_line_list;
-		} loc_rbtree;
-	} spec_link;
 
 	lock_t			lock;
 
@@ -393,19 +378,25 @@ struct sinode {
 	struct sinode		*loc_file;
 	int			loc_line;
 	int			loc_col;
+
+	struct list_head	attributes;
 } __attribute__((packed));
-#define	same_name_head \
-		spec_link.name_list.same_name_list.same_name_head
-#define	same_name_sibling \
-		spec_link.name_list.same_name_list.same_name_sibling
-#define	same_loc_file_root \
-		spec_link.loc_rbtree.same_loc_file_rbtree.same_loc_file_root
-#define	same_loc_file_node \
-		spec_link.loc_rbtree.same_loc_file_rbtree.same_loc_file_node
-#define	same_loc_line_head \
-		spec_link.loc_rbtree.same_loc_line_list.same_loc_line_head
-#define	same_loc_line_sibling \
-		spec_link.loc_rbtree.same_loc_line_list.same_loc_line_sibling
+
+struct name_list {
+	struct list_head	sibling;
+	char			*name;
+};
+
+struct attr_list {
+	struct list_head	sibling;
+	struct list_head	values;
+	char			*attr_name;
+};
+
+struct attr_value_list {
+	struct list_head	sibling;
+	void			*node;
+};
 
 #define	ARG_VA_LIST_NAME	"__VA_ARGS__"
 struct type_node {
@@ -423,7 +414,6 @@ struct type_node {
 
 	char			*type_name;
 	char			*fake_name;
-	struct list_head	attributes;
 
 	/* var_node_list for UNION_TYPE/RECORD_TYPE/ENUMERAL_TYPE/... */
 	struct list_head	children;
@@ -431,11 +421,7 @@ struct type_node {
 	/* POINTER_TYPE/ARRAY_TYPE/... */
 	struct type_node	*next;
 
-	unsigned long		flag;
-
 	struct list_head	used_at;
-
-	struct list_head	global_vars;
 } __attribute__((packed));
 
 struct var_node {
@@ -445,7 +431,6 @@ struct var_node {
 
 	char			*name;
 	char			*fake_name;
-	struct list_head	attributes;
 
 	struct list_head	used_at;
 	struct list_head	possible_values;
@@ -460,7 +445,6 @@ struct code_sentence {
 	unsigned long		handled: 1;
 } __attribute__((packed));
 
-/* has sinode_type but no sinode */
 struct code_path {
 	struct func_node	*func;
 
@@ -483,13 +467,12 @@ struct code_path {
 } __attribute__((packed));
 
 /* for TYPE_FUNC */
-#define	LABEL_MAX		2048
+#define	LABEL_MAX		(2048+1024)
 struct func_node {
 	struct code_path	*codes;
 	void			*node;
 	char			*name;
 	char			*fake_name;
-	struct list_head	attributes;
 
 	struct type_node	*ret_type;
 	/* var_node_list */
@@ -563,7 +546,6 @@ struct use_at_list {
 	union siid		func_id;
 	void			*gimple_stmt;
 	unsigned long		op_idx;
-	unsigned long		action_flag;
 } __attribute__((packed));
 
 #define	CALL_LEVEL_DEEP		64
@@ -588,6 +570,8 @@ struct path_list_head {
 #define	VALUE_IS_FUNC		3
 #define	VALUE_IS_VAR_ADDR	4
 #define	VALUE_IS_TREE		5
+#define	VALUE_IS_EXPR		6
+#define	VALUE_IS_REAL_CST	7
 struct possible_value_list {
 	struct list_head	sibling;
 	unsigned long		value_flag;
@@ -639,7 +623,10 @@ CLIB_PLUGIN_CALL_FUNC(resfile, resfile_read, int,
 		(struct resfile *rf, struct sibuf *buf, int force),
 		3, rf, buf, force);
 CLIB_PLUGIN_CALL_FUNC(resfile, resfile_load, void,
-		 (struct sibuf *buf),
+		(struct sibuf *buf),
+		1, buf);
+CLIB_PLUGIN_CALL_FUNC(resfile, resfile_unload, void,
+		(struct sibuf *buf),
 		1, buf);
 CLIB_PLUGIN_CALL_FUNC0(resfile, resfile_gc, int);
 CLIB_PLUGIN_CALL_FUNC0(resfile, resfile_unload_all, void);
@@ -658,8 +645,8 @@ CLIB_PLUGIN_CALL_FUNC(utils, trace_var, int,
 		 struct sinode **target_fsn, struct var_node **target_vn),
 		4, fsn, var_parm, target_fsn, target_vn);
 CLIB_PLUGIN_CALL_FUNC(utils, gen_func_pathes, void,
-		(struct sinode *from, struct sinode *to, struct list_head *head,
-		 int idx),
+		(struct sinode *from, struct sinode *to,
+		 struct list_head *head, int idx),
 		4, from, to, head, idx);
 CLIB_PLUGIN_CALL_FUNC(utils, drop_func_pathes, void,
 		(struct list_head *head),
@@ -699,6 +686,23 @@ void symtab_node::dump_table(FILE *f)
 {
 }
 
+static inline int check_file_type(tree node)
+{
+	enum tree_code tc = TREE_CODE(node);
+
+	if (!TYPE_CANONICAL(node)) {
+		return TYPE_DEFINED;
+	} else if (TYPE_CANONICAL(node) != node) {
+		return TYPE_CANONICALED;
+	} else if (((tc == RECORD_TYPE) || (tc == UNION_TYPE)) &&
+		(TYPE_CANONICAL(node) == node) &&
+		(!TYPE_VALUES(node))) {
+		return TYPE_UNDEFINED;
+	} else {
+		return TYPE_DEFINED;
+	}
+}
+
 static inline int check_file_var(tree node)
 {
 	BUG_ON(TREE_CODE(node) != VAR_DECL);
@@ -707,7 +711,8 @@ static inline int check_file_var(tree node)
 			BUG_ON(!DECL_NAME(node));
 			return VAR_IS_GLOBAL;
 		} else {
-			BUG_ON(!TREE_STATIC(node));
+			if (unlikely(!TREE_STATIC(node)))
+				BUG();
 			return VAR_IS_STATIC;
 		}
 	} else {
@@ -723,7 +728,7 @@ static inline int check_file_func(tree node)
 	if ((!DECL_EXTERNAL(node)) || DECL_SAVED_TREE(node) ||
 		(DECL_STRUCT_FUNCTION(node) &&
 		 (DECL_STRUCT_FUNCTION(node)->gimple_body))) {
-		/* cause we collect data before cfg */
+		/* we collect data before cfg */
 		BUG_ON(DECL_SAVED_TREE(node));
 		if (TREE_PUBLIC(node)) {
 			return FUNC_IS_GLOBAL;
@@ -814,6 +819,7 @@ static inline void get_type_name(void *addr, char *ret)
 	}
 }
 
+#if 0
 static inline void gen_type_name(void *addr, char *ret, expanded_location *xloc)
 {
 	if (xloc && xloc->file) {
@@ -825,6 +831,7 @@ static inline void gen_type_name(void *addr, char *ret, expanded_location *xloc)
 		return;
 	}
 }
+#endif
 
 static inline void get_type_xnode(tree node, struct sinode **sn_ret,
 					struct type_node **tn_ret)
@@ -834,30 +841,54 @@ static inline void get_type_xnode(tree node, struct sinode **sn_ret,
 	enum sinode_type type;
 	struct sinode *sn = NULL;
 	struct type_node *tn = NULL;
-
 	*sn_ret = NULL;
 	*tn_ret = NULL;
+
 	struct sibuf *b = find_target_sibuf((void *)node);
 	BUG_ON(!b);
+	resfile__resfile_load(b);
 
 	memset(name, 0, NAME_MAX);
 	get_type_name((void *)node, name);
 	xloc = get_location(GET_LOC_TYPE, b->payload, node);
-	if (xloc && xloc->file && (strcmp(xloc->file, "<built-in>")))
-		type = TYPE_TYPE_LOC;
-	else if (name[0])
-		type = TYPE_TYPE_NAME;
+
+	int flag;
+	flag = check_file_type(node);
+	if (flag == TYPE_CANONICALED) {
+		node = TYPE_CANONICAL(node);
+
+		b = find_target_sibuf((void *)node);
+		BUG_ON(!b);
+		resfile__resfile_load(b);
+
+		memset(name, 0, NAME_MAX);
+		get_type_name((void *)node, name);
+		xloc = get_location(GET_LOC_TYPE, b->payload, node);
+	} else if (flag == TYPE_UNDEFINED) {
+#if 0
+		BUG_ON(!name[0]);
+		sn = sinode__sinode_search(TYPE_TYPE, SEARCH_BY_TYPE_NAME, name);
+		*sn_ret = sn;
+#endif
+		return;
+	}
+
+	if (name[0] && xloc && xloc->file)
+		type = TYPE_TYPE;
 	else
 		type = TYPE_NONE;
 
-	if (type == TYPE_TYPE_LOC) {
-		long args[3];
-		args[0] = (long)xloc->file;
+	if (type == TYPE_TYPE) {
+		long args[4];
+		struct sinode *loc_file;
+		loc_file = sinode__sinode_search(TYPE_FILE, SEARCH_BY_SPEC,
+							(void *)xloc->file);
+		BUG_ON(!loc_file);
+		args[0] = (long)loc_file;
 		args[1] = xloc->line;
 		args[2] = xloc->column;
-		sn = sinode__sinode_search(type, SEARCH_BY_LOC, (void *)args);
-	} else if (type == TYPE_TYPE_NAME) {
-		sn = sinode__sinode_search(type, SEARCH_BY_NAME, name);
+		args[3] = (long)name;
+		sn = sinode__sinode_search(type, SEARCH_BY_SPEC, (void *)args);
 	} else {
 		tn = sibuf__sibuf_type_node_search(b, TREE_CODE(node), node);
 	}
@@ -879,26 +910,39 @@ static inline void get_func_sinode(tree node, struct sinode **sn_ret, int flag)
 	*sn_ret = NULL;
 	struct sibuf *b = find_target_sibuf((void *)node);
 	BUG_ON(!b);
+	resfile__resfile_load(b);
+
+	memset(name, 0, NAME_MAX);
+	get_function_name((void *)node, name);
 
 	int func_flag = check_file_func(node);
 	if (func_flag == FUNC_IS_EXTERN) {
 		if (!flag)
 			return;
-		memset(name, 0, NAME_MAX);
-		get_function_name((void *)node, name);
-		sn = sinode__sinode_search(TYPE_FUNC_GLOBAL, SEARCH_BY_NAME, name);
+		long args[2];
+		args[0] = (long)b->rf;
+		args[1] = (long)name;
+		sn = sinode__sinode_search(TYPE_FUNC_GLOBAL, SEARCH_BY_SPEC,
+						(void *)args);
 	} else if (func_flag == FUNC_IS_GLOBAL) {
-		memset(name, 0, NAME_MAX);
-		get_function_name((void *)node, name);
-		sn = sinode__sinode_search(TYPE_FUNC_GLOBAL, SEARCH_BY_NAME, name);
+		long args[2];
+		args[0] = (long)b->rf;
+		args[1] = (long)name;
+		sn = sinode__sinode_search(TYPE_FUNC_GLOBAL, SEARCH_BY_SPEC,
+						(void *)args);
 		BUG_ON(!sn);
 	} else if (func_flag == FUNC_IS_STATIC) {
 		xloc = get_location(GET_LOC_FUNC, b->payload, node);
-		long args[3];
-		args[0] = (long)xloc->file;
+		struct sinode *loc_file;
+		loc_file = sinode__sinode_search(TYPE_FILE, SEARCH_BY_SPEC,
+							(void *)xloc->file);
+		BUG_ON(!loc_file);
+		long args[4];
+		args[0] = (long)loc_file;
 		args[1] = xloc->line;
 		args[2] = xloc->column;
-		sn = sinode__sinode_search(TYPE_FUNC_STATIC, SEARCH_BY_LOC,
+		args[3] = (long)name;
+		sn = sinode__sinode_search(TYPE_FUNC_STATIC, SEARCH_BY_SPEC,
 						(void *)args);
 	} else {
 		BUG();
@@ -917,26 +961,39 @@ static inline void get_var_sinode(tree node, struct sinode **sn_ret, int flag)
 	*sn_ret = NULL;
 	struct sibuf *b = find_target_sibuf((void *)node);
 	BUG_ON(!b);
+	resfile__resfile_load(b);
+
+	memset(name, 0, NAME_MAX);
+	get_var_name((void *)node, name);
 
 	int var_flag = check_file_var(node);
 	if (var_flag == VAR_IS_EXTERN) {
 		if (!flag)
 			return;
-		memset(name, 0, NAME_MAX);
-		get_var_name((void *)node, name);
-		sn = sinode__sinode_search(TYPE_VAR_GLOBAL, SEARCH_BY_NAME, name);
+		long args[2];
+		args[0] = (long)b->rf;
+		args[1] = (long)name;
+		sn = sinode__sinode_search(TYPE_VAR_GLOBAL, SEARCH_BY_SPEC,
+						(void *)args);
 	} else if (var_flag == VAR_IS_GLOBAL) {
-		memset(name, 0, NAME_MAX);
-		get_var_name((void *)node, name);
-		sn = sinode__sinode_search(TYPE_VAR_GLOBAL, SEARCH_BY_NAME, name);
+		long args[2];
+		args[0] = (long)b->rf;
+		args[1] = (long)name;
+		sn = sinode__sinode_search(TYPE_VAR_GLOBAL, SEARCH_BY_SPEC,
+						(void *)args);
 		BUG_ON(!sn);
 	} else if (var_flag == VAR_IS_STATIC) {
 		xloc = get_location(GET_LOC_VAR, b->payload, node);
-		long args[3];
-		args[0] = (long)xloc->file;
+		struct sinode *loc_file;
+		loc_file = sinode__sinode_search(TYPE_FILE, SEARCH_BY_SPEC,
+							(void *)xloc->file);
+		BUG_ON(!loc_file);
+		long args[4];
+		args[0] = (long)loc_file;
 		args[1] = xloc->line;
 		args[2] = xloc->column;
-		sn = sinode__sinode_search(TYPE_VAR_STATIC, SEARCH_BY_LOC,
+		args[3] = (long)name;
+		sn = sinode__sinode_search(TYPE_VAR_STATIC, SEARCH_BY_SPEC,
 						(void *)args);
 	} else {
 		BUG();
@@ -945,7 +1002,107 @@ static inline void get_var_sinode(tree node, struct sinode **sn_ret, int flag)
 	*sn_ret = sn;
 }
 
+static inline void si_log(const char *fmt, ...);
+static inline void show_gimple(gimple_seq gs)
+{
+	tree *ops = gimple_ops(gs);
+	enum gimple_code gc = gimple_code(gs);
+	si_log("Statement %s\n", gimple_code_name[gc]);
+	for (int i = 0; i < gimple_num_ops(gs); i++) {
+		if (ops[i]) {
+			enum tree_code tc = TREE_CODE(ops[i]);
+			si_log("\tOp: %s %p\n", tree_code_name[tc], ops[i]);
+		} else {
+			si_log("\tOp: null\n");
+		}
+	}
+}
+
+static inline void show_func_gimples(struct sinode *fsn)
+{
+	resfile__resfile_load(fsn->buf);
+	tree node = (tree)(long)fsn->obj->real_addr;
+	gimple_seq body = DECL_STRUCT_FUNCTION(node)->gimple_body;
+	gimple_seq next;
+
+	next = body;
+	si_log("gimples for function %s\n", fsn->name);
+
+	while (next) {
+		show_gimple(next);
+		next = next->next;
+	}
+}
+
 #endif
+
+static inline char *__attr_name_find(char *name)
+{
+	struct name_list *ret = NULL;
+	struct name_list *tmp;
+	list_for_each_entry(tmp, &si->attr_name_head, sibling) {
+		if (!strcmp(tmp->name, name)) {
+			ret = tmp;
+			break;
+		}
+	}
+
+	if (ret)
+		return ret->name;
+	return NULL;
+}
+
+static inline char *attr_name_find(char *name)
+{
+	char *ret = NULL;
+	read_lock(&si->lock);
+	ret = __attr_name_find(name);
+	read_unlock(&si->lock);
+	return ret;
+}
+
+static inline char *attr_name_new(char *name)
+{
+	char *ret = NULL;
+	write_lock(&si->lock);
+	if ((ret = __attr_name_find(name))) {
+		write_unlock(&si->lock);
+		return ret;
+	}
+
+	struct name_list *_new;
+	_new = (struct name_list *)src__src_buf_get(sizeof(*_new));
+	memset(_new, 0, sizeof(*_new));
+	_new->name = (char *)src__src_buf_get(strlen(name)+1);
+	memcpy(_new->name, name, strlen(name)+1);
+	list_add_tail(&_new->sibling, &si->attr_name_head);
+	ret = _new->name;
+
+	write_unlock(&si->lock);
+	return ret;
+}
+
+static inline struct attr_list *attr_list_new(char *attr_name)
+{
+	char *oldname = attr_name_new(attr_name);
+	BUG_ON(!oldname);
+
+	struct attr_list *_new;
+	_new = (struct attr_list *)src__src_buf_get(sizeof(*_new));
+	memset(_new, 0, sizeof(*_new));
+	INIT_LIST_HEAD(&_new->values);
+	_new->attr_name = oldname;
+
+	return _new;
+}
+
+static inline struct attr_value_list *attr_value_list_new(void)
+{
+	struct attr_value_list *_new;
+	_new = (struct attr_value_list *)src__src_buf_get(sizeof(*_new));
+	memset(_new, 0, sizeof(*_new));
+	return _new;
+}
 
 static inline void *file_context_cmd_position(void *start)
 {
@@ -1052,12 +1209,10 @@ static inline void type_node_init(struct type_node *tn, void *node, int type_cod
 	struct type_node *_new = tn;
 	_new->node = node;
 	_new->type_code = type_code;
-	INIT_LIST_HEAD(&_new->attributes);
 	INIT_LIST_HEAD(&_new->sibling);
 	INIT_LIST_HEAD(&_new->children);
 
 	INIT_LIST_HEAD(&_new->used_at);
-	INIT_LIST_HEAD(&_new->global_vars);
 	return;
 }
 
@@ -1075,7 +1230,6 @@ static inline struct type_node *type_node_new(void *node, int type_code)
 static inline void var_node_init(struct var_node *n, void *node)
 {
 	n->node = node;
-	INIT_LIST_HEAD(&n->attributes);
 	INIT_LIST_HEAD(&n->used_at);
 	INIT_LIST_HEAD(&n->possible_values);
 }
@@ -1115,7 +1269,6 @@ static inline struct func_node *func_node_new(void *node)
 	_new = (struct func_node *)src__src_buf_get(sizeof(*_new));
 	memset(_new, 0, sizeof(*_new));
 	_new->node = node;
-	INIT_LIST_HEAD(&_new->attributes);
 	INIT_LIST_HEAD(&_new->args);
 	INIT_LIST_HEAD(&_new->callers);
 	INIT_LIST_HEAD(&_new->callees);
@@ -1316,9 +1469,9 @@ static inline struct path_list_head *path_list_head_new(void)
 	return _new;
 }
 
-#define	DEFAULT_PLUGIN_DIR	"./plugins"
-#define	DEFAULT_MIDOUT_DIR	"./output"
-#define	DEFAULT_LOG_FILE	"./output/log.txt"
+#define	DEFAULT_PLUGIN_DIR	"/media/zerons/workspace/srcinv/plugins"
+#define	DEFAULT_MIDOUT_DIR	"/media/zerons/workspace/srcinv/output"
+#define	DEFAULT_LOG_FILE	"/media/zerons/workspace/srcinv/output/log.txt"
 static inline void si_log(const char *fmt, ...)
 {
 	char logbuf[MAXLINE];

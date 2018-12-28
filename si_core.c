@@ -352,11 +352,11 @@ static struct clib_plugin_load_arg def_plugins[] = {
 	CLIB_PLUGIN_LOAD_ARG1(itersn),
 	CLIB_PLUGIN_LOAD_ARG1(sn_load),
 };
+
 int si_setup(void)
 {
 	set_dbg_mode(1);
 	int err;
-	set_eh(NULL);
 	err = clib_cmd_plugin_setup(cmd_cbs, CLIB_CMD_MAX, DEFAULT_PLUGIN_DIR,
 					def_plugins,
 					sizeof(def_plugins) / sizeof(def_plugins[0]));
@@ -393,7 +393,7 @@ int main(int argc, char *argv[])
 		return -1;
 	} else {
 		fprintf(stdout, "[v] initializing... done\n"
-				"\tuse `help` for more infomations\n"
+				"\tuse `help` for more infomation\n"
 				"\tprocess id is %d\n", getpid());
 	}
 

@@ -35,6 +35,7 @@ struct plugin_gcc_version version_needed = {
 
 int plugin_is_GPL_compatible;
 
+static int has_function = 0;
 static char nodes_mem[MAX_SIZE_PER_FILE];
 static char *mem_ptr_start = NULL;
 static char *mem_ptr = NULL;
@@ -1868,10 +1869,17 @@ static void parse_function(void *gcc_data, void *user_data)
 
 static void ast_collect(void *gcc_data, void *user_data)
 {
+	if (!has_function) {
+		struct varpool_node *node;
+		FOR_EACH_VARIABLE(node) {
+			tree var = node->decl;
+			do_tree(var);
+		}
+	}
+
 	nodes_flush(outfd);
 }
 
-static int collected = 0;
 namespace {
 const pass_data pass_data_before_cfg = {
 	GIMPLE_PASS,
@@ -1903,6 +1911,7 @@ pass_before_cfg(gcc::context *ctx) : gimple_opt_pass(pass_data_before_cfg, ctx)
 
 virtual unsigned int execute(function *func) override
 {
+	has_function = 1;
 	tree func_node = func->decl;
 	BUG_ON(TREE_CODE(func_node) != FUNCTION_DECL);
 	BUG_ON(DECL_STRUCT_FUNCTION(func_node)->gimple_body != func->gimple_body);

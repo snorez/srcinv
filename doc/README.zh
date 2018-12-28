@@ -21,6 +21,7 @@
 
 --[ 1 - 简介
 该文档将介绍SRCINV框架(beta)的使用, 以及设计思路, 和主要针对的目标.
+该文档针对[beta version](https://github.com/snorez/srcinv/commit/53b77c40f80bfaeff50f2567512a2178e5712a09). 更新请查看ChangeLog或English文档.
 
 
 

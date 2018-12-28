@@ -56,12 +56,16 @@ struct sinode *sinode_new(enum sinode_type type,
 		memcpy(ret->data, data, datalen);
 		ret->datalen = datalen;
 	}
+#if 0
 	if ((type == TYPE_TYPE_NAME) || (type == TYPE_FUNC_GLOBAL) ||
 		(type == TYPE_VAR_GLOBAL))
 		INIT_LIST_HEAD(&ret->same_name_head);
 	else if ((type == TYPE_TYPE_LOC) || (type == TYPE_FUNC_STATIC) ||
 		(type == TYPE_VAR_STATIC))
 		INIT_LIST_HEAD(&ret->same_loc_line_head);
+#endif
+
+	INIT_LIST_HEAD(&ret->attributes);
 
 	return ret;
 }
@@ -88,7 +92,7 @@ static int sinode_insert_by_id(struct sinode *node)
 		else if (sinode_get_id_whole(data) < sinode_get_id_whole(node))
 			newtmp = &((*newtmp)->rb_right);
 		else {
-			err_dbg(0, err_fmt("same id happened"));
+			err_dbg(0, err_fmt("insert same id"));
 			err = -1;
 			break;
 		}
@@ -101,6 +105,106 @@ static int sinode_insert_by_id(struct sinode *node)
 
 	write_unlock(&si->lock);
 	return err;
+}
+
+static int sinode_insert_file(struct sinode *sn)
+{
+	BUG_ON(!sn->name);
+
+	write_lock(&si->lock);
+	struct rb_root *root = &si->sinodes[TYPE_FILE][RB_NODE_BY_SPEC];
+	struct rb_node **node = &(root->rb_node), *parent = NULL;
+
+	while (*node) {
+		struct sinode *data;
+		data = container_of(*node, struct sinode, SINODE_BY_SPEC_NODE);
+
+		int res = strcmp(data->name, sn->name);
+		parent = *node;
+		if (res > 0) {
+			node = &((*node)->rb_left);
+		} else if (res < 0) {
+			node = &((*node)->rb_right);
+		} else {
+			err_dbg(0, err_fmt("insert same file name"));
+			write_unlock(&si->lock);
+			return -1;
+		}
+	}
+
+	rb_link_node(&sn->SINODE_BY_SPEC_NODE, parent, node);
+	rb_insert_color(&sn->SINODE_BY_SPEC_NODE, root);
+
+	write_unlock(&si->lock);
+	return 0;
+}
+
+static int _sinode_insert_name_loc(enum sinode_type type, struct sinode *sn)
+{
+	BUG_ON(!sn->name);
+	BUG_ON(!sn->loc_file);
+
+	write_lock(&si->lock);
+	struct rb_root *root = &si->sinodes[type][RB_NODE_BY_SPEC];
+	struct rb_node **node = &(root->rb_node), *parent = NULL;
+
+	while (*node) {
+		struct sinode *data;
+		data = container_of(*node, struct sinode, SINODE_BY_SPEC_NODE);
+
+		int res;
+		res = strcmp(data->name, sn->name);
+		parent = *node;
+		if (res > 0) {
+			node = &((*node)->rb_left);
+			continue;
+		}
+
+		if (res < 0) {
+			node = &((*node)->rb_right);
+			continue;
+		}
+
+		if (data->loc_file > sn->loc_file) {
+			node = &((*node)->rb_left);
+			continue;
+		}
+
+		if (data->loc_file < sn->loc_file) {
+			node = &((*node)->rb_right);
+			continue;
+		}
+
+		if (data->loc_line > sn->loc_line) {
+			node = &((*node)->rb_left);
+			continue;
+		}
+
+		if (data->loc_line < sn->loc_line) {
+			node = &((*node)->rb_right);
+			continue;
+		}
+
+		if (data->loc_col > sn->loc_col) {
+			node = &((*node)->rb_left);
+			continue;
+		}
+
+		if (data->loc_col < sn->loc_col) {
+			node = &((*node)->rb_right);
+			continue;
+		}
+
+		err_dbg(0, err_fmt("insert same name locfile"));
+		write_unlock(&si->lock);
+		return -1;
+	}
+
+	rb_link_node(&sn->SINODE_BY_SPEC_NODE, parent, node);
+	rb_insert_color(&sn->SINODE_BY_SPEC_NODE, root);
+
+	write_unlock(&si->lock);
+	return 0;
 }
 
 static void sinode_insert_do_replace(struct sinode *oldn, struct sinode *newn)
@@ -130,206 +234,95 @@ static void sinode_insert_do_replace(struct sinode *oldn, struct sinode *newn)
 	newn->loc_col = old_loc_col;
 }
 
-static int sinode_insert_by_name(struct sinode *node, int behavior)
+static int _sinode_insert_name_resfile(enum sinode_type type, struct sinode *sn,
+					int behavior)
 {
-	BUG_ON(!node->namelen);
-	enum sinode_type type = sinode_get_id_type(node);
+	BUG_ON(!sn->name);
 
 	write_lock(&si->lock);
-	struct rb_root *root = &si->sinodes[type][RB_NODE_BY_NAME];
-	struct rb_node **newtmp = &(root->rb_node), *parent = NULL;
+	struct rb_root *root = &si->sinodes[type][RB_NODE_BY_SPEC];
+	struct rb_node **node = &(root->rb_node), *parent = NULL;
 
-	while (*newtmp) {
-		struct sinode *data = container_of(*newtmp, struct sinode,
-							SINODE_BY_NAME_NODE);
-		int res = strcmp(data->name, node->name);
-		parent = *newtmp;
-		if (res > 0)
-			newtmp = &((*newtmp)->rb_left);
-		else if (res < 0)
-			newtmp = &((*newtmp)->rb_right);
-		else {
-			switch (behavior) {
-			case SINODE_INSERT_BH_NONE:
-			default:
-				err_dbg(0, err_fmt("insert_by_name warning"));
-				write_unlock(&si->lock);
-				return -1;
-			case SINODE_INSERT_BH_REPLACE:
-			{
-				BUG_ON(node->datalen != data->datalen);
+	while (*node) {
+		struct sinode *data;
+		data = container_of(*node, struct sinode, SINODE_BY_SPEC_NODE);
 
-				write_lock(&data->lock);
-				sinode_insert_do_replace(data, node);
-				write_unlock(&data->lock);
-
-				write_unlock(&si->lock);
-				return 0;
-			}
-			case SINODE_INSERT_BH_SOFT:
-			{
-				/* two weak symbols */
-				write_lock(&data->lock);
-				list_add_tail(&node->same_name_sibling,
-						&data->same_name_head);
-				write_unlock(&data->lock);
-
-				write_unlock(&si->lock);
-				return 0;
-			}
-			}
+		int res;
+		res = strcmp(data->name, sn->name);
+		parent = *node;
+		if (res > 0) {
+			node = &((*node)->rb_left);
+			continue;
 		}
-	}
 
-	rb_link_node(&node->SINODE_BY_NAME_NODE, parent, newtmp);
-	rb_insert_color(&node->SINODE_BY_NAME_NODE, root);
+		if (res < 0) {
+			node = &((*node)->rb_right);
+			continue;
+		}
 
-	write_unlock(&si->lock);
-	return 0;
-}
+		if (data->buf->rf > sn->buf->rf) {
+			node = &((*node)->rb_left);
+			continue;
+		}
 
-static void sinode_insert_by_same_loc_line(struct sinode *sn, struct list_head *head)
-{
-	struct sinode *tmp;
-	list_for_each_entry(tmp, head, same_loc_line_sibling) {
-		BUG_ON(tmp->loc_col == sn->loc_col);
-	}
+		if (data->buf->rf < sn->buf->rf) {
+			node = &((*node)->rb_right);
+			continue;
+		}
 
-	list_add_tail(&sn->same_loc_line_sibling, head);
-}
-
-static void sinode_insert_by_same_loc_file(struct sinode *sn, struct rb_root *root)
-{
-	struct rb_node **newtmp = &(root->rb_node), *parent = NULL;
-
-	while (*newtmp) {
-		struct sinode *data = container_of(*newtmp, struct sinode,
-							same_loc_file_node);
-		if (data->loc_line > sn->loc_line)
-			newtmp = &((*newtmp)->rb_left);
-		else if (data->loc_line < sn->loc_line)
-			newtmp = &((*newtmp)->rb_right);
-		else {
-			if (data->loc_col == sn->loc_col)
-				BUG();
+		switch (behavior) {
+		default:
+		{
+			err_dbg(0, err_fmt("insert same name resfile"));
+			write_unlock(&si->lock);
+			return -1;
+		}
+		case SINODE_INSERT_BH_REPLACE:
+		{
+			BUG_ON(sn->datalen != data->datalen);
 
 			write_lock(&data->lock);
-			sinode_insert_by_same_loc_line(sn, &data->same_loc_line_head);
-			write_unlock(&data->lock);
-			return;
-		}
-	}
-
-	rb_link_node(&sn->same_loc_file_node, parent, newtmp);
-	rb_insert_color(&sn->same_loc_file_node, root);
-
-	return;
-}
-
-static int sinode_insert_by_loc(struct sinode *sn)
-{
-	BUG_ON(!sn->loc_file);
-	enum sinode_type type = sinode_get_id_type(sn);
-
-	write_lock(&si->lock);
-	struct rb_root *root = &si->sinodes[type][RB_NODE_BY_LOC];
-	struct rb_node **newtmp = &(root->rb_node), *parent = NULL;
-
-	while (*newtmp) {
-		struct sinode *data = container_of(*newtmp, struct sinode,
-							SINODE_BY_LOC_NODE);
-		parent = *newtmp;
-		if (data->loc_file > sn->loc_file)
-			newtmp = &((*newtmp)->rb_left);
-		else if (data->loc_file < sn->loc_file)
-			newtmp = &((*newtmp)->rb_right);
-		else {
-			if ((data->loc_line == sn->loc_line) &&
-				(data->loc_col == sn->loc_col))
-				BUG();
-
-			write_lock(&data->lock);
-			sinode_insert_by_same_loc_file(sn, &data->same_loc_file_root);
+			sinode_insert_do_replace(data, sn);
 			write_unlock(&data->lock);
 
 			write_unlock(&si->lock);
 			return 0;
 		}
+		}
 	}
 
-	rb_link_node(&sn->SINODE_BY_LOC_NODE, parent, newtmp);
-	rb_insert_color(&sn->SINODE_BY_LOC_NODE, root);
+	rb_link_node(&sn->SINODE_BY_SPEC_NODE, parent, node);
+	rb_insert_color(&sn->SINODE_BY_SPEC_NODE, root);
 
 	write_unlock(&si->lock);
 	return 0;
 }
 
-#if 0
-static void sinode_insert_type_same_code(struct sinode *sn, struct rb_root *root)
+static int sinode_insert_type(struct sinode *sn)
 {
-	struct rb_node **tmp = &(root->rb_node), *parent = NULL;
-	struct type_node *tn = (struct type_node *)sn->data;
-
-	while (*tmp) {
-		struct sinode *data = container_of(*tmp, struct sinode,
-							same_tc_node);
-		parent = *tmp;
-		struct type_node *tntmp = (struct type_node *)data->data;
-		if (tntmp->node > tn->node)
-			tmp = &((*tmp)->rb_left);
-		else if (tntmp->node < tn->node)
-			tmp = &((*tmp)->rb_right);
-		else
-			BUG();
-	}
-
-	rb_link_node(&sn->same_tc_node, parent, tmp);
-	rb_insert_color(&sn->same_tc_node, root);
-
-	return;
+	return _sinode_insert_name_loc(TYPE_TYPE, sn);
 }
 
-static int sinode_insert_by_addr(struct sinode *sn)
+static int sinode_insert_func_global(struct sinode *sn, int behavior)
 {
-	enum sinode_type type = sinode_get_id_type(sn);
-	BUG_ON(type != TYPE_TYPE);
-
-	write_lock(&si->lock);
-	struct rb_root *root = &si->sinodes[TYPE_TYPE][RB_NODE_BY_ADDR];
-	struct rb_node **tmp = &(root->rb_node), *parent = NULL;
-	struct type_node *tn = (struct type_node *)sn->data;
-	int err = 0;
-
-	while (*tmp) {
-		struct sinode *data = container_of(*tmp, struct sinode,
-							SINODE_BY_ADDR_NODE);
-		struct type_node *tntmp = (struct type_node *)data->data;
-		parent = *tmp;
-		if (tntmp->type_code > tn->type_code)
-			tmp = &((*tmp)->rb_left);
-		else if (tntmp->type_code < tn->type_code)
-			tmp = &((*tmp)->rb_right);
-		else {
-			write_lock(&data->lock);
-			sinode_insert_type_same_code(sn, &data->same_tc_root);
-			write_unlock(&data->lock);
-
-			write_unlock(&si->lock);
-			return 0;
-		}
-	}
-
-	rb_link_node(&sn->SINODE_BY_NODE_NODE, parent, tmp);
-	rb_insert_color(&sn->SINODE_BY_NODE_NODE, root);
-
-	write_unlock(&si->lock);
-	return err;
+	return _sinode_insert_name_resfile(TYPE_FUNC_GLOBAL, sn, behavior);
 }
-#endif
 
-/*
- * if the behavior is SINODE_INSERT_BH_REPLACE, then we should not insert the ID
- */
+static int sinode_insert_func_static(struct sinode *sn)
+{
+	return _sinode_insert_name_loc(TYPE_FUNC_STATIC, sn);
+}
+
+static int sinode_insert_var_global(struct sinode *sn, int behavior)
+{
+	return _sinode_insert_name_resfile(TYPE_VAR_GLOBAL, sn, behavior);
+}
+
+static int sinode_insert_var_static(struct sinode *sn)
+{
+	return _sinode_insert_name_loc(TYPE_VAR_STATIC, sn);
+}
+
 int sinode_insert(struct sinode *node, int behavior)
 {
 	int err = 0;
@@ -351,37 +344,32 @@ int sinode_insert(struct sinode *node, int behavior)
 	switch (type) {
 	case TYPE_FILE:
 	{
-		err = sinode_insert_by_name(node, SINODE_INSERT_BH_NONE);
+		err = sinode_insert_file(node);
 		break;
 	}
-	case TYPE_TYPE_NAME:
+	case TYPE_TYPE:
 	{
-		err = sinode_insert_by_name(node, behavior);
-		break;
-	}
-	case TYPE_TYPE_LOC:
-	{
-		err = sinode_insert_by_loc(node);
+		err = sinode_insert_type(node);
 		break;
 	}
 	case TYPE_FUNC_GLOBAL:
 	{
-		err = sinode_insert_by_name(node, behavior);
+		err = sinode_insert_func_global(node, behavior);
 		break;
 	}
 	case TYPE_FUNC_STATIC:
 	{
-		err = sinode_insert_by_loc(node);
+		err = sinode_insert_func_static(node);
 		break;
 	}
 	case TYPE_VAR_GLOBAL:
 	{
-		err = sinode_insert_by_name(node, behavior);
+		err = sinode_insert_var_global(node, behavior);
 		break;
 	}
 	case TYPE_VAR_STATIC:
 	{
-		err = sinode_insert_by_loc(node);
+		err = sinode_insert_var_static(node);
 		break;
 	}
 	default:
@@ -390,12 +378,7 @@ int sinode_insert(struct sinode *node, int behavior)
 	}
 	}
 
-	if (err) {
-		err_dbg(0, err_fmt("sinode_insert_by_* err"));
-		return -1;
-	}
-
-	return 0;
+	return err;
 }
 
 static struct sinode *sinode_search_by_id(enum sinode_type type, union siid *id)
@@ -438,123 +421,24 @@ static struct sinode *sinode_search_by_id(enum sinode_type type, union siid *id)
 	return NULL;
 }
 
-static struct sinode *sinode_search_by_name(enum sinode_type type, char *name)
+static struct sinode *sinode_search_file(char *name)
 {
 	struct sinode *ret = NULL;
-	enum sinode_type type_min, type_max;
-	if (type == TYPE_NONE) {
-		type_min = (enum sinode_type)0;
-		type_max = TYPE_MAX;
-	} else {
-		type_min = type;
-		type_max = (enum sinode_type)(type + 1);
-	}
 
 	read_lock(&si->lock);
-	for (enum sinode_type i = type_min; i < type_max;
-			i = (enum sinode_type)(i+1)) {
-		struct rb_root *root = &si->sinodes[i][RB_NODE_BY_NAME];
-		struct rb_node **node = &(root->rb_node);
-		while (*node) {
-			struct sinode *data = container_of(*node, struct sinode,
-								SINODE_BY_NAME_NODE);
-			int res = strcmp(data->name, name);
-			if (res > 0)
-				node = &((*node)->rb_left);
-			else if (res < 0)
-				node = &((*node)->rb_right);
-			else {
-				ret = data;
-				break;
-			}
-		}
-		if (ret) {
-			read_unlock(&si->lock);
-			return ret;
-		}
-	}
-
-	read_unlock(&si->lock);
-	return NULL;
-}
-
-static struct sinode *sinode_search_by_same_loc_line(struct list_head *head,
-							int col)
-{
-	struct sinode *ret;
-	list_for_each_entry(ret, head, same_loc_line_sibling) {
-		if (ret->loc_col == col)
-			return ret;
-	}
-
-	return NULL;
-}
-
-static struct sinode *sinode_search_by_same_loc_file(struct rb_root *root,
-							int line,
-							int col)
-{
-	struct sinode *ret = NULL;
+	struct rb_root *root = &si->sinodes[TYPE_FILE][RB_NODE_BY_SPEC];
 	struct rb_node **node = &(root->rb_node);
 	while (*node) {
-		struct sinode *data = container_of(*node, struct sinode,
-							same_loc_file_node);
-		if (data->loc_line > line)
+		struct sinode *data;
+		data = container_of(*node, struct sinode, SINODE_BY_SPEC_NODE);
+
+		int res = strcmp(data->name, name);
+		if (res > 0) {
 			node = &((*node)->rb_left);
-		else if (data->loc_line < line)
+		} else if (res < 0) {
 			node = &((*node)->rb_right);
-		else {
-			if (data->loc_col == col) {
-				ret = data;
-				break;
-			}
-
-			read_lock(&data->lock);
-			ret = sinode_search_by_same_loc_line(
-							&data->same_loc_line_head,
-							col);
-			read_unlock(&data->lock);
-			break;
-		}
-	}
-
-	return ret;
-}
-
-static struct sinode *sinode_search_by_loc(enum sinode_type type, void *arg)
-{
-	unsigned long *args = (unsigned long *)arg;
-	char *file = (char *)args[0];
-	int line = (int)args[1];
-	int col = (int)args[2];
-	BUG_ON(!file);
-
-	struct sinode *loc_file = NULL;
-	loc_file = sinode__sinode_search(TYPE_FILE, SEARCH_BY_NAME, file);
-	BUG_ON(!loc_file);
-
-	read_lock(&si->lock);
-	struct rb_root *root = &si->sinodes[type][RB_NODE_BY_LOC];
-	struct rb_node **node = &(root->rb_node);
-	struct sinode *ret = NULL;
-	while (*node) {
-		struct sinode *data = container_of(*node, struct sinode,
-							SINODE_BY_LOC_NODE);
-		if (data->loc_file > loc_file)
-			node = &((*node)->rb_left);
-		else if (data->loc_file < loc_file)
-			node = &((*node)->rb_right);
-		else {
-			if ((data->loc_line == line) && (data->loc_col == col)) {
-				ret = data;
-				break;
-			}
-
-			read_lock(&data->lock);
-			ret = sinode_search_by_same_loc_file(
-							&data->same_loc_file_root,
-							line, col);
-			read_unlock(&data->lock);
+		} else {
+			ret = data;
 			break;
 		}
 	}
@@ -562,6 +446,194 @@ static struct sinode *sinode_search_by_loc(enum sinode_type type, void *arg)
 	read_unlock(&si->lock);
 	return ret;
 }
+
+static struct sinode *_sinode_search_name_loc(enum sinode_type type, long *arg)
+{
+	void *loc_file = (void *)arg[0];
+	int loc_line = (int)arg[1];
+	int loc_col = (int)arg[2];
+	char *name = (char *)arg[3];
+
+	struct sinode *ret = NULL;
+	read_lock(&si->lock);
+	struct rb_root *root = &si->sinodes[type][RB_NODE_BY_SPEC];
+	struct rb_node **node = &(root->rb_node);
+	while (*node) {
+		struct sinode *data;
+		data = container_of(*node, struct sinode, SINODE_BY_SPEC_NODE);
+
+		int res;
+		res = strcmp(data->name, name);
+		if (res > 0) {
+			node = &((*node)->rb_left);
+			continue;
+		}
+
+		if (res < 0) {
+			node = &((*node)->rb_right);
+			continue;
+		}
+
+		if ((void *)data->loc_file > loc_file) {
+			node = &((*node)->rb_left);
+			continue;
+		}
+
+		if ((void *)data->loc_file < loc_file) {
+			node = &((*node)->rb_right);
+			continue;
+		}
+
+		if (data->loc_line > loc_line) {
+			node = &((*node)->rb_left);
+			continue;
+		}
+
+		if (data->loc_line < loc_line) {
+			node = &((*node)->rb_right);
+			continue;
+		}
+
+		if (data->loc_col > loc_col) {
+			node = &((*node)->rb_left);
+			continue;
+		}
+
+		if (data->loc_col < loc_col) {
+			node = &((*node)->rb_right);
+			continue;
+		}
+
+		ret = data;
+		break;
+	}
+
+	read_unlock(&si->lock);
+	return ret;
+}
+
+static struct sinode *_sinode_search_name_resfile(enum sinode_type type, long *arg)
+{
+	void *resfile_addr = (void *)arg[0];
+	char *name = (char *)arg[1];
+
+	struct sinode *ret = NULL;
+
+	read_lock(&si->lock);
+	struct rb_root *root = &si->sinodes[type][RB_NODE_BY_SPEC];
+	struct rb_node **node = &(root->rb_node);
+	while (*node) {
+		struct sinode *data;
+		data = container_of(*node, struct sinode, SINODE_BY_SPEC_NODE);
+
+		int res;
+		res = strcmp(data->name, name);
+		if (res > 0) {
+			node = &((*node)->rb_left);
+			continue;
+		}
+
+		if (res < 0) {
+			node = &((*node)->rb_right);
+			continue;
+		}
+
+		if ((void *)data->buf->rf > resfile_addr) {
+			node = &((*node)->rb_left);
+			continue;
+		}
+
+		if ((void *)data->buf->rf < resfile_addr) {
+			node = &((*node)->rb_right);
+			continue;
+		}
+
+		ret = data;
+		break;
+	}
+
+	read_unlock(&si->lock);
+	return ret;
+}
+
+static struct sinode *sinode_search_type(long *arg)
+{
+	return _sinode_search_name_loc(TYPE_TYPE, arg);
+}
+
+static struct sinode *sinode_search_func_global(long *arg)
+{
+	return _sinode_search_name_resfile(TYPE_FUNC_GLOBAL, arg);
+}
+
+static struct sinode *sinode_search_func_static(long *arg)
+{
+	return _sinode_search_name_loc(TYPE_FUNC_STATIC, arg);
+}
+
+static struct sinode *sinode_search_var_global(long *arg)
+{
+	return _sinode_search_name_resfile(TYPE_VAR_GLOBAL, arg);
+}
+
+static struct sinode *sinode_search_var_static(long *arg)
+{
+	return _sinode_search_name_loc(TYPE_VAR_STATIC, arg);
+}
+
+#if 0
+static struct sinode *sinode_search_type_name(char *name)
+{
+	struct sinode *ret = NULL;
+
+	read_lock(&si->lock);
+	struct rb_root *root = &si->sinodes[TYPE_TYPE][RB_NODE_BY_SPEC];
+	struct rb_node **node = &(root->rb_node);
+	while (*node) {
+		struct sinode *data;
+		data = container_of(*node, struct sinode, SINODE_BY_SPEC_NODE);
+
+		int res;
+		res = strcmp(data->name, name);
+		if (res > 0) {
+			node = &((*node)->rb_left);
+			continue;
+		}
+
+		if (res < 0) {
+			node = &((*node)->rb_right);
+			continue;
+		}
+
+		struct rb_node **node_tmp;
+		struct sinode *data_tmp;
+
+		node_tmp = &((*node)->rb_left);
+		if (*node_tmp) {
+			data_tmp = container_of(*node_tmp,
+						struct sinode,
+						SINODE_BY_SPEC_NODE);
+			if (unlikely(!strcmp(data_tmp->name, name)))
+				BUG();
+		}
+
+		node_tmp = &((*node)->rb_right);
+		if (*node_tmp) {
+			data_tmp = container_of(*node_tmp,
+						struct sinode,
+						SINODE_BY_SPEC_NODE);
+			if (unlikely(!strcmp(data_tmp->name, name)))
+				BUG();
+		}
+
+		ret = data;
+		break;
+	}
+
+	read_unlock(&si->lock);
+	return ret;
+}
+#endif
 
 struct sinode *sinode_search(enum sinode_type type, int flag, void *arg)
 {
@@ -572,16 +644,54 @@ struct sinode *sinode_search(enum sinode_type type, int flag, void *arg)
 		ret = sinode_search_by_id(type, (union siid *)arg);
 		break;
 	}
-	case SEARCH_BY_NAME:
+	case SEARCH_BY_SPEC:
 	{
-		ret = sinode_search_by_name(type, (char *)arg);
+		switch (type) {
+		case TYPE_FILE:
+		{
+			ret = sinode_search_file(arg);
+			break;
+		}
+		case TYPE_TYPE:
+		{
+			ret = sinode_search_type(arg);
+			break;
+		}
+		case TYPE_FUNC_GLOBAL:
+		{
+			ret = sinode_search_func_global(arg);
+			break;
+		}
+		case TYPE_FUNC_STATIC:
+		{
+			ret = sinode_search_func_static(arg);
+			break;
+		}
+		case TYPE_VAR_GLOBAL:
+		{
+			ret = sinode_search_var_global(arg);
+			break;
+		}
+		case TYPE_VAR_STATIC:
+		{
+			ret = sinode_search_var_static(arg);
+			break;
+		}
+		default:
+		{
+			BUG();
+		}
+		}
+
 		break;
 	}
-	case SEARCH_BY_LOC:
+#if 0
+	case SEARCH_BY_TYPE_NAME:
 	{
-		ret = sinode_search_by_loc(type, arg);
+		ret = sinode_search_type_name(arg);
 		break;
 	}
+#endif
 	default:
 	{
 		BUG();
