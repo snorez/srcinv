@@ -4881,7 +4881,7 @@ static void do_indcfg2(struct sibuf *buf)
 
 static __thread long show_progress_arg[0x10];
 static int show_progress_timeout = 3;
-static void c_show_progress(int signo, siginfo_t *si, void *arg)
+static void c_show_progress(int signo, siginfo_t *si, void *arg, int last)
 {
 	long *args = (long *)arg;
 	char *status = (char *)args[0];

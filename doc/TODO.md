@@ -1,6 +1,3 @@
-+ plugins/utils.cc: `gen_code_pathes` may alloc too many memory
-> for example, for a function, it detects about one million possible paths,
-> which may cost about 9G memory.
 + For Linux Kernel:
 	+ get symbols in .s/.S files, to build the full call chains
 	+ add mitigations detection

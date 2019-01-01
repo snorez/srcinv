@@ -652,11 +652,10 @@ CLIB_PLUGIN_CALL_FUNC(utils, drop_func_pathes, void,
 		(struct list_head *head),
 		1, head);
 CLIB_PLUGIN_CALL_FUNC(utils, gen_code_pathes, void,
-		(struct sinode *from, int line0, struct sinode *to, int line1,
-		 struct list_head *head),
-		5, from, line0, to, line1, head);
-CLIB_PLUGIN_CALL_FUNC(utils, drop_code_pathes, void,
-		(struct list_head *head),
+		(void *arg, struct clib_rw_pool *pool),
+		2, arg, pool);
+CLIB_PLUGIN_CALL_FUNC(utils, drop_code_path, void,
+		(struct path_list_head *head),
 		1, head);
 
 /*

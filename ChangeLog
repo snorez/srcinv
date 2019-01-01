@@ -1,3 +1,7 @@
+Wed Jan  2 00:13:22 HKT 2019
+	Fix issues
+	* gen_code_paths may alloc too many memory, use clib_rw_pool
+
 Fri Dec 28 10:49:10 HKT 2018
 	add support for linux kernel(4.14.x)
 	* collect/c.cc: collect files without any function

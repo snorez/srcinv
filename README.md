@@ -11,7 +11,7 @@ To build this project, you need several libraries:
 +	libncurses
 +	libreadline
 +	libcapstone
-+	clib
++	[clib: use the latest version](https://github.com/snorez/clib/)
 +	gcc-plugin
 
 Modify CLIB_PATH and gcc plugin include path in ./Makefile ./plugins/Makefile ./collect/Makefile

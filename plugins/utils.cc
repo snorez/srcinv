@@ -356,7 +356,7 @@ static int check_func_code_path(struct code_path *cp)
 	return 0;
 }
 
-static void create_func_code_pathes(struct list_head *head)
+static void create_func_code_pathes(struct clib_rw_pool *pool)
 {
 	struct path_list_head *new_head;
 	new_head = path_list_head_new();
@@ -366,7 +366,7 @@ static void create_func_code_pathes(struct list_head *head)
 		_new->cp = (struct code_path *)func_code_pathes[i];
 		list_add_tail(&_new->sibling, &new_head->path_head);
 	}
-	list_add_tail(&new_head->sibling, head);
+	clib_rw_pool_push(pool, (void *)new_head);
 }
 
 static int code_path_last(struct code_path *cp)
@@ -378,18 +378,17 @@ static int code_path_last(struct code_path *cp)
 	return 1;
 }
 
-static void gen_func_codepathes(struct code_path *cp, struct list_head *head,
+static void gen_func_codepathes(struct code_path *cp, struct clib_rw_pool *pool,
 				int idx, int flag)
 {
 	int err = 0;
 	if (!idx) {
 		func_code_path_deep = 0;
-		INIT_LIST_HEAD(head);
 	}
 
 	push_func_codepath(cp);
 	if (code_path_last(cp)) {
-		create_func_code_pathes(head);
+		create_func_code_pathes(pool);
 		pop_func_codepath();
 		return;
 	}
@@ -402,9 +401,9 @@ static void gen_func_codepathes(struct code_path *cp, struct list_head *head,
 		if (checked && flag)
 			continue;
 		else if (checked)
-			gen_func_codepathes(cp->next[i], head, idx+1, 1);
+			gen_func_codepathes(cp->next[i], pool, idx+1, 1);
 		else
-			gen_func_codepathes(cp->next[i], head, idx+1, 0);
+			gen_func_codepathes(cp->next[i], pool, idx+1, 0);
 
 	}
 
@@ -412,17 +411,12 @@ static void gen_func_codepathes(struct code_path *cp, struct list_head *head,
 	return;
 }
 
-static void drop_func_codepathes(struct list_head *head)
+static void drop_func_codepath(struct list_head *head)
 {
-	struct path_list_head *tmp0, *next0;
-	list_for_each_entry_safe(tmp0, next0, head, sibling) {
-		struct code_path_list *tmp1, *next1;
-		list_for_each_entry_safe(tmp1, next1, &tmp0->path_head, sibling) {
-			list_del(&tmp1->sibling);
-			free(tmp1);
-		}
-		list_del(&tmp0->sibling);
-		free(tmp0);
+	struct code_path_list *tmp1, *next1;
+	list_for_each_entry_safe(tmp1, next1, head, sibling) {
+		list_del(&tmp1->sibling);
+		free(tmp1);
 	}
 }
 
@@ -434,20 +428,27 @@ static void drop_func_codepathes(struct list_head *head)
  * if line1 is -1, till the end of fsn_to
  * ************************************************************************
  */
-void gen_code_pathes(struct sinode *fsn_from, int line0,
-			struct sinode *fsn_to, int line1,
-			struct list_head *head)
+void gen_code_pathes(void *arg, struct clib_rw_pool *pool)
 {
+	struct sinode *fsn_from, *fsn_to;
+	long line0, line1;
+	long *args = (long *)arg;
+	fsn_from = (struct sinode *)args[0];
+	line0 = args[1];
+	fsn_to = (struct sinode *)args[2];
+	line1 = args[3];
+
 	if ((fsn_from == fsn_to) && (line0 == 0) && (line1 == -1)) {
 		struct func_node *fn = (struct func_node *)fsn_from->data;
-		gen_func_codepathes(fn->codes, head, 0, 0);
+		gen_func_codepathes(fn->codes, pool, 0, 0);
 		return;
 	}
 
 	/* TODO */
 }
 
-void drop_code_pathes(struct list_head *head)
+void drop_code_path(struct path_list_head *head)
 {
-	drop_func_codepathes(head);
+	drop_func_codepath(&head->path_head);
+	free(head);
 }

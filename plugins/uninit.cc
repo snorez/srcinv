@@ -35,8 +35,7 @@ CLIB_PLUGIN_EXIT()
 	return;
 }
 
-static struct sinode *cur_fsn;
-static expanded_location *get_code_path_loc(struct code_path *cp)
+static expanded_location *get_code_path_loc(struct sinode *fsn, struct code_path *cp)
 {
 	struct code_sentence *first_cs;
 	gimple_seq gs;
@@ -51,7 +50,7 @@ static expanded_location *get_code_path_loc(struct code_path *cp)
 	if (!gs)
 		return NULL;
 
-	expanded_location *xloc = get_gimple_loc(cur_fsn->buf->payload,
+	expanded_location *xloc = get_gimple_loc(fsn->buf->payload,
 							&gs->location);
 	return xloc;
 }
@@ -79,8 +78,10 @@ static struct use_at_list *first_use_in_cp(struct var_node *vn, struct list_head
 	return NULL;
 }
 
+static lock_t log_lock;
 static void log_uninit_use(struct list_head *cp, expanded_location *xloc)
 {
+	mutex_lock(&log_lock);
 	struct code_path_list *cp_tmp;
 
 	si_log("========trigger location========\n");
@@ -96,10 +97,11 @@ static void log_uninit_use(struct list_head *cp, expanded_location *xloc)
 		si_log("\t(%s %d %d)\n", xloc->file, xloc->line, xloc->column);
 	}
 #endif
+	mutex_unlock(&log_lock);
 }
 
-static void first_use_as_read_check_in_cp(struct var_node *vn, struct list_head *cp,
-						int *res)
+static void first_use_as_read_check(struct sinode *fsn, struct var_node *vn,
+					struct list_head *cp, int *res)
 {
 	struct use_at_list *first_ua;
 
@@ -108,7 +110,7 @@ static void first_use_as_read_check_in_cp(struct var_node *vn, struct list_head 
 		return;
 
 	gimple_seq gs = (gimple_seq)first_ua->gimple_stmt;
-	expanded_location *xloc = get_gimple_loc(cur_fsn->buf->payload,&gs->location);
+	expanded_location *xloc = get_gimple_loc(fsn->buf->payload,&gs->location);
 	enum gimple_code gc = gimple_code(gs);
 	switch (gc) {
 	case GIMPLE_ASSIGN:
@@ -152,34 +154,24 @@ static void first_use_as_read_check_in_cp(struct var_node *vn, struct list_head 
 	}
 }
 
-static void first_use_as_read_check(struct var_node *vn, struct list_head *cps)
-{
-	struct path_list_head *tmp0;
-	list_for_each_entry(tmp0, cps, sibling) {
-		int res = 0;
-		first_use_as_read_check_in_cp(vn, &tmp0->path_head, &res);
-		if (res)
-			return;
-	}
-}
+static char *status_str = NULL;
+static unsigned int processed = 0;
+static unsigned int total = 0;
+static atomic_t processed_cp;
+static unsigned long print_args[5];
 
-static void uninit_check_func(struct sinode *fsn)
+static void *__do_uninit_check_func(void *arg)
 {
-	cur_fsn = fsn;
-	resfile__resfile_load(fsn->buf);
+	long *args = (long *)arg;
+	struct sinode *fsn;
+	struct clib_rw_pool *rw_pool;
+	struct path_list_head *cp;
+	struct clib_mt_pool *mt_pool;
+	fsn = (struct sinode *)args[0];
+	rw_pool = (struct clib_rw_pool *)args[1];
+	cp = (struct path_list_head *)args[2];
+	mt_pool = (struct clib_mt_pool *)args[3];
 	struct func_node *fn = (struct func_node *)fsn->data;
-	struct list_head head;
-	utils__gen_code_pathes(fsn, 0, fsn, -1, &head);
-
-#if 0
-	unsigned long path_count = 0;
-	struct path_list_head *tmp;
-	list_for_each_entry(tmp, &head, sibling) {
-		path_count++;
-	}
-	fprintf(stderr, "paths: %ld\n", path_count);
-#endif
-	show_func_gimples(fsn);
 
 	struct var_node_list *vnl;
 	list_for_each_entry(vnl, &fn->local_vars, sibling) {
@@ -187,26 +179,142 @@ static void uninit_check_func(struct sinode *fsn)
 		if (TREE_STATIC(node))
 			continue;
 
-		first_use_as_read_check(&vnl->var, &head);
+		int res = 0;
+		first_use_as_read_check(fsn, &vnl->var, &cp->path_head, &res);
+		if (res) {
+			mt_pool->ret = res;
+			break;
+		}
 	}
 
-	utils__drop_code_pathes(&head);
+	utils__drop_code_path(cp);
+	atomic_inc(&processed_cp);
+	clib_mt_pool_put(mt_pool);
+
+	return (void *)0;
+}
+
+static void do_uninit_check_func(void *arg, struct clib_rw_pool *pool)
+{
+	long *args = (long *)arg;
+	struct sinode *fsn;
+	fsn = (struct sinode *)args[0];
+	struct func_node *fn = (struct func_node *)fsn->data;
+	struct clib_mt_pool *mt_pool;
+	int thread_cnt = 0x18;
+	int found = 0;
+
+	mt_pool = clib_mt_pool_new(thread_cnt);
+
+	struct path_list_head *single_cp;
+	while ((single_cp = (struct path_list_head *)clib_rw_pool_pop(pool))) {
+		if (found)
+			continue;
+
+		if (unlikely(!mt_pool)) {
+			struct var_node_list *vnl;
+			list_for_each_entry(vnl, &fn->local_vars, sibling) {
+				tree node = (tree)vnl->var.node;
+				if (TREE_STATIC(node))
+					continue;
+
+				int res = 0;
+				first_use_as_read_check(fsn, &vnl->var,
+							&single_cp->path_head, &res);
+				if (res) {
+					utils__drop_code_path(single_cp);
+					return;
+				}
+			}
+			utils__drop_code_path(single_cp);
+			atomic_inc(&processed_cp);
+		} else {
+			struct clib_mt_pool *pool_avail;
+			pool_avail = clib_mt_pool_get(mt_pool, thread_cnt);
+			if (pool_avail->ret) {
+				found = 1;
+			}
+
+			if (pool_avail->tid)
+				pthread_join(pool_avail->tid, NULL);
+
+			int err;
+			pool_avail->arg[0] = (long)fsn;
+			pool_avail->arg[1] = (long)pool;
+			pool_avail->arg[2] = (long)single_cp;
+			pool_avail->arg[3] = (long)pool_avail;
+			err = pthread_create(&pool_avail->tid, NULL,
+						__do_uninit_check_func,
+						(void *)pool_avail->arg);
+			if (err) {
+				err_dbg(1, err_fmt("pthread_create err"));
+				BUG();
+			}
+		}
+	}
+
+	if (mt_pool) {
+		clib_mt_pool_wait_all(mt_pool, thread_cnt);
+		clib_mt_pool_free(mt_pool);
+	}
+}
+
+static void uninit_check_func(struct sinode *fsn)
+{
+	atomic_set(&processed_cp, 0);
+	resfile__resfile_load(fsn->buf);
+
+	int err;
+	struct clib_rw_pool_job *new_job;
+	long write_arg[4];
+	long read_arg[1];
+
+	write_arg[0] = (long)fsn;
+	write_arg[1] = 0;
+	write_arg[2] = (long)fsn;
+	write_arg[3] = (long)-1;
+
+	read_arg[0] = (long)fsn;
+
+	new_job = clib_rw_pool_job_new(OBJPOOL_DEF,
+					utils__gen_code_pathes, write_arg,
+					do_uninit_check_func, read_arg);
+	if (!new_job) {
+		err_dbg(0, err_fmt("clib_rw_pool_job_new err"));
+		goto out;
+	}
+
+	err = clib_rw_pool_job_run(new_job);
+	if (err == -1) {
+		err_dbg(0, err_fmt("clib_rw_pool_job_run err"));
+		goto out;
+	}
+
+out:
+	clib_rw_pool_job_free(new_job);
 	resfile__resfile_unload(fsn->buf);
 }
 
-static char *status_str = NULL;
-static unsigned int processed = 0;
-static unsigned int total = 0;
-static unsigned long print_args[4];
-static void show_progress(int signo, siginfo_t *si, void *arg)
+static void show_progress(int signo, siginfo_t *si, void *arg, int last)
 {
 	long *args = (long *)arg;
 	pthread_t id = (pthread_t)args[0];
 	char *status = (char *)args[1];
 	unsigned int p = *(unsigned int *)args[2];
 	unsigned int t = *(unsigned int *)args[3];
+	unsigned long pcp = atomic_read((atomic_t *)args[4]);
 
-	mt_print1(id, "%s: processed(%d) total(%d)\n", status, p, t);
+	if (!last) {
+		fprintf(stdout, "%s: processed(%08x) total(%08x)"
+				" processed_cp(%08lx)\r",
+			status, p, t, pcp);
+		fflush(stdout);
+	} else {
+		fprintf(stdout, "%s: processed(%08x) total(%08x)"
+				" processed_cp(%08lx)\n",
+			status, p, t, pcp);
+		fflush(stdout);
+	}
 }
 
 static void uninit_cb(void)
@@ -223,8 +331,8 @@ static void uninit_cb(void)
 	print_args[1] = (long)status_str;
 	print_args[2] = (long)&processed;
 	print_args[3] = (long)&total;
+	print_args[4] = (long)&processed_cp;
 
-	mt_print_add();
 	mt_add_timer(1, show_progress, print_args);
 
 	tid->id0.id_type = TYPE_FUNC_GLOBAL;
@@ -238,7 +346,6 @@ static void uninit_cb(void)
 	}
 
 	mt_del_timer();
-	mt_print_del();
 
 	status_str = (char *)"UNINIT_STATIC_FUNCS";
 	processed = 0;
@@ -247,8 +354,8 @@ static void uninit_cb(void)
 	print_args[1] = (long)status_str;
 	print_args[2] = (long)&processed;
 	print_args[3] = (long)&total;
+	print_args[4] = (long)&processed_cp;
 
-	mt_print_add();
 	mt_add_timer(1, show_progress, print_args);
 
 	func_id = 0;
@@ -263,7 +370,6 @@ static void uninit_cb(void)
 	}
 
 	mt_del_timer();
-	mt_print_del();
 
 	si_log("checking uninitialized variables done\n");
 	return;

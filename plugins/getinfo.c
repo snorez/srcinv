@@ -203,7 +203,7 @@ static void sigquit_hdl(int signo)
 }
 static long file_progress_arg[4];
 static char *status_str;
-static void show_file_progress(int signo, siginfo_t *si, void *arg)
+static void show_file_progress(int signo, siginfo_t *si, void *arg, int last)
 {
 	long *args = (long *)arg;
 	pthread_t id = (pthread_t)args[0];
@@ -347,6 +347,8 @@ static int parse_resfile(char *path, int built_in, int step)
 				atomic_set(&t->in_use, 1);
 				t->step = step;
 
+				if (t->tid)
+					pthread_join(t->tid, NULL);
 redo1:
 				err = pthread_create(&t->tid, &attr, do_phase, t);
 				if (err) {
@@ -400,6 +402,8 @@ redo1:
 				atomic_set(&t->in_use, 1);
 				t->step = step;
 
+				if (t->tid)
+					pthread_join(t->tid, NULL);
 redo2:
 				err = pthread_create(&t->tid, &attr, do_phase, t);
 				if (err) {

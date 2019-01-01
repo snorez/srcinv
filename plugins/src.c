@@ -30,7 +30,7 @@ static size_t buf_total_size = 0;
 static int buf_expanded(size_t expand_len);
 void *src_buf_get(size_t len);
 static void do_flush_outfile(void);
-static void src_eh_do_flush(int signo, siginfo_t *si, void *arg);
+static __maybe_unused void src_eh_do_flush(int signo, siginfo_t *si, void *arg);
 
 static char cmd0[] = "load_srcfile";
 static char cmd1[] = "set_srcfile";
@@ -61,9 +61,11 @@ CLIB_PLUGIN_NAME(src);
 CLIB_PLUGIN_NEEDED0();
 CLIB_PLUGIN_INIT()
 {
+#if 0
 	struct eh_list *new_eh;
 	new_eh = eh_list_new(src_eh_do_flush);
 	set_eh(new_eh);
+#endif
 
 	int logfd = open(DEFAULT_LOG_FILE, O_RDWR | O_CREAT | O_TRUNC,
 				S_IRUSR | S_IWUSR);
