@@ -5485,7 +5485,7 @@ static void get_var_func_marked(struct sinode *func_sn)
 	cur_func_node = fn;
 
 	struct code_path *next;
-	utils__get_func_code_pathes_start(fn->codes);
+	utils__get_func_code_paths_start(fn->codes);
 	while ((next = utils__get_func_next_code_path())) {
 		struct code_sentence *cs;
 		list_for_each_entry(cs, &next->sentences, sibling) {
@@ -5613,7 +5613,7 @@ static void get_direct_callee_caller(struct sinode *func_sn)
 	struct code_path *next_cp;
 	char name[NAME_MAX];
 
-	utils__get_func_code_pathes_start(fn->codes);
+	utils__get_func_code_paths_start(fn->codes);
 	while ((next_cp = utils__get_func_next_code_path())) {
 		struct code_sentence *cs;
 		list_for_each_entry(cs, &next_cp->sentences, sibling) {
@@ -5996,7 +5996,7 @@ static void get_indirect_cfg(struct sinode *func_sn)
 	struct code_path *next_cp;
 	char name[NAME_MAX];
 
-	utils__get_func_code_pathes_start(fn->codes);
+	utils__get_func_code_paths_start(fn->codes);
 	while ((next_cp = utils__get_func_next_code_path())) {
 		struct code_sentence *cs;
 		list_for_each_entry(cs, &next_cp->sentences, sibling) {

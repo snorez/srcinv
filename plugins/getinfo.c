@@ -172,6 +172,8 @@ static void wait_for_all_threads(void)
 {
 	/* FIXME: may be called after SIGQUIT */
 	for (int i = 0; i < THREAD_CNT; i++) {
+		if (bufs[i].tid)
+			pthread_join(bufs[i].tid, NULL);
 		long in_use = atomic_read(&bufs[i].in_use);
 		if (!in_use)
 			continue;

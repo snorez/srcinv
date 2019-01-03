@@ -90,7 +90,7 @@ static void sinode_print_type(struct sinode *sin)
 			t ? tree_code_string(t->type_code) : "TYPE_TYPE");
 	clib_pretty_fprint(s, 32, "name: %s", sin->name);
 	if (sin->loc_file)
-		clib_pretty_fprint(s, 72, "loc: %s %d %d", sin->loc_file->name,
+		clib_pretty_fprint(s, 108, "loc: %s %d %d", sin->loc_file->name,
 					sin->loc_line, sin->loc_col);
 
 	fprintf(s, "\n");
@@ -105,7 +105,7 @@ static void sinode_print_var(struct sinode *sin)
 	clib_pretty_fprint(s, 24, "type: var");
 	clib_pretty_fprint(s, 32, "name: %s", sin->name);
 	if (sin->loc_file)
-		clib_pretty_fprint(s, 72, "loc: %s %d %d", sin->loc_file->name,
+		clib_pretty_fprint(s, 108, "loc: %s %d %d", sin->loc_file->name,
 					sin->loc_line, sin->loc_col);
 
 	fprintf(s, "\n");
@@ -121,7 +121,7 @@ static void sinode_print_func(struct sinode *sin)
 	clib_pretty_fprint(s, 24, "type: func");
 	clib_pretty_fprint(s, 32, "name: %s", sin->name);
 	if (sin->loc_file)
-		clib_pretty_fprint(s, 72, "loc: %s %d %d", sin->loc_file->name,
+		clib_pretty_fprint(s, 108, "loc: %s %d %d", sin->loc_file->name,
 					sin->loc_line, sin->loc_col);
 	if (f && (!list_empty(&f->unreachable_stmts))) {
 		struct unr_stmt *tmp;

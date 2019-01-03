@@ -89,7 +89,7 @@ static void log_uninit_use(struct list_head *cp, expanded_location *xloc)
 			xloc->file, xloc->line, xloc->column);
 
 #if 0
-	si_log("========trigger code pathes========\n");
+	si_log("========trigger code paths========\n");
 	list_for_each_entry(cp_tmp, cp, sibling) {
 		expanded_location *xloc = get_code_path_loc(cp_tmp->cp);
 		if (!xloc)
@@ -167,10 +167,12 @@ static void *__do_uninit_check_func(void *arg)
 	struct clib_rw_pool *rw_pool;
 	struct path_list_head *cp;
 	struct clib_mt_pool *mt_pool;
+	atomic_t *paths_read;
 	fsn = (struct sinode *)args[0];
 	rw_pool = (struct clib_rw_pool *)args[1];
 	cp = (struct path_list_head *)args[2];
 	mt_pool = (struct clib_mt_pool *)args[3];
+	paths_read = (atomic_t *)args[4];
 	struct func_node *fn = (struct func_node *)fsn->data;
 
 	struct var_node_list *vnl;
@@ -188,6 +190,7 @@ static void *__do_uninit_check_func(void *arg)
 	}
 
 	utils__drop_code_path(cp);
+	atomic_inc(paths_read);
 	atomic_inc(&processed_cp);
 	clib_mt_pool_put(mt_pool);
 
@@ -198,7 +201,9 @@ static void do_uninit_check_func(void *arg, struct clib_rw_pool *pool)
 {
 	long *args = (long *)arg;
 	struct sinode *fsn;
+	atomic_t *paths_read;
 	fsn = (struct sinode *)args[0];
+	paths_read = (atomic_t *)args[1];
 	struct func_node *fn = (struct func_node *)fsn->data;
 	struct clib_mt_pool *mt_pool;
 	int thread_cnt = 0x18;
@@ -208,8 +213,11 @@ static void do_uninit_check_func(void *arg, struct clib_rw_pool *pool)
 
 	struct path_list_head *single_cp;
 	while ((single_cp = (struct path_list_head *)clib_rw_pool_pop(pool))) {
-		if (found)
+		if (found) {
+			utils__drop_code_path(single_cp);
+			atomic_inc(paths_read);
 			continue;
+		}
 
 		if (unlikely(!mt_pool)) {
 			struct var_node_list *vnl;
@@ -243,6 +251,7 @@ static void do_uninit_check_func(void *arg, struct clib_rw_pool *pool)
 			pool_avail->arg[1] = (long)pool;
 			pool_avail->arg[2] = (long)single_cp;
 			pool_avail->arg[3] = (long)pool_avail;
+			pool_avail->arg[4] = (long)paths_read;
 			err = pthread_create(&pool_avail->tid, NULL,
 						__do_uninit_check_func,
 						(void *)pool_avail->arg);
@@ -264,20 +273,36 @@ static void uninit_check_func(struct sinode *fsn)
 	atomic_set(&processed_cp, 0);
 	resfile__resfile_load(fsn->buf);
 
+#if 0
+	size_t count = 0;
+	count = utils__count_gimple_stmt(fsn, GIMPLE_COND);
+	if (count > 48) {
+		SI_LOG("%s not checked\n", fsn->name);
+		resfile__resfile_unload(fsn->buf);
+		return;
+	}
+#endif
+
 	int err;
 	struct clib_rw_pool_job *new_job;
-	long write_arg[4];
-	long read_arg[1];
+	long write_arg[5];
+	long read_arg[2];
+	atomic_t paths_write;
+	atomic_t paths_read;
+	atomic_set(&paths_write, 0);
+	atomic_set(&paths_read, 0);
 
 	write_arg[0] = (long)fsn;
 	write_arg[1] = 0;
 	write_arg[2] = (long)fsn;
 	write_arg[3] = (long)-1;
+	write_arg[4] = (long)&paths_write;
 
 	read_arg[0] = (long)fsn;
+	read_arg[1] = (long)&paths_read;
 
 	new_job = clib_rw_pool_job_new(OBJPOOL_DEF,
-					utils__gen_code_pathes, write_arg,
+					utils__gen_code_paths, write_arg,
 					do_uninit_check_func, read_arg);
 	if (!new_job) {
 		err_dbg(0, err_fmt("clib_rw_pool_job_new err"));
@@ -288,6 +313,15 @@ static void uninit_check_func(struct sinode *fsn)
 	if (err == -1) {
 		err_dbg(0, err_fmt("clib_rw_pool_job_run err"));
 		goto out;
+	}
+
+	if (atomic_read(&paths_write) >= FUNC_CP_MAX) {
+		SI_LOG("%s not completely checked\n", fsn->name);
+	}
+
+	if (atomic_read(&paths_write) != atomic_read(&paths_read)) {
+		SI_LOG("MEMORY LEAK: paths_write(%ld) not equal paths_read(%ld)\n",
+				atomic_read(&paths_write), atomic_read(&paths_read));
 	}
 
 out:

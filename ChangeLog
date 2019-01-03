@@ -1,3 +1,11 @@
+Thu Jan  3 14:34:50 HKT 2019
+	Fix issues
+	* plugins/uninit.cc: memory leak
+	* pthread_create memory leak issues
+	* plugins/utils.cc: gen_code_paths may take too long, ignore functions
+	with more than FUNC_CP_MAX.
+	* si_core.c: support argv list to execute commands automatically, to run with
+	valgrind
 Wed Jan  2 00:13:22 HKT 2019
 	Fix issues
 	* gen_code_paths may alloc too many memory, use clib_rw_pool
@@ -5,4 +13,4 @@ Wed Jan  2 00:13:22 HKT 2019
 Fri Dec 28 10:49:10 HKT 2018
 	add support for linux kernel(4.14.x)
 	* collect/c.cc: collect files without any function
-	* plugin/c.cc: fix BUGs when parsing linux kernel vmlinux resfile
+	* plugins/c.cc: fix BUGs when parsing linux kernel vmlinux resfile

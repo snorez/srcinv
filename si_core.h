@@ -636,7 +636,7 @@ CLIB_PLUGIN_CALL_FUNC(resfile, resfile_get_filecnt, int,
 CLIB_PLUGIN_CALL_FUNC(debuild, debuild_type, void,
 		(struct type_node *type),
 		1, type);
-CLIB_PLUGIN_CALL_FUNC(utils, get_func_code_pathes_start, void,
+CLIB_PLUGIN_CALL_FUNC(utils, get_func_code_paths_start, void,
 		(struct code_path *codes),
 		1, codes);
 CLIB_PLUGIN_CALL_FUNC0(utils, get_func_next_code_path, struct code_path *);
@@ -644,19 +644,24 @@ CLIB_PLUGIN_CALL_FUNC(utils, trace_var, int,
 		(struct sinode *fsn, void *var_parm,
 		 struct sinode **target_fsn, struct var_node **target_vn),
 		4, fsn, var_parm, target_fsn, target_vn);
-CLIB_PLUGIN_CALL_FUNC(utils, gen_func_pathes, void,
+CLIB_PLUGIN_CALL_FUNC(utils, gen_func_paths, void,
 		(struct sinode *from, struct sinode *to,
 		 struct list_head *head, int idx),
 		4, from, to, head, idx);
-CLIB_PLUGIN_CALL_FUNC(utils, drop_func_pathes, void,
+CLIB_PLUGIN_CALL_FUNC(utils, drop_func_paths, void,
 		(struct list_head *head),
 		1, head);
-CLIB_PLUGIN_CALL_FUNC(utils, gen_code_pathes, void,
+/* XXX, for now, we only handle max to FUNC_CP_MAX paths */
+#define FUNC_CP_MAX	0x100000
+CLIB_PLUGIN_CALL_FUNC(utils, gen_code_paths, void,
 		(void *arg, struct clib_rw_pool *pool),
 		2, arg, pool);
 CLIB_PLUGIN_CALL_FUNC(utils, drop_code_path, void,
 		(struct path_list_head *head),
 		1, head);
+CLIB_PLUGIN_CALL_FUNC(utils, count_gimple_stmt, size_t,
+		(struct sinode *fsn, int code),
+		2, fsn, code);
 
 /*
  * ************************************************************************

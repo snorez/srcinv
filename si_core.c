@@ -355,7 +355,6 @@ static struct clib_plugin_load_arg def_plugins[] = {
 
 int si_setup(void)
 {
-	set_dbg_mode(1);
 	int err;
 	err = clib_cmd_plugin_setup(cmd_cbs, CLIB_CMD_MAX, DEFAULT_PLUGIN_DIR,
 					def_plugins,
@@ -372,6 +371,7 @@ int main(int argc, char *argv[])
 {
 	int err;
 
+	set_dbg_mode(1);
 	err = no_aslr(argc, argv);
 	if (err == -1) {
 		err_msg(err_fmt("no_aslr err\n"));
@@ -398,11 +398,20 @@ int main(int argc, char *argv[])
 	}
 
 	char *ibuf = NULL;
+	char **argv_tmp = &argv[1];
 	while (1) {
-		ibuf = clib_readline_add_history(term_prompt);
-		if (!ibuf) {
-			err_msg(err_fmt("readline get EOF and empty line, redo\n"));
-			continue;
+		if (argc == 1) {
+			ibuf = clib_readline_add_history(term_prompt);
+			if (!ibuf) {
+				err_msg(err_fmt("readline get EOF and empty line,"
+						" redo\n"));
+				continue;
+			}
+		} else {
+			if (!*argv_tmp)
+				break;
+			ibuf = strdup(*argv_tmp);
+			argv_tmp++;
 		}
 
 		int cmd_argc;

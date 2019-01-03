@@ -86,8 +86,8 @@ CLIB_PLUGIN_EXIT()
 
 /*
  * ************************************************************************
- * get_func_code_pathes_start get_func_next_code_path
- * get code_pathes in a function
+ * get_func_code_paths_start get_func_next_code_path
+ * get code_paths in a function
  * ************************************************************************
  */
 static __thread struct code_path *code_path_labels[LABEL_MAX];
@@ -120,7 +120,7 @@ static void get_code_path_labels(struct code_path *codes)
 	}
 }
 
-void get_func_code_pathes_start(struct code_path *codes)
+void get_func_code_paths_start(struct code_path *codes)
 {
 	for (int i = 0; i < code_path_label_idx; i++) {
 		code_path_labels[i] = NULL;
@@ -234,13 +234,13 @@ int trace_var(struct sinode *fsn, void *var_parm,
 
 /*
  * ************************************************************************
- * generate pathes from `fsn_from` to `fsn_to`
- * gen_func_pathes: for functions, not code_pathes
- * gen_code_pathes: for code pathes
+ * generate paths from `fsn_from` to `fsn_to`
+ * gen_func_paths: for functions, not code_paths
+ * gen_code_paths: for code paths
  * ************************************************************************
  */
-static void *path_funcs[CALL_LEVEL_DEEP];
-static size_t path_func_deep;
+static __thread void *path_funcs[CALL_LEVEL_DEEP];
+static __thread size_t path_func_deep;
 static void push_func_path(struct sinode *fsn)
 {
 	path_funcs[path_func_deep] = (void *)fsn;
@@ -261,7 +261,7 @@ static int check_func_path(struct sinode *fsn)
 	return 0;
 }
 
-static void create_func_pathes(struct list_head *head)
+static void create_func_paths(struct list_head *head)
 {
 	struct path_list_head *new_head;
 	new_head = path_list_head_new();
@@ -274,7 +274,7 @@ static void create_func_pathes(struct list_head *head)
 	list_add_tail(&new_head->sibling, head);
 }
 
-void gen_func_pathes(struct sinode *fsn_from, struct sinode *fsn_to,
+void gen_func_paths(struct sinode *fsn_from, struct sinode *fsn_to,
 			struct list_head *head, int idx)
 {
 	int retval = 0;
@@ -285,7 +285,7 @@ void gen_func_pathes(struct sinode *fsn_from, struct sinode *fsn_to,
 
 	push_func_path(fsn_from);
 	if (fsn_from == fsn_to) {
-		create_func_pathes(head);
+		create_func_paths(head);
 		pop_func_path();
 		return;
 	}
@@ -308,14 +308,14 @@ void gen_func_pathes(struct sinode *fsn_from, struct sinode *fsn_to,
 		if (check_func_path(next_fsn))
 			continue;
 
-		gen_func_pathes(next_fsn, fsn_to, head, idx+1);
+		gen_func_paths(next_fsn, fsn_to, head, idx+1);
 	}
 
 	pop_func_path();
 	return;
 }
 
-void drop_func_pathes(struct list_head *head)
+void drop_func_paths(struct list_head *head)
 {
 	struct path_list_head *tmp0, *next0;
 	list_for_each_entry_safe(tmp0, next0, head, sibling) {
@@ -331,14 +331,14 @@ void drop_func_pathes(struct list_head *head)
 
 /*
  * ************************************************************************
- * generate code pathes for function fsn
+ * generate code paths for function fsn
  * ************************************************************************
  */
-static void *func_code_pathes[LABEL_MAX];
-static size_t func_code_path_deep;
+static __thread void *func_code_paths[LABEL_MAX];
+static __thread size_t func_code_path_deep;
 static void push_func_codepath(struct code_path *cp)
 {
-	func_code_pathes[func_code_path_deep] = (void *)cp;
+	func_code_paths[func_code_path_deep] = (void *)cp;
 	func_code_path_deep++;
 }
 
@@ -350,20 +350,20 @@ static void pop_func_codepath(void)
 static int check_func_code_path(struct code_path *cp)
 {
 	for (int i = 0; i < func_code_path_deep; i++) {
-		if (func_code_pathes[i] == (void *)cp)
+		if (func_code_paths[i] == (void *)cp)
 			return 1;
 	}
 	return 0;
 }
 
-static void create_func_code_pathes(struct clib_rw_pool *pool)
+static void create_func_code_paths(struct clib_rw_pool *pool)
 {
 	struct path_list_head *new_head;
 	new_head = path_list_head_new();
 	for (int i = 0; i < func_code_path_deep; i++) {
 		struct code_path_list *_new;
 		_new = code_path_list_new();
-		_new->cp = (struct code_path *)func_code_pathes[i];
+		_new->cp = (struct code_path *)func_code_paths[i];
 		list_add_tail(&_new->sibling, &new_head->path_head);
 	}
 	clib_rw_pool_push(pool, (void *)new_head);
@@ -378,17 +378,20 @@ static int code_path_last(struct code_path *cp)
 	return 1;
 }
 
-static void gen_func_codepathes(struct code_path *cp, struct clib_rw_pool *pool,
-				int idx, int flag)
+static void gen_func_codepaths(struct code_path *cp, struct clib_rw_pool *pool,
+				int idx, int flag, atomic_t *paths)
 {
 	int err = 0;
 	if (!idx) {
 		func_code_path_deep = 0;
+		atomic_set(paths, 0);
 	}
 
 	push_func_codepath(cp);
 	if (code_path_last(cp)) {
-		create_func_code_pathes(pool);
+		if (atomic_read(paths) < FUNC_CP_MAX)
+			create_func_code_paths(pool);
+		atomic_inc(paths);
 		pop_func_codepath();
 		return;
 	}
@@ -401,34 +404,36 @@ static void gen_func_codepathes(struct code_path *cp, struct clib_rw_pool *pool,
 		if (checked && flag)
 			continue;
 		else if (checked)
-			gen_func_codepathes(cp->next[i], pool, idx+1, 1);
+			gen_func_codepaths(cp->next[i], pool, idx+1, 1, paths);
 		else
-			gen_func_codepathes(cp->next[i], pool, idx+1, 0);
-
+			gen_func_codepaths(cp->next[i], pool, idx+1, 0, paths);
+		if (atomic_read(paths) >= FUNC_CP_MAX)
+			break;
 	}
 
 	pop_func_codepath();
 	return;
 }
 
-static void drop_func_codepath(struct list_head *head)
+static void drop_func_codepath(struct path_list_head *head)
 {
 	struct code_path_list *tmp1, *next1;
-	list_for_each_entry_safe(tmp1, next1, head, sibling) {
+	list_for_each_entry_safe(tmp1, next1, &head->path_head, sibling) {
 		list_del(&tmp1->sibling);
 		free(tmp1);
 	}
+	free(head);
 }
 
 /*
  * ************************************************************************
- * generate code pathes in functions,
+ * generate code paths in functions,
  * if line0 is 0, from the beginning of fsn_from
  * if line1 is 0, till the beginning of fsn_to
  * if line1 is -1, till the end of fsn_to
  * ************************************************************************
  */
-void gen_code_pathes(void *arg, struct clib_rw_pool *pool)
+void gen_code_paths(void *arg, struct clib_rw_pool *pool)
 {
 	struct sinode *fsn_from, *fsn_to;
 	long line0, line1;
@@ -437,10 +442,12 @@ void gen_code_pathes(void *arg, struct clib_rw_pool *pool)
 	line0 = args[1];
 	fsn_to = (struct sinode *)args[2];
 	line1 = args[3];
+	atomic_t *paths = (atomic_t *)args[4];
 
 	if ((fsn_from == fsn_to) && (line0 == 0) && (line1 == -1)) {
 		struct func_node *fn = (struct func_node *)fsn_from->data;
-		gen_func_codepathes(fn->codes, pool, 0, 0);
+		if (fn)
+			gen_func_codepaths(fn->codes, pool, 0, 0, paths);
 		return;
 	}
 
@@ -449,6 +456,33 @@ void gen_code_pathes(void *arg, struct clib_rw_pool *pool)
 
 void drop_code_path(struct path_list_head *head)
 {
-	drop_func_codepath(&head->path_head);
-	free(head);
+	drop_func_codepath(head);
+}
+
+/*
+ * ************************************************************************
+ * output GIMPLE_* count
+ * ************************************************************************
+ */
+size_t count_gimple_stmt(struct sinode *fsn, int code)
+{
+	if (!fsn->data)
+		return 0;
+
+	size_t ret = 0;
+	resfile__resfile_load(fsn->buf);
+	tree node = (tree)(long)fsn->obj->real_addr;
+	gimple_seq body = DECL_STRUCT_FUNCTION(node)->gimple_body;
+	gimple_seq next;
+
+	next = body;
+	while (next) {
+		enum gimple_code gc_tmp;
+		gc_tmp = gimple_code(next);
+		if (gc_tmp == code)
+			ret++;
+		next = next->next;
+	}
+
+	return ret;
 }
