@@ -4,3 +4,5 @@ perf*
 *.so
 *.py
 test/
+defdefines.h
+treecodes.h

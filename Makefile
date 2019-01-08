@@ -1,5 +1,5 @@
+USAGE="make ver=xxx CLIB_PATH=... GCC_PLUGIN_INCLUDE=..."
 ARCH=$(shell getconf LONG_BIT)
-CLIB_PATH=/home/zerons/workspace/clib
 CLIB_INC=$(CLIB_PATH)/include
 CLIB_LIB=$(CLIB_PATH)/lib
 CLIB_SO=clib$(ARCH)
@@ -21,11 +21,7 @@ CC=gcc
 #CC_FLAGS=-Wno-literal-suffix -fno-rtti
 CC_FLAGS=-Wall $(CC_DBG) $(CC_RELEASE)
 CC_OPT=-std=gnu11 -rdynamic $(CC_FLAGS)
-GCC_PLUGIN_INCLUDE=/usr/lib/gcc/x86_64-linux-gnu/6/plugin/include/
 CC_INCLUDE=./
-
-# needed header
-PREC_HEADER=treecodes.h
 
 # main source files
 CORE_INNAME= si_core.c
@@ -35,21 +31,33 @@ CORE_OUTNAME=si_core
 COLLECT_DIR=collect/
 PLUGIN_DIR=plugins/
 
-all: $(PREC_HEADER) $(CORE_OUTNAME)
+all: PRE_CHECK PREC_HEADER $(CORE_OUTNAME)
 	@echo ""
-	@make -C $(COLLECT_DIR) ver=$(ver)
+	@make -C $(COLLECT_DIR) ver=$(ver) CLIB_PATH=$(CLIB_PATH) GCC_PLUGIN_INCLUDE=$(GCC_PLUGIN_INCLUDE)
 	@echo ""
-	@make -C $(PLUGIN_DIR) ver=$(ver)
+	@make -C $(PLUGIN_DIR) ver=$(ver) CLIB_PATH=$(CLIB_PATH) GCC_PLUGIN_INCLUDE=$(GCC_PLUGIN_INCLUDE)
+
+PRE_CHECK:
+ifndef CLIB_PATH
+	$(error usage: $(USAGE))
+else
+ifndef GCC_PLUGIN_INCLUDE
+	$(error usage: $(USAGE))
+endif
+endif
+
+PREC_HEADER:
+	gcc -I$(GCC_PLUGIN_INCLUDE) tree-codes.h -E -P > treecodes.h
+	@echo -n "" > defdefines.h
+	@echo "#define DEFAULT_PLUGIN_DIR \"$(shell pwd)/plugins\"" >> defdefines.h
+	@echo "#define DEFAULT_MIDOUT_DIR \"$(shell pwd)/output\"" >> defdefines.h
+	@echo "#define DEFAULT_LOG_FILE \"$(shell pwd)/output/log.txt\"" >> defdefines.h
 
 $(CORE_OUTNAME): $(CORE_INNAME)
 	@rm -f $@
 	$(CC) $(CC_OPT) -I$(CC_INCLUDE) -I$(CLIB_INC) $(CORE_INNAME) -L$(CLIB_LIB) -ldl -l$(CLIB_SO) -o $@ -Wl,-rpath $(CLIB_LIB)
 
-$(PREC_HEADER): tree-codes.h
-	gcc -I$(GCC_PLUGIN_INCLUDE) $< -E -P > $@
-
 clean:
-	@rm -vf $(PREC_HEADER)
 	@rm -vf $(CORE_OUTNAME)
 	@echo ""
 	@make -C $(COLLECT_DIR) clean

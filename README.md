@@ -12,7 +12,7 @@ To build this project, you need several libraries:
 +	libreadline
 +	libcapstone
 +	[clib: use the latest version](https://github.com/snorez/clib/)
-+	gcc-plugin
++	gcc-plugin, test gcc/g++ 5.4.0/6.3.0
 
 Modify CLIB_PATH and gcc plugin include path in ./Makefile ./plugins/Makefile ./collect/Makefile
 

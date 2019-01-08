@@ -73,6 +73,10 @@ static const char *const tree_code_name[] = {
 #undef END_OF_BASE_TREE_CODES
 #endif
 
+#ifndef TYPE_MODE_RAW
+#define	TYPE_MODE_RAW(NODE) (TYPE_CHECK(NODE)->type_common.mode)
+#endif
+
 #else
 
 #include "./treecodes.h"
@@ -1473,9 +1477,7 @@ static inline struct path_list_head *path_list_head_new(void)
 	return _new;
 }
 
-#define	DEFAULT_PLUGIN_DIR	"/media/zerons/workspace/srcinv/plugins"
-#define	DEFAULT_MIDOUT_DIR	"/media/zerons/workspace/srcinv/output"
-#define	DEFAULT_LOG_FILE	"/media/zerons/workspace/srcinv/output/log.txt"
+#include "./defdefines.h"
 static inline void si_log(const char *fmt, ...)
 {
 	char logbuf[MAXLINE];

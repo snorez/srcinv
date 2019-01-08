@@ -1,7 +1,9 @@
 # each source file should generate one executable file
+CLIB_PATH=
+CC0_INCLUDE=../
+GCC_PLUGIN_INCLUDE=
 
 ARCH=$(shell getconf LONG_BIT)
-CLIB_PATH=/home/zerons/workspace/clib
 CLIB_INC=$(CLIB_PATH)/include
 CLIB_LIB=$(CLIB_PATH)/lib
 CLIB_SO=clib$(ARCH)
@@ -31,8 +33,6 @@ CC0_FLAGS=-Wall -D_FILE_OFFSET_BITS=64 $(CC_DBG) $(CC_RELEASE)
 CC1_FLAGS=-Wno-literal-suffix -fno-rtti -D_FILE_OFFSET_BITS=64 $(CC_DBG) $(CC_RELEASE)
 CC0_OPT=-std=gnu11 -rdynamic -shared -fPIC $(CC0_FLAGS)
 CC1_OPT=-std=gnu++11 -rdynamic -shared -fPIC $(CC1_FLAGS)
-CC0_INCLUDE=../
-CC1_INCLUDE=/usr/lib/gcc/x86_64-linux-gnu/6/plugin/include
 
 CC0_OBJ=src.o \
 	sinode.o \
@@ -81,7 +81,7 @@ $(CC0_OBJ): %.o : %.c
 	$(CC0) $(CC0_OPT) -c -I$(CC0_INCLUDE) -I$(CLIB_INC) -lpthread $< -o $(TMP)/$@
 
 $(CC1_OBJ): %.o : %.cc
-	$(CC1) $(CC1_OPT) -c -I$(CC1_INCLUDE) -I$(CLIB_INC) $< -o $(TMP)/$@
+	$(CC1) $(CC1_OPT) -c -I$(GCC_PLUGIN_INCLUDE) -I$(CLIB_INC) $< -o $(TMP)/$@
 
 clean:
 	@rm -vf $(TMP)/*.o

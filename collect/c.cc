@@ -846,7 +846,7 @@ struct c_arg_tag { /* gcc/c/c-tree.h */
 	tree type;
 };
 #endif
-static void do_c_arg_tag(struct c_arg_tag *node, int flag)
+static void do_c_arg_tag(c_arg_tag *node, int flag)
 {
 	if (!node)
 		return;
