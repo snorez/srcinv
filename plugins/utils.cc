@@ -356,6 +356,8 @@ static int check_func_code_path(struct code_path *cp)
 	return 0;
 }
 
+static __thread struct timeval tv_start, tv_cur;
+#define	TIME_FOR_ONE_CP	0x10
 static void create_func_code_paths(struct clib_rw_pool *pool)
 {
 	struct path_list_head *new_head;
@@ -367,6 +369,7 @@ static void create_func_code_paths(struct clib_rw_pool *pool)
 		list_add_tail(&_new->sibling, &new_head->path_head);
 	}
 	clib_rw_pool_push(pool, (void *)new_head);
+	gettimeofday(&tv_start, NULL);
 }
 
 static int code_path_last(struct code_path *cp)
@@ -385,6 +388,13 @@ static void gen_func_codepaths(struct code_path *cp, struct clib_rw_pool *pool,
 	if (!idx) {
 		func_code_path_deep = 0;
 		atomic_set(paths, 0);
+		gettimeofday(&tv_start, NULL);
+	}
+
+	gettimeofday(&tv_cur, NULL);
+	if ((tv_cur.tv_sec - tv_start.tv_sec) > TIME_FOR_ONE_CP) {
+		atomic_set(paths, FUNC_CP_MAX + 1);
+		return;
 	}
 
 	push_func_codepath(cp);

@@ -320,8 +320,10 @@ static void uninit_check_func(struct sinode *fsn)
 	}
 
 	if (atomic_read(&paths_write) != atomic_read(&paths_read)) {
-		SI_LOG("MEMORY LEAK: paths_write(%ld) not equal paths_read(%ld)\n",
-				atomic_read(&paths_write), atomic_read(&paths_read));
+		SI_LOG("%s MAY MEMORY LEAK: paths_write(%ld) not"
+				" equal paths_read(%ld)\n",
+				fsn->name, atomic_read(&paths_write),
+				atomic_read(&paths_read));
 	}
 
 out:
