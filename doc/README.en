@@ -156,7 +156,7 @@ This framework has some builtin commands:
 	14	1	loaded		utils
 	>>>> /home/zerons/workspace/todo/srcinv/plugins/utils.so
 
-For more information(https://github.com/snorez/srcinv/tree/master/doc/commands.md).
+For more information(https://github.com/hardenedlinux/srcinv/tree/master/doc/commands.md).
 This framework take a few steps to test the project: collect the information,
 parse the information, use the information.
 
@@ -433,7 +433,7 @@ More program language support.
 
 --[ 7 - References
   [0] this project homepage
-  https://github.com/snorez/srcinv/
+  https://github.com/hardenedlinux/srcinv/
 
   [1] GNU Compiler Collection Internals
   https://gcc.gnu.org/onlinedocs/gcc-6.4.0/gccint.pdf
