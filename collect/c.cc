@@ -1583,9 +1583,11 @@ static void do_var_decl(tree node, int flag)
 	if (flag) {
 		node_write(node);
 		size_t start = objs_idx - 1;
+		expanded_location xloc = expand_location(DECL_SOURCE_LOCATION(node));
 		if (is_global_var(node) &&
 			((!DECL_CONTEXT(node)) ||
-			 (TREE_CODE(DECL_CONTEXT(node)) == TRANSLATION_UNIT_DECL))) {
+			 (TREE_CODE(DECL_CONTEXT(node)) == TRANSLATION_UNIT_DECL)) &&
+			(xloc.file)) {
 			objs[start].is_global_var = 1;
 		}
 #if 0

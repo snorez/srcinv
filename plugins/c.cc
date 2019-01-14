@@ -2775,8 +2775,12 @@ static void do_var_decl(tree node, int flag)
 		struct tree_var_decl *node0 = (struct tree_var_decl *)node;
 		tree ctx = DECL_CONTEXT(node);
 
+		expanded_location *xloc;
+		struct sibuf *b = find_target_sibuf(node);
+		xloc = get_location(GET_LOC_VAR, b->payload, node);
 		if (is_global_var(node) &&
-			((!ctx) || (TREE_CODE(ctx) == TRANSLATION_UNIT_DECL))) {
+			((!ctx) || (TREE_CODE(ctx) == TRANSLATION_UNIT_DECL)) &&
+			(xloc->file)) {
 			/* global vars */
 			struct sinode *global_var_sn;
 			struct var_node *gvn;
@@ -5107,8 +5111,11 @@ static struct type_node *get_array_ref_tn(struct tree_exp *exp)
 
 	tree type = TREE_TYPE(op0);
 	BUG_ON(TREE_CODE(type) != ARRAY_TYPE);
+	type = TREE_TYPE(type);
+	while (TREE_CODE(type) == ARRAY_TYPE)
+		type = TREE_TYPE(type);
 	struct type_node *tn = NULL;
-	tn = find_type_node(TREE_TYPE(type));
+	tn = find_type_node(type);
 	return tn;
 }
 
@@ -5552,7 +5559,7 @@ static void add_caller(struct sinode *callee, struct sinode *caller)
 		if (!found) {
 			if (no_ins)
 				return;
-			BUG();
+			return;
 		}
 
 		char name[NAME_MAX];
