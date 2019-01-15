@@ -1,9 +1,18 @@
+Tue Jan 15 19:59:14 HKT 2019
+	Fix issues
+	* another resfile may not found a symbol in current resfile, should
+	take a look at in the builtin resfile
+	* plugins/sinode.c: check behavior first when looking for a global
+	symbol
+
 Mon Jan 14 16:22:16 HKT 2019
 	Fix issues
 	* static variables may have no location(loc->file NULL).
+
 Tue Jan  8 19:14:36 HKT 2019
 	Fix issues
 	* plugins/uninit.cc: gen_code_paths may take too long for one path
+
 Thu Jan  3 14:34:50 HKT 2019
 	Fix issues
 	* plugins/uninit.cc: memory leak
@@ -12,6 +21,7 @@ Thu Jan  3 14:34:50 HKT 2019
 	with more than FUNC_CP_MAX.
 	* si_core.c: support argv list to execute commands automatically, to run with
 	valgrind
+
 Wed Jan  2 00:13:22 HKT 2019
 	Fix issues
 	* gen_code_paths may alloc too many memory, use clib_rw_pool

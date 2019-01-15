@@ -19,7 +19,14 @@ Modify CLIB_PATH and gcc plugin include path in ./Makefile ./plugins/Makefile ./
 Run `make` or `make ver=[quick_dbg|release]`
 
 # Usage
-example, for linux kernel(4.14.x)
+### NOTICE
+if a project generates several executable files, run `make` separately.
+
+One resfile is ***JUST*** for one executable file. Thus, you may need to modify the Makefiles in the project.
+
+For linux kernel, vmlinux and .ko are executable files.
+
+### Example, for linux kernel(4.14.x)
 + change to the target directory, `make mrproper`
 + prepare .config file, `make oldconfig`
 + `make EXTRA_CFLAGS+='-fplugin=/.../.../srcinv/collect/c.so -fplugin-arg-c-output=/.../.../.../xxx' vmlinux -jx`

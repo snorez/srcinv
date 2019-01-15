@@ -688,6 +688,17 @@ static inline struct sibuf *find_target_sibuf(void *addr)
 	return ret;
 }
 
+static inline struct resfile *get_builtin_resfile(void)
+{
+	struct resfile *ret = NULL;
+	read_lock(&si->lock);
+	ret = list_first_entry_or_null(&si->resfile_head, struct resfile, sibling);
+	if (ret && (!ret->built_in))
+		ret = NULL;
+	read_unlock(&si->lock);
+	return ret;
+}
+
 #ifdef __cplusplus
 
 void symtab_node::dump_table(FILE *f)
@@ -927,15 +938,17 @@ static inline void get_func_sinode(tree node, struct sinode **sn_ret, int flag)
 	if (func_flag == FUNC_IS_EXTERN) {
 		if (!flag)
 			return;
-		long args[2];
+		long args[3];
 		args[0] = (long)b->rf;
-		args[1] = (long)name;
+		args[1] = (long)get_builtin_resfile();
+		args[2] = (long)name;
 		sn = sinode__sinode_search(TYPE_FUNC_GLOBAL, SEARCH_BY_SPEC,
 						(void *)args);
 	} else if (func_flag == FUNC_IS_GLOBAL) {
-		long args[2];
+		long args[3];
 		args[0] = (long)b->rf;
-		args[1] = (long)name;
+		args[1] = (long)get_builtin_resfile();
+		args[2] = (long)name;
 		sn = sinode__sinode_search(TYPE_FUNC_GLOBAL, SEARCH_BY_SPEC,
 						(void *)args);
 		BUG_ON(!sn);
@@ -978,15 +991,17 @@ static inline void get_var_sinode(tree node, struct sinode **sn_ret, int flag)
 	if (var_flag == VAR_IS_EXTERN) {
 		if (!flag)
 			return;
-		long args[2];
+		long args[3];
 		args[0] = (long)b->rf;
-		args[1] = (long)name;
+		args[1] = (long)get_builtin_resfile();
+		args[2] = (long)name;
 		sn = sinode__sinode_search(TYPE_VAR_GLOBAL, SEARCH_BY_SPEC,
 						(void *)args);
 	} else if (var_flag == VAR_IS_GLOBAL) {
-		long args[2];
+		long args[3];
 		args[0] = (long)b->rf;
-		args[1] = (long)name;
+		args[1] = (long)get_builtin_resfile();
+		args[2] = (long)name;
 		sn = sinode__sinode_search(TYPE_VAR_GLOBAL, SEARCH_BY_SPEC,
 						(void *)args);
 		BUG_ON(!sn);

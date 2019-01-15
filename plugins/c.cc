@@ -3496,9 +3496,10 @@ static void do_get_base(struct sibuf *buf)
 step_1:
 		if ((type == TYPE_FUNC_GLOBAL) || (type == TYPE_VAR_GLOBAL)) {
 			BUG_ON(!name[0]);
-			long args[2];
+			long args[3];
 			args[0] = (long)buf->rf;
-			args[1] = (long)name;
+			args[1] = (long)get_builtin_resfile();
+			args[2] = (long)name;
 			sn_tmp = sinode__sinode_search(type, SEARCH_BY_SPEC,
 							(void *)args);
 		} else if ((type == TYPE_FUNC_STATIC) || (type == TYPE_VAR_STATIC) ||
@@ -5585,9 +5586,10 @@ static void add_caller(struct sinode *callee, struct sinode *caller)
 
 			/* FIXME, a static function? */
 			struct sinode *new_callee;
-			long args[2];
+			long args[3];
 			args[0] = (long)b->rf;
-			args[1] = (long)name;
+			args[1] = (long)get_builtin_resfile();
+			args[2] = (long)name;
 			new_callee = sinode__sinode_search(TYPE_FUNC_GLOBAL,
 								SEARCH_BY_SPEC,
 								(void *)args);

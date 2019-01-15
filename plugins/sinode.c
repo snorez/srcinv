@@ -260,6 +260,18 @@ static int _sinode_insert_name_resfile(enum sinode_type type, struct sinode *sn,
 			continue;
 		}
 
+		/* should handle SINODE_INSERT_BH_REPLACE first */
+		if (behavior == SINODE_INSERT_BH_REPLACE) {
+			BUG_ON(sn->datalen != data->datalen);
+
+			write_lock(&data->lock);
+			sinode_insert_do_replace(data, sn);
+			write_unlock(&data->lock);
+
+			write_unlock(&si->lock);
+			return 0;
+		}
+
 		if (data->buf->rf > sn->buf->rf) {
 			node = &((*node)->rb_left);
 			continue;
@@ -270,25 +282,9 @@ static int _sinode_insert_name_resfile(enum sinode_type type, struct sinode *sn,
 			continue;
 		}
 
-		switch (behavior) {
-		default:
-		{
-			err_dbg(0, err_fmt("insert same name resfile"));
-			write_unlock(&si->lock);
-			return -1;
-		}
-		case SINODE_INSERT_BH_REPLACE:
-		{
-			BUG_ON(sn->datalen != data->datalen);
-
-			write_lock(&data->lock);
-			sinode_insert_do_replace(data, sn);
-			write_unlock(&data->lock);
-
-			write_unlock(&si->lock);
-			return 0;
-		}
-		}
+		err_dbg(0, err_fmt("insert same name resfile"));
+		write_unlock(&si->lock);
+		BUG();
 	}
 
 	rb_link_node(&sn->SINODE_BY_SPEC_NODE, parent, node);
@@ -514,14 +510,19 @@ static struct sinode *_sinode_search_name_loc(enum sinode_type type, long *arg)
 
 static struct sinode *_sinode_search_name_resfile(enum sinode_type type, long *arg)
 {
-	void *resfile_addr = (void *)arg[0];
-	char *name = (char *)arg[1];
+	void *resfile_addr0 = (void *)arg[0];
+	void *resfile_addr1 = (void *)arg[1];
+	char *name = (char *)arg[2];
 
 	struct sinode *ret = NULL;
+	void *resfile_addr = resfile_addr0;
+	struct rb_root *root;
+	struct rb_node **node;
 
 	read_lock(&si->lock);
-	struct rb_root *root = &si->sinodes[type][RB_NODE_BY_SPEC];
-	struct rb_node **node = &(root->rb_node);
+search_again:
+	root = &si->sinodes[type][RB_NODE_BY_SPEC];
+	node = &(root->rb_node);
 	while (*node) {
 		struct sinode *data;
 		data = container_of(*node, struct sinode, SINODE_BY_SPEC_NODE);
@@ -550,6 +551,10 @@ static struct sinode *_sinode_search_name_resfile(enum sinode_type type, long *a
 
 		ret = data;
 		break;
+	}
+	if ((!ret) && resfile_addr1 && (resfile_addr != resfile_addr1)) {
+		resfile_addr = resfile_addr1;
+		goto search_again;
 	}
 
 	read_unlock(&si->lock);
