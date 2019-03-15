@@ -26,6 +26,9 @@ One resfile is ***JUST*** for one executable file. Thus, you may need to modify 
 
 For linux kernel, vmlinux and .ko are executable files.
 
+For a project that may generate more than one executable files, you need to
+modify the Makefile(s), and generate them one by one.
+
 ### Example, for linux kernel(4.14.x)
 + change to the target directory, `make mrproper`
 + prepare .config file, `make oldconfig`
