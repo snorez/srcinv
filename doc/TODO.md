@@ -10,4 +10,3 @@
 + Generate patches for some kind of bugs.
 + More program language support.
 + ...
-

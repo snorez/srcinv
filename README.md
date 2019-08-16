@@ -1,10 +1,5 @@
 # SRCINV
-
-[中文版](https://github.com/hardenedlinux/srcinv/blob/master/doc/README.zh)
-
-[English original](https://github.com/hardenedlinux/srcinv/blob/master/doc/README.en)
-
-[English](https://github.com/hardenedlinux/srcinv/blob/master/doc/README_en.md)
+[English obsolete](https://github.com/hardenedlinux/srcinv/blob/master/doc/README_en.md)
 
 # Build this project
 To build this project, you need several libraries:
@@ -14,11 +9,11 @@ To build this project, you need several libraries:
 +	[clib: use the latest version](https://github.com/snorez/clib/)
 +	gcc-plugin, test gcc/g++ 5.4.0/6.3.0
 
-Modify CLIB_PATH and gcc plugin include path in ./Makefile ./plugins/Makefile ./collect/Makefile
+Modify `CLIB_PATH`/`GCC_PLUGIN_INC`/`SRCINV_ROOT`/`CC_RELEASE` in `pre_defines.makefile`
 
-Run `make` or `make ver=[quick_dbg|release]`
+Run `make` and `make install`
 
-# Usage
+# Usage (obsolete)
 ### NOTICE
 if a project generates several executable files, run `make` separately.
 

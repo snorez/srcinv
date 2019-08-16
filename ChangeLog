@@ -1,3 +1,7 @@
+Fri Jul 26 10:38:25 HKT 2019
+	Readjust source layout
+	* analysis/analysis.c: fix pthread_join join a non exists thread
+
 Tue Jan 15 19:59:14 HKT 2019
 	Fix issues
 	* another resfile may not found a symbol in current resfile, should

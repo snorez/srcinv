@@ -1,8 +1,2 @@
-core
-si_core
-perf*
-*.so
-*.py
-test/
-defdefines.h
-treecodes.h
+.ycm_extra_conf.py
+.gdb_history
