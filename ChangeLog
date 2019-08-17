@@ -1,3 +1,7 @@
+Sat Aug 17 11:25:16 HKT 2019
+	* analysis/gcc/c.cc: fix a mishandled issue
+	* add license information for source files
+
 Fri Jul 26 10:38:25 HKT 2019
 	Readjust source layout
 	* analysis/analysis.c: fix pthread_join join a non exists thread

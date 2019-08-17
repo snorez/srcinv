@@ -5231,6 +5231,7 @@ static void do_bit_field_ref(struct tree_exp *op)
 		break;
 	}
 	case VAR_DECL:
+	case PARM_DECL:
 	{
 		tn = find_type_node(TREE_TYPE(t0));
 		break;
