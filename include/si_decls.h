@@ -34,7 +34,6 @@ C_SYM struct si_module *si_module_find_by_name(char *name, struct list_head *hea
 C_SYM struct si_module **si_module_find_by_type(struct si_type *type,
 						struct list_head *head);
 C_SYM int si_module_add(struct si_module *p);
-C_SYM int si_module_act(struct si_module *sm, int action);
 C_SYM int si_module_load_all(struct list_head *head);
 C_SYM int si_module_unload_all(struct list_head *head);
 C_SYM void si_module_cleanup(void);
@@ -585,11 +584,29 @@ static inline void __si_log(const char *fmt, ...)
 	}
 }
 
-#define	SI_LOG_FMT(fmt)	"[%s %s:%d] " fmt
+#define	SI_LOG_FMT(fmt)	"[%02d/%02d/%d %02d:%02d:%02d][%s %s:%d]\n\t" fmt
+#define	SI_LOG_TMARGS \
+	____tm.tm_mon+1, ____tm.tm_mday, ____tm.tm_year, \
+	____tm.tm_hour, ____tm.tm_min, ____tm.tm_sec
+#define	SI_LOG_LINEINFO \
+	__FILE__, __LINE__
+
+#define	SI_LOG_GETTM() ({\
+	time_t ____t = time(NULL);\
+	struct tm ____tm = *localtime(&____t);\
+	____tm;\
+	})
+#define	SI_LOG_TM() \
+	struct tm ____tm = SI_LOG_GETTM()
+
+#define	si_log(str, fmt, ...) ({\
+	SI_LOG_TM();\
+	__si_log(SI_LOG_FMT(fmt),SI_LOG_TMARGS,str,SI_LOG_LINEINFO,##__VA_ARGS__);\
+	})
 #define	si_log1(fmt, ...) \
-	__si_log(SI_LOG_FMT(fmt), "analysis", __FILE__, __LINE__, ##__VA_ARGS__)
+	si_log("analysis", fmt, ##__VA_ARGS__)
 #define	si_log2(fmt, ...) \
-	__si_log(SI_LOG_FMT(fmt), "hacking", __FILE__, __LINE__, ##__VA_ARGS__)
+	si_log("hacking", fmt, ##__VA_ARGS__)
 
 DECL_END
 

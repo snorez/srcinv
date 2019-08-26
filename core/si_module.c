@@ -226,6 +226,7 @@ static struct si_module *si_module_dup(struct si_module *old)
 		return NULL;
 	}
 	memset(_new, 0, sizeof(*_new));
+	memcpy(_new, old, sizeof(*_new));
 
 	len = strlen(old->name) + 1;
 	_new->name = malloc(len);
@@ -251,8 +252,6 @@ static struct si_module *si_module_dup(struct si_module *old)
 	}
 	memcpy(_new->comment, old->comment, len);
 
-	_new->category = old->category;
-	_new->type = old->type;
 	return _new;
 
 out0:
@@ -291,7 +290,7 @@ int si_module_add(struct si_module *p)
 	return 0;
 }
 
-int si_module_act(struct si_module *sm, int action)
+static int si_module_act(struct si_module *sm, int action)
 {
 	char *argv[1];
 	argv[0] = sm->path;
@@ -320,6 +319,8 @@ int si_module_load_all(struct list_head *head)
 {
 	struct si_module *tmp;
 	list_for_each_entry(tmp, head, sibling) {
+		if ((!tmp->autoload) && (tmp->category != SI_PLUGIN_CATEGORY_CORE))
+			continue;
 		if (si_module_act(tmp, 0))
 			return -1;
 	}
@@ -330,6 +331,8 @@ int si_module_unload_all(struct list_head *head)
 {
 	struct si_module *tmp;
 	list_for_each_entry(tmp, head, sibling) {
+		if ((!tmp->autoload) && (tmp->category != SI_PLUGIN_CATEGORY_CORE))
+			continue;
 		if (si_module_act(tmp, 1))
 			return -1;
 	}

@@ -241,6 +241,7 @@ struct si_module {
 
 	int			category;
 	struct si_type		type;
+	int			autoload;
 	int			loaded;
 };
 
@@ -487,6 +488,7 @@ struct call_func_list {
 	struct list_head	sibling;
 	/* if id_type is TYPE_FILE, this is an internal_fn call */
 	unsigned long		value;
+	/* 0: siid, 1: tree */
 	unsigned long		value_flag;
 	/* for callee, check whether the function has a body or not */
 	struct list_head	gimple_stmts;

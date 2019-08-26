@@ -421,13 +421,13 @@ static inline void show_gimple(gimple_seq gs)
 {
 	tree *ops = gimple_ops(gs);
 	enum gimple_code gc = gimple_code(gs);
-	si_log2("Statement %s\n", gimple_code_name[gc]);
+	si_log(NULL, "Statement %s\n", gimple_code_name[gc]);
 	for (unsigned int i = 0; i < gimple_num_ops(gs); i++) {
 		if (ops[i]) {
 			enum tree_code tc = TREE_CODE(ops[i]);
-			si_log2("\tOp: %s %p\n", tree_code_name[tc], ops[i]);
+			si_log(NULL, "\tOp: %s %p\n", tree_code_name[tc], ops[i]);
 		} else {
-			si_log2("\tOp: null\n");
+			si_log(NULL, "\tOp: null\n");
 		}
 	}
 }
@@ -440,11 +440,48 @@ static inline void show_func_gimples(struct sinode *fsn)
 	gimple_seq next;
 
 	next = body;
-	si_log2("gimples for function %s\n", fsn->name);
+	si_log(NULL, "gimples for function %s\n", fsn->name);
 
 	while (next) {
 		show_gimple(next);
 		next = next->next;
+	}
+}
+
+static inline void get_attributes(struct list_head *head, tree attr_node)
+{
+	if (!attr_node)
+		return;
+
+	BUG_ON(TREE_CODE(attr_node) != TREE_LIST);
+	char name[NAME_MAX];
+
+	tree tl = attr_node;
+	while (tl) {
+		tree purpose = TREE_PURPOSE(tl);
+		BUG_ON(TREE_CODE(purpose) != IDENTIFIER_NODE);
+		memset(name, 0, NAME_MAX);
+		get_node_name(purpose, name);
+
+		struct attr_list *newal;
+		newal = attr_list_new(name);
+
+		tree tl2;
+		tl2 = TREE_VALUE(tl);
+		while (tl2) {
+			tree valnode = TREE_VALUE(tl2);
+			struct attr_value_list *newavl;
+			newavl = attr_value_list_new();
+			newavl->node = (void *)valnode;
+
+			list_add_tail(&newavl->sibling, &newal->values);
+
+			tl2 = TREE_CHAIN(tl2);
+		}
+
+		list_add_tail(&newal->sibling, head);
+
+		tl = TREE_CHAIN(tl);
 	}
 }
 

@@ -8,6 +8,7 @@
 #	comment: ("what this module do?")
 #	category: ("collect"/"analysis"/"hacking"/"core")
 #	type: ((BIN/SRC/BOTH)_(KERN/USER/BOTH)_(LINUX/WIN/OSX/IOS/ANDROID)_(more))
+#	autoload: 1/0
 #
 # for other config
 # like module config, in a seperate conf file

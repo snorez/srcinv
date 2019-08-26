@@ -19,6 +19,7 @@ CC1_OPT=-Wall -std=gnu++11 -rdynamic -shared -fPIC -Wno-literal-suffix -fno-rtti
 CC0_SO =
 
 CC1_SO = uninit.so \
+	 kern_copyuser.so \
 	 gensample.so \
 	 debuild.so \
 	 fuzz.so

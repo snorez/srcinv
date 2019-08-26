@@ -3605,43 +3605,6 @@ static struct type_node *find_type_node(tree type)
 	return tn;
 }
 
-static void get_attributes(struct list_head *head, tree attr_node)
-{
-	if (!attr_node)
-		return;
-
-	BUG_ON(TREE_CODE(attr_node) != TREE_LIST);
-	char name[NAME_MAX];
-
-	tree tl = attr_node;
-	while (tl) {
-		tree purpose = TREE_PURPOSE(tl);
-		BUG_ON(TREE_CODE(purpose) != IDENTIFIER_NODE);
-		memset(name, 0, NAME_MAX);
-		get_node_name(purpose, name);
-
-		struct attr_list *newal;
-		newal = attr_list_new(name);
-
-		tree tl2;
-		tl2 = TREE_VALUE(tl);
-		while (tl2) {
-			tree valnode = TREE_VALUE(tl2);
-			struct attr_value_list *newavl;
-			newavl = attr_value_list_new();
-			newavl->node = (void *)valnode;
-
-			list_add_tail(&newavl->sibling, &newal->values);
-
-			tl2 = TREE_CHAIN(tl2);
-		}
-
-		list_add_tail(&newal->sibling, head);
-
-		tl = TREE_CHAIN(tl);
-	}
-}
-
 /*
  * XXX: if this is the upper call, base MUST NOT be NULL, otherwise, MUST be NULL
  * if new field_list should be inserted into a list, then head is not NULL,

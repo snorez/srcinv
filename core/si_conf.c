@@ -92,6 +92,8 @@ static int si_conf_module(struct list_head *orig_head)
 				err_msg("si_module_str_to_type err");
 				return -1;
 			}
+		} else if (!strcmp(bs_key->buf, "autoload")) {
+			tmp_si_module.autoload = atoi(bs_val->buf);
 		} else {
 			err_msg("config format err");
 			return -1;
@@ -150,7 +152,7 @@ static int do_conf(char *path, int flag)
 	struct list_head tmp_head;
 	INIT_LIST_HEAD(&tmp_head);
 
-	char *confbuf = clib_loadfile(path);
+	char *confbuf = clib_loadfile(path, NULL);
 	if (!confbuf) {
 		err_msg("clib_loadfile err");
 		return -1;
