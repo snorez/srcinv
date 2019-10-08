@@ -1,2 +1,6 @@
+.gitignore.addtion
 .ycm_extra_conf.py
 .gdb_history
+doc/design.txt
+hacking/chktypesz.c
+hacking/dbgmode.c

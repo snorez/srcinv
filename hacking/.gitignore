@@ -1,4 +1,1 @@
-chktypesz.c
-dbgmode.c
-kern_copyuser.cc
 *.so
