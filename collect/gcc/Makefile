@@ -4,7 +4,7 @@
 include ../../pre_defines.makefile
 
 CC=g++
-CC_OPT=-Wall -std=gnu++11 -shared -fPIC -rdynamic -Wno-literal-suffix -D_FILE_OFFSET_BITS=64 -fno-rtti $(CC_RELEASE)
+CC_OPT=$(CPPFLAGS) -shared -fPIC -rdynamic -Wno-literal-suffix -D_FILE_OFFSET_BITS=64 -fno-rtti $(CC_RELEASE)
 
 OUTDIR=$(SRCINV_BIN)/collect
 C_OUTNAME=gcc_c.so

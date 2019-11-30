@@ -74,10 +74,11 @@ enum si_type_more {
 	SI_TYPE_MORE_ANY = 0xff,
 };
 struct si_type {
-	unsigned int		binary: 2;/* 0: invalid 1: binary 2: src 3: both */
-	unsigned int		kernel: 2;/* 0: invalid 1: kernel 2: usr 3: both */
-	unsigned int		os_type:4;
-	unsigned int		type_more: 24;
+	unsigned int	binary: 2;/* 0: invalid 1: binary 2: src 3: both */
+	unsigned int	kernel: 2;/* 0: invalid 1: kernel 2: usr 3: both */
+	unsigned int	os_type:4;
+	unsigned int	type_more: 8;
+	unsigned int	padding: 16;
 };
 
 #if 0
@@ -458,7 +459,7 @@ struct sibuf_type_node {
 		struct rb_node	same_tc_node;
 	} same_tc_rbtree;
 	struct type_node	type;
-} __attribute__((packed));
+} __attribute__((aligned(4))); /* fix -Wpacked-not-aligned warning in gcc-8 */
 #define	same_tc_root	same_tc_rbtree.same_tc_root
 #define	same_tc_node	same_tc_rbtree.same_tc_node
 

@@ -7,14 +7,21 @@ dirs = gcc
 
 OUTDIR = $(SRCINV_BIN)
 THIS_SO = analysis.so
+SMF_TEST=sm.c
+SMF=
+THIS_CFLAGS=$(CFLAGS)
+ifeq ($(SMF_TEST), $(wildcard $(SMF_TEST)))
+	SMF=$(SMF_TEST)
+	THIS_CFLAGS+=-DHAS_SM
+endif
 OBJS = analysis.c \
        sinode.c \
        sibuf.c \
        resfile.c \
-       utils.c
+       utils.c $(SMF)
 
 CC=gcc
-CC_OPT=-Wall -std=gnu11 -rdynamic -shared -fPIC -D_FILE_OFFSET_BITS=64 $(CC_RELEASE)
+CC_OPT=$(THIS_CFLAGS) -rdynamic -shared -fPIC -D_FILE_OFFSET_BITS=64 $(CC_RELEASE)
 
 all: $(THIS_SO) $(dirs)
 

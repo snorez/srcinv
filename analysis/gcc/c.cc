@@ -1115,12 +1115,6 @@ static void do_real_value(struct real_value *node, int flag)
 	return;
 }
 
-#if 0
-struct GTY(()) sorted_fields_type {
-	int len;
-	tree GTY((length("%h.len"))) elts[1];
-};
-#endif
 static void do_sorted_fields_type(struct sorted_fields_type *node,
 							int flag)
 {
@@ -1647,8 +1641,10 @@ static void do_function(struct function *node, int flag)
 		do_real_addr(&node->nonlocal_goto_save_area,
 				do_tree(node->nonlocal_goto_save_area));
 		do_real_addr(&node->local_decls, do_vec_tree(node->local_decls, 1));
+#if __GNUC__ < 8
 		do_real_addr(&node->cilk_frame_decl,
 				do_tree(node->cilk_frame_decl));
+#endif
 		do_real_addr(&node->gimple_body,
 				do_gimple_seq(node->gimple_body, 1));
 		return;
@@ -2378,7 +2374,11 @@ static void do_type_non_common(tree node, int flag)
 		do_real_addr(&node0->values, do_tree(node0->values));
 		do_real_addr(&node0->minval, do_tree(node0->minval));
 		do_real_addr(&node0->maxval, do_tree(node0->maxval));
+#if __GNUC__ < 8
 		do_real_addr(&node0->binfo, do_tree(node0->binfo));
+#else
+		do_real_addr(&node0->lang_1, do_tree(node0->lang_1));
+#endif
 
 		return;
 	}
@@ -3248,7 +3248,11 @@ static void do_optimization_option(tree node, int flag)
 	{
 		struct tree_optimization_option *node0 =
 					(struct tree_optimization_option *)node;
+#if __GNUC__ < 8
 		do_common((tree)&node0->common, 0);
+#else
+		do_base((tree)&node0->base, 0);
+#endif
 		return;
 	}
 	case MODE_GETXREFS:

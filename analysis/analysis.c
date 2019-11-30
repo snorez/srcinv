@@ -1,7 +1,6 @@
 /*
  * this is for parsing the collected tree nodes, thus we MUST NOT use any function
  * that manipulate pointer in tree_node structure before we adjust the pointer
- * this routine is compiled as a single program, not a dynamic library
  * TODO
  * Copyright (C) 2018  zerons
  *

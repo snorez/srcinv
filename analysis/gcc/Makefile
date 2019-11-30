@@ -1,7 +1,7 @@
 include ../../pre_defines.makefile
 
 CC = g++
-CC_OPT = -Wall -std=gnu++11 -shared -fPIC -rdynamic -Wno-literal-suffix -fno-rtti -D_FILE_OFFSET_BITS=64 $(CC_RELEASE)
+CC_OPT = $(CPPFLAGS) -shared -fPIC -rdynamic -Wno-literal-suffix -fno-rtti -D_FILE_OFFSET_BITS=64 $(CC_RELEASE)
 
 OUTDIR = $(SRCINV_BIN)/analysis
 OUTFILE = gcc_c.so

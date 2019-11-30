@@ -10,7 +10,7 @@ OUTNAME = collect.so
 OBJS = collect.c
 
 CC = gcc
-CC_OPT = -Wall -std=gnu11 -rdynamic -shared -fPIC -D_FILE_OFFSET_BITS=64 $(CC_RELEASE)
+CC_OPT = $(CFLAGS) -rdynamic -shared -fPIC -D_FILE_OFFSET_BITS=64 $(CC_RELEASE)
 
 all: $(OUTNAME) $(dirs)
 

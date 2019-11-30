@@ -95,9 +95,12 @@ DECL_BEGIN
 
 #ifdef __cplusplus
 
-void symtab_node::dump_table(FILE *f)
-{
-}
+#if __GNUC__ == 8
+struct GTY(()) sorted_fields_type {
+	int len;
+	tree GTY((length("%h.len"))) elts[1];
+};
+#endif
 
 static inline int check_file_type(tree node)
 {

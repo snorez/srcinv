@@ -2,5 +2,6 @@
 .ycm_extra_conf.py
 .gdb_history
 doc/design.txt
+analysis/sm.c
 hacking/chktypesz.c
 hacking/dbgmode.c

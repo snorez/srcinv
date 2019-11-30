@@ -1,3 +1,6 @@
+Sat Nov 30 20:01:53 CST 2019
+	* fix gcc-8 compile warnings and errors
+
 Sat Aug 17 11:25:16 HKT 2019
 	* analysis/gcc/c.cc: fix a mishandled issue
 	* add license information for source files
