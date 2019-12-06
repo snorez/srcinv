@@ -49,15 +49,15 @@ int si_src_setup(void)
 #endif
 	int err;
 
-	err = clib_cmd_add(cmd0, cmd0_cb, cmd0_usage);
+	err = clib_cmd_ac_add(cmd0, cmd0_cb, cmd0_usage);
 	if (err == -1) {
-		err_msg("clib_cmd_add err");
+		err_msg("clib_cmd_ac_add err");
 		return -1;
 	}
 
-	err = clib_cmd_add(cmd1, cmd1_cb, cmd1_usage);
+	err = clib_cmd_ac_add(cmd1, cmd1_cb, cmd1_usage);
 	if (err == -1) {
-		err_msg("clib_cmd_add err");
+		err_msg("clib_cmd_ac_add err");
 		goto err0;
 	}
 
@@ -115,9 +115,9 @@ err2:
 	buf_restore();
 	si = NULL;
 err1:
-	clib_cmd_del(cmd1);
+	clib_cmd_ac_del(cmd1);
 err0:
-	clib_cmd_del(cmd0);
+	clib_cmd_ac_del(cmd0);
 	return -1;
 }
 

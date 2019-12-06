@@ -203,7 +203,7 @@ int parse_resfile(char *path, int built_in, int step)
 		if (err == -1) {
 			if (errno == ENOENT) {
 				char *line;
-				line = clib_readline("resfile is new, backup?(Y/N)");
+				line = readline("resfile is new, backup?(Y/N)");
 				int ch = *line;
 				if ((ch == 'Y') || (ch == 'y'))
 					clib_copy_file(path, b, 0);
@@ -213,7 +213,7 @@ int parse_resfile(char *path, int built_in, int step)
 		}
 	} else {
 		char *line;
-		line = clib_readline("resfile is not clean, force parsing?(Y/N)");
+		line = readline("resfile is not clean, force parsing?(Y/N)");
 		int ch = *line;
 		if ((ch != 'Y') && (ch != 'y')) {
 			fprintf(stdout, "ignore parsing the dirty resfile\n");
@@ -474,9 +474,9 @@ CLIB_MODULE_INIT()
 	INIT_LIST_HEAD(&analysis_lang_ops_head);
 
 	int err;
-	err = clib_cmd_add(analysis_cmdname, analysis_cb, analysis_usage);
+	err = clib_cmd_ac_add(analysis_cmdname, analysis_cb, analysis_usage);
 	if (err) {
-		err_dbg(0, "clib_cmd_add err");
+		err_dbg(0, "clib_cmd_ac_add err");
 		return -1;
 	}
 

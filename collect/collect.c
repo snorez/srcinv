@@ -167,9 +167,9 @@ CLIB_MODULE_INIT()
 {
 	int err;
 
-	err = clib_cmd_add(collect_cmdname, collect_cb, collect_usage);
+	err = clib_cmd_ac_add(collect_cmdname, collect_cb, collect_usage);
 	if (err) {
-		err_dbg(0, "clib_cmd_add err");
+		err_dbg(0, "clib_cmd_ac_add err");
 		return -1;
 	}
 
@@ -178,5 +178,5 @@ CLIB_MODULE_INIT()
 
 CLIB_MODULE_EXIT()
 {
-	clib_cmd_del(collect_cmdname);
+	clib_cmd_ac_del(collect_cmdname);
 }

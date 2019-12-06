@@ -48,15 +48,15 @@ CLIB_MODULE_INIT()
 	INIT_LIST_HEAD(&hacking_module_head);
 
 	int err;
-	err = clib_cmd_add(itersn_cmdname, itersn_cb, itersn_usage);
+	err = clib_cmd_ac_add(itersn_cmdname, itersn_cb, itersn_usage);
 	if (err) {
-		err_msg("clib_cmd_add err");
+		err_msg("clib_cmd_ac_add err");
 		return -1;
 	}
 
-	err = clib_cmd_add(hacking_cmdname, hacking_cb, hacking_usage);
+	err = clib_cmd_ac_add(hacking_cmdname, hacking_cb, hacking_usage);
 	if (err) {
-		err_msg("clib_cmd_add err");
+		err_msg("clib_cmd_ac_add err");
 		goto err0;
 	}
 
@@ -71,9 +71,9 @@ CLIB_MODULE_INIT()
 	return 0;
 
 err1:
-	clib_cmd_del(hacking_cmdname);
+	clib_cmd_ac_del(hacking_cmdname);
 err0:
-	clib_cmd_del(itersn_cmdname);
+	clib_cmd_ac_del(itersn_cmdname);
 	return -1;
 }
 
@@ -82,7 +82,7 @@ CLIB_MODULE_EXIT()
 	struct list_head *head = si_module_get_head(SI_PLUGIN_CATEGORY_HACKING);
 	si_module_unload_all(head);
 
-	clib_cmd_del(itersn_cmdname);
-	clib_cmd_del(hacking_cmdname);
+	clib_cmd_ac_del(itersn_cmdname);
+	clib_cmd_ac_del(hacking_cmdname);
 	return;
 }

@@ -78,7 +78,6 @@ static int si_init(void)
 		return -1;
 	}
 
-	clib_set_autocomplete();
 	return 0;
 }
 
@@ -123,7 +122,7 @@ int main(int argc, char *argv[])
 	/* 3rd, read commands and parse them */
 	char *ibuf = NULL;
 	while (1) {
-		ibuf = clib_readline_add_history(term_prompt);
+		ibuf = clib_readline(term_prompt);
 		if (!ibuf) {
 			err_msg("readline get EOF and empty line, redo");
 			continue;

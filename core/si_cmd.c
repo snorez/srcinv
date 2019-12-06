@@ -350,12 +350,12 @@ int si_cmd_setup(void)
 {
 	int i = 0, err = 0;
 	while (si_def_cmds[i].name) {
-		err = clib_cmd_add(si_def_cmds[i].name,
+		err = clib_cmd_ac_add(si_def_cmds[i].name,
 					si_def_cmds[i].cb,
 					si_def_cmds[i].usage);
 		if (err) {
-			err_msg("clib_cmd_add %s err", si_def_cmds[i].name);
-			clib_cmd_cleanup();
+			err_msg("clib_cmd_ac_add %s err", si_def_cmds[i].name);
+			clib_cmd_ac_cleanup();
 			return -1;
 		}
 
