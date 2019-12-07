@@ -39,6 +39,8 @@ void si_module_init(struct si_module *p)
 	p->comment = NULL;
 	p->category = -1;
 	memset(&p->type, 0, sizeof(p->type));
+	/* p->autoload is set by si_conf.c */
+	p->loaded = 0;
 }
 
 int si_module_str_to_category(int *category, char *string)

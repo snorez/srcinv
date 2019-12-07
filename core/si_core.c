@@ -81,6 +81,13 @@ static int si_init(void)
 	return 0;
 }
 
+#ifndef DEBUG_MODE
+#define DEBUG_MODE 0
+#else
+#undef DEBUG_MODE
+#define DEBUG_MODE 1
+#endif
+
 int main(int argc, char *argv[])
 {
 	int err;
@@ -97,7 +104,7 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	set_dbg_mode(1);
+	set_dbg_mode(DEBUG_MODE);
 
 	int err0 = tmp_close_std(STDOUT_FILENO);
 

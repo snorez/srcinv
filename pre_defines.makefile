@@ -3,8 +3,8 @@ SRCINV_ROOT=/home/zerons/workspace/srcinv
 
 GCC_VER_MAJ:=$(shell expr `gcc -dumpversion | cut -f1 -d.`)
 GCC_PLUGIN_INC=/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VER_MAJ)/plugin/include
-# possible release options: -g -ON -DUSE_NCURSES
-CC_RELEASE=-g -O3 -DUSE_NCURSES
+# possible release options: -g -ON -DUSE_NCURSES -DDEBUG_MODE
+CC_RELEASE=-g -O3 -DDEBUG_MODE
 
 #CFLAGS=-Wall -std=gnu11 -Wno-packed-not-aligned
 #CPPFLAGS=-Wall -std=gnu++11 -Wno-packed-not-aligned
