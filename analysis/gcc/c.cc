@@ -3183,11 +3183,17 @@ static void do_ssa_name(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
-		BUG();
+		struct tree_ssa_name *node0 = (struct tree_ssa_name *)node;
+		do_typed((tree)&node0->typed, 0);
+		do_real_addr(&node0->var, do_tree(node0->var));
+		do_real_addr(&node0->def_stmt,
+				do_gimple_seq(node0->def_stmt, 1));
+		break;
 	}
 	case MODE_GETXREFS:
 	{
-		BUG();
+		/* TODO? */
+		break;
 	}
 	default:
 		BUG();

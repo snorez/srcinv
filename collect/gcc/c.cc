@@ -26,11 +26,14 @@
 
 struct plugin_info this_plugin_info = {
 	.version = "0.1",
-	.help = "collect functions' Abstract Syntax Tree, gcc version >= 5.4.0",
+	.help = "collect functions' Abstract Syntax Tree",
 };
 
+static int gcc_ver = __GNUC__;
+static int gcc_ver_minor = __GNUC_MINOR__;
+static char ver[16];
 struct plugin_gcc_version version_needed = {
-	.basever = "5.4",
+	.basever = "",
 };
 
 int plugin_is_GPL_compatible;
@@ -1761,16 +1764,18 @@ static void do_complex(tree node, int flag)
 
 static void do_ssa_name(tree node, int flag)
 {
-#if 0
 	if (!node)
 		return;
 	if (flag && is_obj_checked((void *)node))
 		return;
 	if (flag)
 		node_write(node);
-#endif
 
-	BUG();
+	struct tree_ssa_name *node0 = (struct tree_ssa_name *)node;
+	do_typed((tree)&node0->typed, 0);
+	do_tree(node0->var);
+	do_gimple_seq(node0->def_stmt, 1);
+	/* TODO: info, imm_uses */
 }
 
 static void do_binfo(tree node, int flag)
@@ -1976,10 +1981,16 @@ int plugin_init(struct plugin_name_args *plugin_info,
 		struct plugin_gcc_version *version)
 {
 	int err = 0;
-	/* XXX: we need the current gcc version larger than version_needed */
+
+	/* XXX: match the current gcc version with version_needed */
+	memset(ver, 0, sizeof(ver));
+	snprintf(ver, sizeof(ver), "%d.%d", gcc_ver, gcc_ver_minor);
+	version_needed.basever = ver;
 	if (strncmp(version->basever, version_needed.basever,
-				strlen(version_needed.basever)) < 0) {
-		fprintf(stderr, "version error: %s\n", this_plugin_info.help);
+				strlen(version_needed.basever))) {
+		fprintf(stderr, "version not match: needed(%s) given(%s)\n",
+				version_needed.basever,
+				version->basever);
 		return -1;
 	}
 
