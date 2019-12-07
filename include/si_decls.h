@@ -38,6 +38,119 @@ C_SYM int si_module_load_all(struct list_head *head);
 C_SYM int si_module_unload_all(struct list_head *head);
 C_SYM void si_module_cleanup(void);
 
+#define	SI_MOD_SUBSHELL_CMDS() \
+static void ____help_usage(void)\
+{\
+	fprintf(stdout, "\tShow this help message\n");\
+}\
+static long ____help_cb(int argc, char *argv[])\
+{\
+	clib_cmd_usages();\
+	return 0;\
+}\
+static int exit_flag = 0;\
+static void ____exit_usage(void)\
+{\
+	fprintf(stdout, "\tReturn to the previous shell\n");\
+}\
+static long ____exit_cb(int argc, char *argv[])\
+{\
+	exit_flag = 1;\
+	return 0;\
+}\
+static int __maybe_unused ____v
+
+#define	SI_MOD_SUBENV_INIT_NAME	__subenv_init
+#define	SI_MOD_SUBENV_DEINIT_NAME __subenv_deinit
+#define	SI_MOD_SUBENV_INIT() \
+static long SI_MOD_SUBENV_INIT_NAME(void)
+#define	SI_MOD_SUBENV_DEINIT() \
+static void SI_MOD_SUBENV_DEINIT_NAME(void)
+
+#define	SI_MOD_SUBENV_SETUP(modname) \
+SI_MOD_SUBSHELL_CMDS();\
+CLIB_MODULE_NAME(modname);\
+CLIB_MODULE_NEEDED0();\
+static char *cmdname = #modname;\
+static void modname##_usage(void)\
+{\
+	fprintf(stdout, "\tEnter %s subshell\n", #modname);\
+}\
+static long modname##_cb(int argc, char *argv[])\
+{\
+	int err = 0;\
+	err = clib_ui_begin();\
+	if (err) {\
+		err_dbg(0, "clib_ui_begin err");\
+		return -1;\
+	}\
+	err = clib_cmd_ac_add("help", ____help_cb, ____help_usage);\
+	if (err) {\
+		err_dbg(0, "clib_cmd_ac_add err");\
+		clib_ui_end();\
+		return -1;\
+	}\
+	err = clib_cmd_ac_add("exit", ____exit_cb, ____exit_usage);\
+	if (err) {\
+		err_dbg(0, "clib_cmd_ac_add err");\
+		clib_cmd_ac_del("help");\
+		clib_ui_end();\
+		return -1;\
+	}\
+	err = SI_MOD_SUBENV_INIT_NAME();\
+	if (err) {\
+		err_dbg(0, "%s_subenv_setup err", #modname);\
+		clib_cmd_ac_del("help");\
+		clib_cmd_ac_del("exit");\
+		clib_ui_end();\
+		return -1;\
+	}\
+	char *ibuf = NULL;\
+	while (!exit_flag) {\
+		ibuf = clib_readline(#modname"> ");\
+		if (!ibuf) {\
+			err_dbg(0, "readline get EOF and empty line, redo");\
+			continue;\
+		}\
+		int cmd_argc;\
+		int cmd_arg_max = 16;\
+		char *cmd_argv[cmd_arg_max];\
+		memset(cmd_argv, 0, cmd_arg_max*sizeof(char *));\
+		err = clib_cmd_getarg(ibuf,strlen(ibuf)+1,&cmd_argc,cmd_argv,cmd_arg_max);\
+		if (err) {\
+			err_dbg(0, "clib_cmd_getarg err, redo");\
+			free(ibuf);\
+			continue;\
+		}\
+		err = clib_cmd_exec(cmd_argv[0], cmd_argc, cmd_argv);\
+		if (err) {\
+			err_dbg(0, "clib_cmd_exec err");\
+			free(ibuf);\
+			continue;\
+		}\
+		free(ibuf);\
+	}\
+	SI_MOD_SUBENV_DEINIT_NAME();\
+	clib_cmd_ac_cleanup();\
+	clib_ui_end();\
+	return 0;\
+}\
+CLIB_MODULE_INIT()\
+{\
+	int err;\
+	err = clib_cmd_ac_add(cmdname, modname##_cb, modname##_usage);\
+	if (err) {\
+		err_dbg(0, "clib_cmd_ac_add err");\
+		return -1;\
+	}\
+	return 0;\
+}\
+CLIB_MODULE_EXIT()\
+{\
+	clib_cmd_ac_del(cmdname);\
+}\
+static int __maybe_unused modname##____v
+
 #undef PLUGIN_SYMBOL_CONFLICT
 CLIB_MODULE_CALL_FUNC(analysis, sinode_new, struct sinode *,
 		(enum sinode_type type, char *name, size_t namelen,

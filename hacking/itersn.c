@@ -233,8 +233,8 @@ static void do_iter(void)
 
 void itersn_usage(void)
 {
-	fprintf(stdout, "\t\t[output_path]\n");
-	fprintf(stdout, "\t\tTraversal all sinodes to stderr/file\n");
+	fprintf(stdout, "\t[output_path]\n");
+	fprintf(stdout, "\tTraversal all sinodes to stderr/file\n");
 }
 
 long itersn_cb(int argc, char *argv[])

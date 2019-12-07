@@ -24,7 +24,7 @@
  */
 static void si_help_usage(void)
 {
-	fprintf(stdout, "\t\tShow this help message\n");
+	fprintf(stdout, "\tShow this help message\n");
 }
 static long si_help(int argc, char *argv[])
 {
@@ -37,7 +37,7 @@ static long si_help(int argc, char *argv[])
  */
 static void si_exit_usage(void)
 {
-	fprintf(stdout, "\t\tExit this main process\n");
+	fprintf(stdout, "\tExit this main process\n");
 }
 static long si_exit(int argc, char *argv[])
 {
@@ -132,7 +132,7 @@ static long si_reload_module(int argc, char *argv[])
  */
 static void si_list_module_usage(void)
 {
-	fprintf(stdout, "\t\t\tShow current loaded modules\n");
+	fprintf(stdout, "\tShow current loaded modules\n");
 }
 static long si_list_module(int argc, char *argv[])
 {
@@ -144,7 +144,7 @@ static long si_list_module(int argc, char *argv[])
 static void si_do_make_usage(void)
 {
 	fprintf(stdout, "\t(c|cpp|...) (sodir) (projectdir) (outfile) [extras]\n"
-			"\t\t\tBuild target project, make sure Makefile has "
+			"\tBuild target project, make sure Makefile has "
 			"EXTRA_CFLAGS\n");
 }
 static long si_do_make(int argc, char *argv[])
@@ -178,7 +178,7 @@ static long si_do_make(int argc, char *argv[])
 
 static void si_do_sh_usage(void)
 {
-	fprintf(stdout, "\t\tExecute bash command\n");
+	fprintf(stdout, "\tExecute bash command\n");
 }
 
 static long si_do_sh(int argc, char *argv[])
@@ -249,7 +249,7 @@ static long si_set_module_dir(int argc, char *argv[])
 
 static void si_show_log_usage(void)
 {
-	fprintf(stdout, "\t\tShow current log messages\n");
+	fprintf(stdout, "\tShow current log messages\n");
 }
 static long si_show_log(int argc, char *argv[])
 {
@@ -304,7 +304,7 @@ C_SYM int si_config(void);
 C_SYM int si_module_setup(void);
 static void si_reload_config_usage(void)
 {
-	fprintf(stdout, "\t\tReload config\n");
+	fprintf(stdout, "\tReload config\n");
 }
 static long si_reload_config(int argc, char *argv[])
 {

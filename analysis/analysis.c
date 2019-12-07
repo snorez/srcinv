@@ -20,9 +20,6 @@
 #include "si_core.h"
 #include "./analysis.h"
 
-CLIB_MODULE_NAME(analysis);
-CLIB_MODULE_NEEDED0();
-
 LIST_HEAD(analysis_lang_ops_head);
 
 static int _do_phase(struct sibuf *buf, int step)
@@ -416,20 +413,20 @@ redo2:
 	return err;
 }
 
-static char analysis_cmdname[] = "analysis";
-static void analysis_usage(void)
+static char parse_cmdname[] = "parse";
+static void parse_usage(void)
 {
-	fprintf(stdout, "\t\t(resfile) (kernel) (builtin) (step)\n"
-			"\t\tGet information of resfile, steps are:\n"
-			"\t\t\t0 Get all information\n"
-			"\t\t\t1 Get information adjusted\n"
-			"\t\t\t2 Get base information\n"
-			"\t\t\t3 Get detail information\n"
-			"\t\t\t4 Get xrefs information\n"
-			"\t\t\t5 Get indirect call information\n"
-			"\t\t\t6 Check if all GIMPLE_CALL are set\n");
+	fprintf(stdout, "\t(resfile) (kernel) (builtin) (step)\n"
+			"\tGet information of resfile, steps are:\n"
+			"\t\t0 Get all information\n"
+			"\t\t1 Get information adjusted\n"
+			"\t\t2 Get base information\n"
+			"\t\t3 Get detail information\n"
+			"\t\t4 Get xrefs information\n"
+			"\t\t5 Get indirect call information\n"
+			"\t\t6 Check if all GIMPLE_CALL are set\n");
 }
-static long analysis_cb(int argc, char *argv[])
+static long parse_cb(int argc, char *argv[])
 {
 	int err;
 	if (unlikely(!si)) {
@@ -438,7 +435,7 @@ static long analysis_cb(int argc, char *argv[])
 	}
 
 	if (argc != 5) {
-		analysis_usage();
+		parse_usage();
 		err_dbg(0, "argc invalid");
 		return -1;
 	}
@@ -469,12 +466,12 @@ static long analysis_cb(int argc, char *argv[])
 	return 0;
 }
 
-CLIB_MODULE_INIT()
+SI_MOD_SUBENV_INIT()
 {
+	int err;
 	INIT_LIST_HEAD(&analysis_lang_ops_head);
 
-	int err;
-	err = clib_cmd_ac_add(analysis_cmdname, analysis_cb, analysis_usage);
+	err = clib_cmd_ac_add(parse_cmdname, parse_cb, parse_usage);
 	if (err) {
 		err_dbg(0, "clib_cmd_ac_add err");
 		return -1;
@@ -483,25 +480,29 @@ CLIB_MODULE_INIT()
 	/*
 	 * load analysis modules first
 	 */
-	struct list_head *head = si_module_get_head(SI_PLUGIN_CATEGORY_ANALYSIS);
+	struct list_head *head;
+	head = si_module_get_head(SI_PLUGIN_CATEGORY_ANALYSIS);
 	if (!head) {
 		err_dbg(0, "si_module_get_head err");
+		clib_cmd_ac_del(parse_cmdname);
 		return -1;
 	}
 
 	err = si_module_load_all(head);
 	if (err) {
 		err_dbg(0, "si_module_load_all err");
+		clib_cmd_ac_del(parse_cmdname);
 		return -1;
 	}
 
 	return 0;
 }
 
-CLIB_MODULE_EXIT()
+SI_MOD_SUBENV_DEINIT()
 {
-	struct list_head *head = si_module_get_head(SI_PLUGIN_CATEGORY_ANALYSIS);
+	struct list_head *head;
+	head = si_module_get_head(SI_PLUGIN_CATEGORY_ANALYSIS);
 	si_module_unload_all(head);
-
-	clib_cmd_del(analysis_cmdname);
 }
+
+SI_MOD_SUBENV_SETUP(analysis);

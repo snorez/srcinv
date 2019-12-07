@@ -21,14 +21,13 @@
 
 #include "si_core.h"
 
-CLIB_MODULE_NAME(collect);
-CLIB_MODULE_NEEDED0();
-
-static char *collect_cmdname = "collect";
-static void collect_usage(void)
+static char *show_cmdname = "show";
+static void show_usage(void)
 {
-	fprintf(stdout, "\t\t(type) [path]\n"
-			"\t\tPick appropriate module and show comment\n");
+	fprintf(stdout, "\t(type) [path]\n"
+			"\ttype: (SRC/BIN)_(KERN/USER)_(LINUX/...)_(...) "
+			"check si_core.h for more\n"
+			"\tPick appropriate module and show comment\n");
 }
 
 static char *target_object = NULL;
@@ -105,7 +104,7 @@ static char *expand_comment(struct si_module *p)
 }
 
 C_SYM int si_module_str_to_type(struct si_type *type, char *string);
-static long collect_cb(int argc, char *argv[])
+static long show_cb(int argc, char *argv[])
 {
 	if (unlikely(!si)) {
 		err_dbg(0, "si not set yetn");
@@ -114,7 +113,7 @@ static long collect_cb(int argc, char *argv[])
 
 	if (unlikely((argc != 2) && (argc != 3))) {
 		err_dbg(0, "argc invalid");
-		collect_usage();
+		show_usage();
 		return -1;
 	}
 
@@ -153,7 +152,7 @@ static long collect_cb(int argc, char *argv[])
 			return -1;
 		}
 
-		fprintf(stdout, "%s:\t\t%s\n", mods[i]->name, real_comment);
+		fprintf(stdout, "%s:\t%s\n", mods[i]->name, real_comment);
 		free(real_comment);
 		i++;
 	}
@@ -163,20 +162,19 @@ static long collect_cb(int argc, char *argv[])
 	return 0;
 }
 
-CLIB_MODULE_INIT()
+SI_MOD_SUBENV_INIT()
 {
-	int err;
-
-	err = clib_cmd_ac_add(collect_cmdname, collect_cb, collect_usage);
+	int err = clib_cmd_ac_add(show_cmdname, show_cb, show_usage);
 	if (err) {
 		err_dbg(0, "clib_cmd_ac_add err");
 		return -1;
 	}
-
 	return 0;
 }
 
-CLIB_MODULE_EXIT()
+SI_MOD_SUBENV_DEINIT()
 {
-	clib_cmd_ac_del(collect_cmdname);
+	return;
 }
+
+SI_MOD_SUBENV_SETUP(collect);

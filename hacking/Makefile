@@ -31,10 +31,10 @@ $(OUTCORE): $(INFILE)
 	$(CC0) $(CC0_OPT) $(INFILE) -I$(CLIB_INC) -I$(SRCINV_INC) -L$(CLIB_LIB) -l$(CLIB_SO) -o $(OUTCORE) -Wl,-rpath $(CLIB_LIB)
 
 $(CC0_SO): %.so : %.c
-	$(CC0) $(CC0_OPT) $< -I$(SRCINV_INC) -I$(CLIB_INC) -L$(CLIB_LIB) -l$(CLIB_SO) -lpthread -o $@ -Wl,-rpath $(CLIB_LIB)
+	$(CC0) $(CC0_OPT) -I$(SRCINV_INC) -I$(CLIB_INC) $< -L$(CLIB_LIB) -l$(CLIB_SO) -lpthread -o $@ -Wl,-rpath $(CLIB_LIB)
 
 $(CC1_SO): %.so : %.cc
-	$(CC1) $(CC1_OPT) $< -I$(GCC_PLUGIN_INC) -I$(SRCINV_INC) -I$(CLIB_INC) -L$(CLIB_LIB) -l$(CLIB_SO) -lpthread -o $@ -Wl,-rpath $(CLIB_LIB)
+	$(CC1) $(CC1_OPT) -I$(GCC_PLUGIN_INC) -I$(SRCINV_INC) -I$(CLIB_INC) $< -L$(CLIB_LIB) -l$(CLIB_SO) -lpthread -o $@ -Wl,-rpath $(CLIB_LIB)
 
 install:
 	@cp -v $(OUTCORE) $(OUTDIR0)/

@@ -66,15 +66,15 @@ static int si_init(void)
 		return -1;
 	}
 
-	err = si_module_setup();
-	if (err) {
-		err_msg("si_module_setup err");
-		return -1;
-	}
-
 	err = si_src_setup();
 	if (err) {
 		err_msg("si_src_setup err");
+		return -1;
+	}
+
+	err = si_module_setup();
+	if (err) {
+		err_msg("si_module_setup err");
 		return -1;
 	}
 

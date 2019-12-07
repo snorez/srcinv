@@ -1,3 +1,8 @@
+Sat Dec  7 16:42:03 CST 2019
+	* fix si_module->loaded uninitialise issue
+	* gen a subshell for collect/analysis/hacking commands
+	* fix kern_copyuser.so load error issue
+
 Sat Nov 30 20:01:53 CST 2019
 	* fix gcc-8 compile warnings and errors
 

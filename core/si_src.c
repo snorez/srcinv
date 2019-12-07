@@ -178,7 +178,7 @@ static long do_load_srcfile(char *id)
 }
 static void cmd0_usage(void)
 {
-	fprintf(stdout, "\t\t(srcid)\n");
+	fprintf(stdout, "\t(srcid)\n");
 }
 static long cmd0_cb(int argc, char *argv[])
 {
@@ -237,7 +237,7 @@ static void src_eh_do_flush(int signo, siginfo_t *si, void *arg)
 
 static void cmd1_usage(void)
 {
-	fprintf(stdout, "\t\tWrite current src info to srcfile\n");
+	fprintf(stdout, "\tWrite current src info to srcfile\n");
 }
 
 static long cmd1_cb(int argc, char *argv[])
