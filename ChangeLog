@@ -1,3 +1,11 @@
+Thu Dec 12 19:22:16 CST 2019
+	* collect ast info at IPA_ALL_PASSES_START, to ensure that the
+	information we collected is correct. At that time, the original
+	gimple_body has been parsed and cleared, the information is now
+	traced by ->f->cfg, which may be done in build_gimple_cfg()->
+	make_blocks()->make_blocks_1()->... For gimple_label, use
+	cleanup_dead_labels() and group_case_labels. Then make_edges().
+
 Sat Dec  7 16:42:03 CST 2019
 	* fix si_module->loaded uninitialise issue
 	* gen a subshell for collect/analysis/hacking commands

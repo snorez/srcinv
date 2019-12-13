@@ -21,7 +21,7 @@ OBJS = analysis.c \
        utils.c $(SMF)
 
 CC=gcc
-CC_OPT=$(THIS_CFLAGS) -rdynamic -shared -fPIC -D_FILE_OFFSET_BITS=64 $(CC_RELEASE)
+CC_OPT=$(THIS_CFLAGS) -rdynamic -shared -fPIC -D_FILE_OFFSET_BITS=64
 
 all: $(THIS_SO) $(dirs)
 

@@ -83,7 +83,7 @@ static const char *const tree_code_name[] = {
 #define	TYPE_MODE_RAW(NODE) (TYPE_CHECK(NODE)->type_common.mode)
 #endif
 
-#else
+#else /* __cplusplus */
 
 #include "gcc_treecodes.h"
 
@@ -100,6 +100,12 @@ struct GTY(()) sorted_fields_type {
 	int len;
 	tree GTY((length("%h.len"))) elts[1];
 };
+#endif
+
+#if __GNUC__ < 8
+void symtab_node::dump_table(FILE *f)
+{
+}
 #endif
 
 static inline int check_file_type(tree node)
@@ -137,14 +143,18 @@ static inline int check_file_var(tree node)
 	}
 }
 
+/*
+ * Now, we collect data at IPA_ALL_PASSES_START, which is after cfg,
+ * the gimple_body is cleared, and the cfg is set.
+ * NOTE: is this right?
+ */
 static inline int check_file_func(tree node)
 {
 	BUG_ON(TREE_CODE(node) != FUNCTION_DECL);
 	BUG_ON(!DECL_NAME(node));
 	if ((!DECL_EXTERNAL(node)) || DECL_SAVED_TREE(node) ||
 		(DECL_STRUCT_FUNCTION(node) &&
-		 (DECL_STRUCT_FUNCTION(node)->gimple_body))) {
-		/* we collect data before cfg */
+		 (DECL_STRUCT_FUNCTION(node)->cfg))) {
 		BUG_ON(DECL_SAVED_TREE(node));
 		if (TREE_PUBLIC(node)) {
 			return FUNC_IS_GLOBAL;
@@ -161,10 +171,12 @@ static inline int check_file_func(tree node)
 #define	GET_LOC_TYPE	0
 #define	GET_LOC_VAR	1
 #define	GET_LOC_FUNC	2
-static inline expanded_location *get_location(int flag, char *payload, tree node)
+static inline expanded_location *get_location(int flag, char *payload,
+						tree node)
 {
 	if ((flag == GET_LOC_VAR) || (flag == GET_LOC_FUNC)) {
-		return (expanded_location *)(payload + DECL_SOURCE_LOCATION(node));
+		return (expanded_location *)(payload +
+						DECL_SOURCE_LOCATION(node));
 	}
 
 	/* for TYPE_TYPE */
@@ -174,7 +186,8 @@ static inline expanded_location *get_location(int flag, char *payload, tree node
 	}
 
 	/* try best to get a location of the type */
-	if (((TREE_CODE(node) == RECORD_TYPE) || (TREE_CODE(node) == UNION_TYPE)) &&
+	if (((TREE_CODE(node) == RECORD_TYPE) ||
+		(TREE_CODE(node) == UNION_TYPE)) &&
 		TYPE_FIELDS(node)) {
 		return (expanded_location *)(payload +
 				DECL_SOURCE_LOCATION(TYPE_FIELDS(node)));
@@ -283,7 +296,8 @@ static inline void get_type_xnode(tree node, struct sinode **sn_ret,
 	} else if (flag == TYPE_UNDEFINED) {
 #if 0
 		BUG_ON(!name[0]);
-		sn = analysis__sinode_search(TYPE_TYPE, SEARCH_BY_TYPE_NAME, name);
+		sn = analysis__sinode_search(TYPE_TYPE, SEARCH_BY_TYPE_NAME,
+						name);
 		*sn_ret = sn;
 #endif
 		return;
@@ -304,7 +318,8 @@ static inline void get_type_xnode(tree node, struct sinode **sn_ret,
 		args[1] = xloc->line;
 		args[2] = xloc->column;
 		args[3] = (long)name;
-		sn = analysis__sinode_search(type, SEARCH_BY_SPEC, (void *)args);
+		sn = analysis__sinode_search(type, SEARCH_BY_SPEC,
+						(void *)args);
 	} else {
 		tn = analysis__sibuf_type_node_search(b, TREE_CODE(node), node);
 	}
@@ -428,26 +443,11 @@ static inline void show_gimple(gimple_seq gs)
 	for (unsigned int i = 0; i < gimple_num_ops(gs); i++) {
 		if (ops[i]) {
 			enum tree_code tc = TREE_CODE(ops[i]);
-			si_log(NULL, "\tOp: %s %p\n", tree_code_name[tc], ops[i]);
+			si_log(NULL, "\tOp: %s %p\n",
+					tree_code_name[tc], ops[i]);
 		} else {
 			si_log(NULL, "\tOp: null\n");
 		}
-	}
-}
-
-static inline void show_func_gimples(struct sinode *fsn)
-{
-	analysis__resfile_load(fsn->buf);
-	tree node = (tree)(long)fsn->obj->real_addr;
-	gimple_seq body = DECL_STRUCT_FUNCTION(node)->gimple_body;
-	gimple_seq next;
-
-	next = body;
-	si_log(NULL, "gimples for function %s\n", fsn->name);
-
-	while (next) {
-		show_gimple(next);
-		next = next->next;
 	}
 }
 

@@ -19,7 +19,12 @@
  */
 #include "si_core.h"
 
+#ifndef CONFIG_SAVED_SRC
 #define	SAVED_SRC	"src.saved"
+#else
+#define	SAVED_SRC	CONFIG_SAVED_SRC
+#endif
+
 struct src *si;
 static lock_t src_buf_lock;
 
@@ -130,6 +135,14 @@ static long do_load_srcfile(char *id)
 
 	int fd = clib_open(buf, O_RDONLY);
 	if (fd == -1) {
+		if (errno == ENOENT) {
+			err_msg("reset src_id from %s to %s", si->src_id, id);
+			size_t l = strlen(id) + 1;
+			if (l > (sizeof(si->src_id)))
+				l = sizeof(si->src_id);
+			memcpy(si->src_id, id, l);
+			return 0;
+		}
 		err_sys("clib_open err");
 		return -1;
 	}

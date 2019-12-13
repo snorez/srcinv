@@ -259,7 +259,8 @@ void resfile_load(struct sibuf *buf)
 
 	char *addr;
 mmap_again0:
-	while ((atomic_read(&si->sibuf_mem_usage) + mmap_size) > SIBUF_LOADED_MAX) {
+	while ((atomic_read(&si->sibuf_mem_usage) + mmap_size) >
+			SIBUF_LOADED_MAX) {
 		mutex_unlock(&gc_lock);
 		resfile_gc();
 		mutex_lock(&gc_lock);
@@ -391,7 +392,8 @@ int resfile_get_filecnt(struct resfile *rf, int *is_new)
 				return -1;
 			}
 
-			struct file_context *fc = (struct file_context *)tmp_read_buf;
+			struct file_context *fc;
+			fc = (struct file_context *)tmp_read_buf;
 			if (fc->status != FC_STATUS_NONE)
 				*is_new = 0;
 
@@ -405,4 +407,105 @@ int resfile_get_filecnt(struct resfile *rf, int *is_new)
 	rf->fd = -1;
 
 	return 0;
+}
+
+int resfile_get_offset(char *path, unsigned long filecnt, unsigned long *offs)
+{
+	int fd, err = 0;
+	unsigned long i = 0;
+	unsigned long _offs = 0;
+	*offs = _offs;
+
+	if (!filecnt)
+		return 0;
+
+	fd = open(path, O_RDONLY);
+	if (fd == -1) {
+		err_dbg(1, "open err");
+		return -1;
+	}
+
+	while (filecnt) {
+		unsigned int *this_total = (unsigned int *)tmp_read_buf;
+		err = read(fd, this_total, sizeof(unsigned int));
+		if (err == -1) {
+			err_dbg(1, "read err");
+			close(fd);
+			return -1;
+		} else if (!err)
+			break;
+
+		err = read(fd, tmp_read_buf+sizeof(unsigned int),
+				*this_total-sizeof(unsigned int));
+		if (err == -1) {
+			err_dbg(1, "read err");
+			close(fd);
+			return -1;
+		} else if (!err) {
+			err_dbg(0, "resfile format err");
+			close(fd);
+			return -1;
+		} else if (err != (*this_total-sizeof(unsigned int))) {
+			err_dbg(0, "resfile format err");
+			close(fd);
+			return -1;
+		}
+		_offs += *this_total;
+		filecnt--;
+		i++;
+	}
+
+	if (filecnt)
+		err_dbg(0, "given filecnt too large, total is %d", i);
+	*offs = _offs;
+	close(fd);
+	return 0;
+}
+
+struct file_context *resfile_get_filecontext(char *path, char *targetfile)
+{
+	int fd;
+	int err = 0;
+	fd = open(path, O_RDONLY);
+	if (fd == -1) {
+		err_dbg(1, "open err");
+		return NULL;
+	}
+
+	while (1) {
+		unsigned int *this_total = (unsigned int *)tmp_read_buf;
+		err = read(fd, this_total, sizeof(unsigned int));
+		if (err == -1) {
+			err_dbg(1, "read err");
+			close(fd);
+			return NULL;
+		} else if (!err)
+			break;
+
+		err = read(fd, tmp_read_buf+sizeof(unsigned int),
+				*this_total-sizeof(unsigned int));
+		if (err == -1) {
+			err_dbg(1, "read err");
+			close(fd);
+			return NULL;
+		} else if (!err) {
+			err_dbg(0, "resfile format err");
+			close(fd);
+			return NULL;
+		} else if (err != (*this_total-sizeof(unsigned int))) {
+			err_dbg(0, "resfile format err");
+			close(fd);
+			return NULL;
+		}
+
+		struct file_context *fc;
+		fc = (struct file_context *)tmp_read_buf;
+		if (!strcmp(fc->path, targetfile)) {
+			close(fd);
+			return fc;
+		}
+	}
+
+	close(fd);
+	return NULL;
 }

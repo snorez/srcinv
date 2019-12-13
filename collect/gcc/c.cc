@@ -1,6 +1,11 @@
 /*
- * collect C project info compiled by GCC
- * Copyright (C) 2018  zerons
+ * collect C program info compiled by GCC at ALL_IPA_PASSES_START
+ *	some tree_node is not handled for now, just raise a BUG
+ *
+ * refs:
+ *	https://gcc.gnu.org/onlinedocs/gcc-8.3.0/gccint/GTY-Options.html
+ *
+ * Copyright (C) 2019  zerons
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,14 +20,9 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-/*
- *	some tree_node is not handled for now, just raise a BUG
- *	this collect information of lower gimple form before cfg pass
- *
- * refs:
- *	https://gcc.gnu.org/onlinedocs/gcc-6.4.0/gccint/GTY-Options.html
- */
+
 #include "si_gcc.h"
+#include "si_gcc_extra.h"
 
 struct plugin_info this_plugin_info = {
 	.version = "0.1",
@@ -38,7 +38,6 @@ struct plugin_gcc_version version_needed = {
 
 int plugin_is_GPL_compatible;
 
-static int has_function = 0;
 static char nodes_mem[MAX_SIZE_PER_FILE];
 static char *mem_ptr_start = NULL;
 static char *mem_ptr = NULL;
@@ -63,6 +62,8 @@ static int get_compiling_args(void)
 	write_ctx->type.kernel = SI_TYPE_BOTH;
 	write_ctx->type.os_type = SI_TYPE_OS_LINUX;
 	write_ctx->type.type_more = SI_TYPE_MORE_GCC_C;
+	write_ctx->gcc_ver_major = gcc_ver;
+	write_ctx->gcc_ver_minor = gcc_ver_minor;
 
 	char *ret = getcwd(write_ctx->path, PATH_MAX);
 	if (!ret) {
@@ -93,7 +94,8 @@ static int get_compiling_args(void)
 		write_ctx->cmd_len = 0;
 	else {
 		/* XXX, drop -fplugin args */
-		char *cmd = (char *)file_context_cmd_position((void *)nodes_mem);
+		char *cmd;
+		cmd = (char *)file_context_cmd_position((void *)nodes_mem);
 		char *cur = ptr;
 		char *end;
 		while (1) {
@@ -118,7 +120,8 @@ static int get_compiling_args(void)
 		}
 		write_ctx->cmd_len += 1;	/* the last null byte */
 	}
-	mem_ptr_start = (char *)file_context_payload_position((void *)nodes_mem);
+	mem_ptr_start =
+		(char *)file_context_payload_position((void *)nodes_mem);
 	mem_ptr = mem_ptr_start;
 	return 0;
 }
@@ -126,20 +129,20 @@ static int get_compiling_args(void)
 static struct file_obj objs[MAX_OBJS_PER_FILE];
 /* XXX: for is_obj_checked optimization */
 static void *fake_addrs[MAX_OBJS_PER_FILE];
-static int objs_idx = 0;
+static int obj_idx = 0;
 static inline int is_obj_checked(void *obj)
 {
 	if (unlikely(!obj))
 		return 1;
 
-	if (unlikely(objs_idx >= (int)MAX_OBJS_PER_FILE))
+	if (unlikely(obj_idx >= (int)MAX_OBJS_PER_FILE))
 		BUG();
 
 	int i = 0;
-	int loop_limit = objs_idx;
+	int loop_limit = obj_idx;
 	if (unlikely(loop_limit > (int)(MAX_OBJS_PER_FILE / 8))) {
 		loop_limit = (int)MAX_OBJS_PER_FILE / 8;
-		for (i = loop_limit; i < objs_idx; i++) {
+		for (i = loop_limit; i < obj_idx; i++) {
 			if (unlikely(fake_addrs[i] == obj))
 				return 1;
 		}
@@ -154,10 +157,10 @@ static inline int is_obj_checked(void *obj)
 
 static inline void insert_obj(void *obj, size_t size)
 {
-	objs[objs_idx].fake_addr = (unsigned long)obj;
-	fake_addrs[objs_idx] = obj;
-	objs[objs_idx].size = size;
-	objs_idx++;
+	objs[obj_idx].fake_addr = (unsigned long)obj;
+	fake_addrs[obj_idx] = obj;
+	objs[obj_idx].size = size;
+	obj_idx++;
 }
 
 static void nodes_flush(int fd)
@@ -174,16 +177,15 @@ static void nodes_flush(int fd)
 	write_ctx->objs_offs = mem_ptr - nodes_mem;
 	write_ctx->objs_cnt = i;
 	write_ctx->total_size = write_ctx->objs_offs + i * sizeof(objs[0]);
-	write_ctx->total_size = clib_round_up(write_ctx->total_size, PAGE_SIZE);
-	if ((write_ctx->total_size < write_ctx->objs_offs) ||
-			(write_ctx->total_size > MAX_SIZE_PER_FILE))
+	write_ctx->total_size = clib_round_up(write_ctx->total_size,PAGE_SIZE);
+	if (unlikely((write_ctx->total_size < write_ctx->objs_offs) ||
+			(write_ctx->total_size > MAX_SIZE_PER_FILE)))
 		BUG();
 
 	memcpy(mem_ptr, (char *)objs, i*sizeof(objs[0]));
 
-	/* XXX: important, only one write syscall */
 	int err = write(fd, nodes_mem, write_ctx->total_size);
-	if (err == -1)
+	if (unlikely(err == -1))
 		BUG();
 }
 
@@ -196,38 +198,38 @@ static void mem_write(void *addr, size_t size)
 	memcpy(mem_ptr, addr, size);
 	mem_ptr += size;
 	if (unlikely((mem_ptr < nodes_mem) ||
-			((unsigned long)(mem_ptr - nodes_mem) > MAX_SIZE_PER_FILE)))
+		((unsigned long)(mem_ptr - nodes_mem) > MAX_SIZE_PER_FILE)))
 		BUG();
 }
 
 /* NOTE, we need to keep a expanded_location tracked */
 static unsigned long xloc_addr = (unsigned long)-1;
-static void mem_write_1(void *addr, size_t size)
+static void mem_write_loc(void *addr, size_t size)
 {
-	memcpy(mem_ptr, addr, size);
 	insert_obj((void *)xloc_addr, size);
 	xloc_addr--;
+	memcpy(mem_ptr, addr, size);
 	mem_ptr += size;
 	if (unlikely((mem_ptr < nodes_mem) ||
-			((unsigned long)(mem_ptr - nodes_mem) > MAX_SIZE_PER_FILE)))
+		((unsigned long)(mem_ptr - nodes_mem) > MAX_SIZE_PER_FILE)))
 		BUG();
 }
 
-static void mem_write_2(char c)
+static void mem_write_last_char(char c)
 {
 	*(mem_ptr-1) = c;
 }
 
-static void mem_write_3(void *addr)
+static void mem_write_path(void *addr)
 {
 	char path[PATH_MAX];
 	BUG_ON(!realpath((char *)addr, path));
 
-	memcpy(mem_ptr, path, strlen(path)+1);
 	insert_obj((void *)addr, strlen(path)+1);
+	memcpy(mem_ptr, path, strlen(path)+1);
 	mem_ptr += strlen(path)+1;
 	if (unlikely((mem_ptr < nodes_mem) ||
-			((unsigned long)(mem_ptr - nodes_mem) > MAX_SIZE_PER_FILE)))
+		((unsigned long)(mem_ptr - nodes_mem) > MAX_SIZE_PER_FILE)))
 		BUG();
 }
 
@@ -245,14 +247,14 @@ static void node_write(tree node)
 static void do_tree(tree node);
 static void do_location(location_t loc)
 {
-	/* NOTE, all do_location calls must put at the first place */
+	/* NOTE, all calls must put at the first place? */
 	expanded_location xloc = expand_location(loc);
-	mem_write_1((void *)&xloc, sizeof(xloc));
+	mem_write_loc((void *)&xloc, sizeof(xloc));
 	if (!is_obj_checked((void *)xloc.file)) {
 		if (unlikely(!strncmp(xloc.file, "<built-in>", 10)))
 			mem_write((void *)xloc.file, strlen(xloc.file)+1);
 		else
-			mem_write_3((void *)xloc.file);
+			mem_write_path((void *)xloc.file);
 	}
 }
 
@@ -263,14 +265,19 @@ static void do_vec_tree(void *node, int flag)
 	if (flag && is_obj_checked(node))
 		return;
 
-	vec<tree, va_gc, vl_embed> *node0 = (vec<tree, va_gc, vl_embed> *)node;
+	vec<tree, va_gc, vl_embed> *node0;
+	node0 = (vec<tree, va_gc, vl_embed> *)node;
 
-	unsigned long lenth = node0->length();
-	BUG_ON(!lenth);
+	unsigned long length = node0->length();
 	tree *addr = node0->address();
-	if (flag)
-		mem_write(node, sizeof(*node0)+(lenth-1)*sizeof(*addr));
-	for (unsigned long i = 0; i < lenth; i++) {
+	if (flag) {
+		if (length)
+			mem_write(node, sizeof(*node0)+
+					(length-1)*sizeof(*addr));
+		else
+			mem_write(node, sizeof(*node0));
+	}
+	for (unsigned long i = 0; i < length; i++) {
 		do_tree(addr[i]);
 	}
 }
@@ -282,14 +289,19 @@ static void do_vec_constructor(void *node, int flag)
 	if (flag && is_obj_checked(node))
 		return;
 
-	vec<constructor_elt, va_gc> *node0 = (vec<constructor_elt, va_gc> *)node;
+	vec<constructor_elt, va_gc> *node0;
+	node0 = (vec<constructor_elt, va_gc> *)node;
 
-	unsigned long lenth = node0->length();
-	BUG_ON(!lenth);
+	unsigned long length = node0->length();
 	struct constructor_elt *addr = node0->address();
-	if (flag)
-		mem_write(node, sizeof(*node0)+(lenth-1)*sizeof(*addr));
-	for (unsigned long i = 0; i < lenth; i++) {
+	if (flag) {
+		if (length)
+			mem_write(node, sizeof(*node0)+
+					(length-1)*sizeof(*addr));
+		else
+			mem_write(node, sizeof(*node0));
+	}
+	for (unsigned long i = 0; i < length; i++) {
 		do_tree(addr[i].index);
 		do_tree(addr[i].value);
 	}
@@ -370,12 +382,16 @@ static void do_vec_c_goto_bindings(void *node, int flag)
 	if (flag && is_obj_checked(node))
 		return;
 
-	vec<c_goto_bindings_p, va_gc> *node0 = (vec<c_goto_bindings_p, va_gc> *)node;
+	vec<c_goto_bindings_p, va_gc> *node0;
+	node0 = (vec<c_goto_bindings_p, va_gc> *)node;
 	unsigned long len = node0->length();
-	BUG_ON(!len);
 	c_goto_bindings_p *addr = node0->address();
-	if (flag)
-		mem_write(node, sizeof(*node0)+(len-1)*sizeof(*addr));
+	if (flag) {
+		if (len)
+			mem_write(node, sizeof(*node0)+(len-1)*sizeof(*addr));
+		else
+			mem_write(node, sizeof(*node0));
+	}
 	for (unsigned long i = 0; i < len; i++) {
 		do_c_goto_bindings(addr[i], 1);
 	}
@@ -525,7 +541,7 @@ static void do_cpp_token(struct cpp_token *node, int flag)
 		return;
 	if (flag) {
 		mem_write((void *)node, sizeof(*node)+1);
-		mem_write_2((char)cpp_token_val_index(node));
+		mem_write_last_char((char)cpp_token_val_index(node));
 	}
 	do_location(node->src_loc);
 	switch (cpp_token_val_index(node)) {
@@ -551,9 +567,9 @@ static void do_cpp_token(struct cpp_token *node, int flag)
 
 struct GTY(()) cpp_macro { /* libcpp/include/cpp-id-data.h */
 	cpp_hashnode **GTY((nested_ptr(union tree_node,
-				"%h?CPP_HASHNODE(GCC_IDENT_TO_HT_IDENT(%h)):NULL",
-				"%h?HT_IDENT_TO_GCC_IDENT(HT_NODE(%h)):NULL"),
-				length("%h.paramc"))) params;
+			"%h?CPP_HASHNODE(GCC_IDENT_TO_HT_IDENT(%h)):NULL",
+			"%h?HT_IDENT_TO_GCC_IDENT(HT_NODE(%h)):NULL"),
+			length("%h.paramc"))) params;
 	union cpp_macro_u {
 		cpp_token *GTY((tag("0"), length("%0.count"))) tokens;
 		const unsigned char *GTY((tag("1"))) text;
@@ -577,7 +593,8 @@ static void __maybe_unused do_cpp_macro(struct cpp_macro *node, int flag)
 		mem_write((void *)node, sizeof(*node));
 	do_location(node->line);
 	if (node->params && !is_obj_checked(node->params)) {
-		mem_write((void *)node->params,node->paramc*sizeof(node->params[1]));
+		mem_write((void *)node->params,
+				node->paramc*sizeof(node->params[1]));
 		cpp_hashnode **addr = node->params;
 		for (unsigned short i = 0; i < node->paramc; i++) {
 			do_cpp_hashnode(addr[i], 1);
@@ -587,7 +604,7 @@ static void __maybe_unused do_cpp_macro(struct cpp_macro *node, int flag)
 	case 0:
 		if (node->exp.tokens && !is_obj_checked(node->exp.tokens)) {
 			mem_write((void *)node->exp.tokens,
-					sizeof(struct cpp_token) * node->count);
+				sizeof(struct cpp_token) * node->count);
 			struct cpp_token *addr = node->exp.tokens;
 			for (unsigned int i = 0; i < node->count; i++) {
 				do_cpp_token(&addr[i], 0);
@@ -598,7 +615,7 @@ static void __maybe_unused do_cpp_macro(struct cpp_macro *node, int flag)
 		/* FIXME, the text looks like an address */
 		if (!is_obj_checked((void *)(node->exp.text)))
 			mem_write((void *)node->exp.text,
-					strlen((const char *)(node->exp.text))+1);
+				strlen((const char *)(node->exp.text))+1);
 		break;
 	default:
 		BUG();
@@ -619,7 +636,8 @@ static void do_answer(struct answer *node, int flag)
 	unsigned int len = node->count;
 	BUG_ON(!len);
 	if (flag)
-		mem_write((void *)node, sizeof(*node)+(len-1)*sizeof(cpp_token));
+		mem_write((void *)node,
+				sizeof(*node)+(len-1)*sizeof(cpp_token));
 	do_answer(node->next, 1);
 	for (unsigned int i = 0; i < len; i++) {
 		do_cpp_token(&node->first[i], 0);
@@ -863,10 +881,14 @@ static void do_vec_c_arg_tag(vec<c_arg_tag, va_gc> *node, int flag)
 		return;
 
 	unsigned long len = node->length();
-	BUG_ON(len==0);
 	c_arg_tag *addr = node->address();
-	if (flag)
-		mem_write((void *)node, sizeof(*node)+(len-1)*sizeof(*addr));
+	if (flag) {
+		if (len)
+			mem_write((void *)node, sizeof(*node)+
+					(len-1)*sizeof(*addr));
+		else
+			mem_write((void *)node, sizeof(*node));
+	}
 	for (unsigned long i = 0; i < len; i++) {
 		do_c_arg_tag(&addr[i], 0);
 	}
@@ -924,23 +946,6 @@ static void do_language_function(struct language_function *node, int flag)
 	do_c_arg_info(node->arg_info, 1);
 }
 
-#define DEFGSSTRUCT(SYM, STRUCT, HAS_TREE_OP) sizeof (struct STRUCT),
-static const size_t gsstruct_code_size[] = {
-#include "gsstruct.def"
-};
-#undef DEFGSSTRUCT
-
-#define DEFGSCODE(SYM, NAME, GSSCODE)	NAME,
-const char *const gimple_code_name[] = {
-#include "gimple.def"
-};
-#undef DEFGSCODE
-
-#define DEFGSCODE(SYM, NAME, GSSCODE)	GSSCODE,
-EXPORTED_CONST enum gimple_statement_structure_enum gss_for_code_[] = {
-#include "gimple.def"
-};
-#undef DEFGSCODE
 static size_t gimple_total_size(gimple_seq gs)
 {
 	size_t base_size = gsstruct_code_size[gss_for_code(gimple_code(gs))];
@@ -948,6 +953,7 @@ static size_t gimple_total_size(gimple_seq gs)
 		return base_size;
 	return base_size + (gimple_num_ops(gs)-1) * sizeof(tree);
 }
+static void do_basic_block(basic_block bb, int flag);
 static void do_gimple_seq(gimple_seq gs, int flag)
 {
 	if (!gs)
@@ -964,8 +970,315 @@ static void do_gimple_seq(gimple_seq gs, int flag)
 		do_tree(ops[i]);
 	}
 
+	do_basic_block(gs->bb, 1);
 	do_gimple_seq(gs->next, 1);
 	do_gimple_seq(gs->prev, 1);
+}
+
+/*
+ * TODO: re-check the following functions mem_write whether the size is
+ * right?
+ */
+
+/* basic-block.h: struct edge_def */
+static void do_edge(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	struct edge_def *node0;
+	node0 = (struct edge_def *)node;
+	if (flag)
+		mem_write(node, sizeof(*node0));
+
+	/* location_t goto_locus */
+	do_location(node0->goto_locus);
+
+	do_basic_block(node0->src, 1);
+	do_basic_block(node0->dest, 1);
+
+	/* insns? */
+	if (current_ir_type() == IR_GIMPLE)
+		do_gimple_seq(node0->insns.g, 1);
+	else
+		BUG();
+}
+
+static void do_vec_edge(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	vec<edge, va_gc> *node0;
+	node0 = (vec<edge, va_gc> *)node;
+	unsigned long length = node0->length();
+
+	edge *addr = node0->address();
+	if (flag) {
+		if (length)
+			mem_write(node, sizeof(*node0)+
+					(length-1)*sizeof(*addr));
+		else
+			mem_write(node, sizeof(*node0));
+	}
+	for (unsigned long i = 0; i < length; i++) {
+		do_edge(addr[i], 1);
+	}
+}
+
+static void do_nb_iter_bound(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+	struct nb_iter_bound *node0;
+	node0 = (struct nb_iter_bound *)node;
+	if (flag)
+		mem_write(node, sizeof(*node0));
+	do_gimple_seq(node0->stmt, 1);
+	do_nb_iter_bound(node0->next, 1);
+}
+
+static void do_control_iv(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+	struct control_iv *node0;
+	node0 = (struct control_iv *)node;
+	if (flag)
+		mem_write(node, sizeof(*node0));
+	do_tree(node0->base);
+	do_tree(node0->step);
+	do_control_iv(node0->next, 1);
+}
+
+static void do_loop_exit(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+	struct loop_exit *node0;
+	node0 = (struct loop_exit *)node;
+	if (flag)
+		mem_write(node, sizeof(*node0));
+	do_edge(node0->e, 1);
+	do_loop_exit(node0->prev, 1);
+	do_loop_exit(node0->next, 1);
+	do_loop_exit(node0->next_e, 1);
+}
+
+static void do_niter_desc(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+	struct niter_desc *node0;
+	node0 = (struct niter_desc *)node;
+	if (flag)
+		mem_write(node, sizeof(*node0));
+	do_edge(node0->out_edge, 1);
+	do_edge(node0->in_edge, 1);
+	/* ignore assumptions, noloop_assumptions, infinite, niter_expr */
+}
+
+static void do_vec_loop(void *node, int flag);
+/* cfgloop.h */
+static void do_loop(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	struct loop *node0;
+	node0 = (struct loop *)node;
+	if (flag)
+		mem_write(node, sizeof(*node0));
+
+	do_basic_block(node0->header, 1);
+	do_basic_block(node0->latch, 1);
+
+	do_vec_loop(node0->superloops, 1);
+	do_loop(node0->inner, 1);
+	do_loop(node0->next, 1);
+	do_tree(node0->nb_iterations);
+	do_tree(node0->simduid);
+	do_nb_iter_bound(node0->bounds, 1);
+	do_control_iv(node0->control_ivs, 1);
+	do_loop_exit(node0->exits, 1);
+	do_niter_desc(node0->simple_loop_desc, 1);
+	do_basic_block(node0->former_header, 1);
+}
+
+static void do_vec_loop(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	vec<loop_p,va_gc> *node0;
+	node0 = (vec<loop_p,va_gc> *)node;
+	unsigned long length = node0->length();
+	loop_p *addr = node0->address();
+	if (flag) {
+		if (length)
+			mem_write(node, sizeof(*node0)+
+					(length-1)*sizeof(*addr));
+		else
+			mem_write(node, sizeof(*node0));
+	}
+	for (unsigned long i = 0; i < length; i++) {
+		do_loop(addr[i], 1);
+	}
+}
+
+/* basic-block.h: struct basic_block_def */
+static void do_basic_block(basic_block bb, int flag)
+{
+	if (!bb)
+		return;
+	if (flag && is_obj_checked((void *)bb))
+		return;
+	if (flag)
+		mem_write((void *)bb, sizeof(*bb));
+
+	/* vec<edge> preds,succs */
+	do_vec_edge(bb->preds, 1);
+	do_vec_edge(bb->succs, 1);
+
+	/* PTR aux? ignore */
+
+	/* struct loop loop_father */
+	do_loop(bb->loop_father, 1);
+
+	/* struct et_node dom, ignore */
+
+	/* basic_block prev_bb, next_bb; */
+	do_basic_block(bb->prev_bb, 1);
+	do_basic_block(bb->next_bb, 1);
+
+	/* basic_block_il_dependent */
+	BUG_ON(bb->flags & BB_RTL);
+	do_gimple_seq(bb->il.gimple.seq, 1);
+	do_gimple_seq(bb->il.gimple.phi_nodes, 1);
+}
+
+static void do_vec_basic_block(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	vec<basic_block, va_gc> *node0;
+	node0 = (vec<basic_block, va_gc> *)node;
+
+	unsigned long length = node0->length();
+	basic_block *addr = node0->address();
+	if (flag) {
+		if (length)
+			mem_write(node, sizeof(*node0)+
+					(length-1)*sizeof(*addr));
+		else
+			mem_write(node, sizeof(*node0));
+	}
+	for (unsigned long i = 0; i < length; i++) {
+		do_basic_block(addr[i], 1);
+	}
+}
+
+/* cfg.h: The control flow graph for this function */
+static void do_cfg(struct control_flow_graph *cfg, int flag)
+{
+	if (!cfg)
+		return;
+	if (flag && is_obj_checked((void *)cfg))
+		return;
+	if (flag)
+		mem_write((void *)cfg, sizeof(*cfg));
+
+	/* basic_block x_entry_block_ptr, x_exit_block_ptr */
+	do_basic_block(cfg->x_entry_block_ptr, 1);
+	do_basic_block(cfg->x_exit_block_ptr, 1);
+
+	/* vec<basic_block> x_basic_block_info, x_label_to_block_map */
+	do_vec_basic_block(cfg->x_basic_block_info, 1);
+	do_vec_basic_block(cfg->x_label_to_block_map, 1);
+}
+
+static void do_ssa_operands(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	struct ssa_operands *node0;
+	node0 = (struct ssa_operands *)node;
+	if (flag)
+		mem_write(node, sizeof(*node0));
+
+	/* TODO: struct ssa_operand_memory_d *operand_memory */
+	/* TODO: struct use_optype_d *free_uses */
+}
+
+/* gimple-ssa.h: SSA and dataflow information */
+static void do_gimple_df(struct gimple_df *df, int flag)
+{
+	if (!df)
+		return;
+	if (flag && is_obj_checked((void *)df))
+		return;
+	if (flag)
+		mem_write((void *)df, sizeof(*df));
+
+	/* vec<tree> ssa_names */
+	do_vec_tree((void *)df->ssa_names, 1);
+
+	/* tree vop */
+	do_tree(df->vop);
+
+	/* TODO: hash_map<tree> decls_to_pointers. How to handle this one? */
+
+	/* vec<tree> free_ssanames free_ssanemes_queue */
+	do_vec_tree((void *)df->free_ssanames, 1);
+	do_vec_tree((void *)df->free_ssanames_queue, 1);
+
+	/* TODO: hash_table<ssa_name_hasher> default_defs. Howto? */
+
+	/* ssa_operands ssa_operands */
+	do_ssa_operands(&df->ssa_operands, 0);
+
+	/* TODO: hash_table<tm_restart_hasher tm_restart. Howto? */
+}
+
+/* cfgloop.h: the loops in this function */
+static void do_loops(struct loops *loop, int flag)
+{
+	if (!loop)
+		return;
+	if (flag && is_obj_checked((void *)loop))
+		return;
+	if (flag)
+		mem_write((void *)loop, sizeof(*loop));
+
+	/* vec<loop_p> larray */
+	do_vec_loop(loop->larray, 1);
+
+	/* TODO: hash_table<loop_exit_hasher> exits. Howto? */
+
+	/* struct loop *tree_root */
+	do_loop(loop->tree_root, 1);
 }
 
 static void do_function(struct function *node, int flag)
@@ -989,10 +1302,10 @@ static void do_function(struct function *node, int flag)
 	do_tree(node0->cilk_frame_decl);
 #endif
 	do_gimple_seq(node0->gimple_body, 1);
+	do_cfg(node0->cfg, 1);
+	do_gimple_df(node0->gimple_df, 1);
+	do_loops(node0->x_current_loops, 1);
 	/* TODO, node0->eh, except.h, ignore it */
-	/* TODO, node0->cfg, ignore */
-	/* TODO, node0->gimple_df */
-	/* TODO, node0->x_current_loops */
 	/* TODO, node0->su */
 	/* TODO, node0->value_histograms */
 	/* TODO, node0->used_types_hash */
@@ -1006,7 +1319,7 @@ static void do_statement_list_node(void *node, int flag)
 	if (!node)
 		return;
 	/* FIXME, flag is always 1 */
-	if (unlikely(is_obj_checked((void *)node)))
+	if (unlikely(flag && is_obj_checked((void *)node)))
 		return;
 
 	struct tree_statement_list_node *node0 =
@@ -1188,12 +1501,7 @@ static void do_base(tree node, int flag)
 {
 	if (!node)
 		return;
-#if 0	/* flag will never be 1 */
-	if (flag && is_obj_checked((void *)node))
-		return;
-	if (flag)
-		node_write(node);
-#endif
+	BUG_ON(flag);
 }
 
 static void do_typed(tree node, int flag)
@@ -1366,12 +1674,14 @@ static void do_exp(tree node, int flag)
 	struct tree_exp *node0 = (struct tree_exp *)node;
 	do_location(node0->locus);
 	do_typed((tree)&node0->typed, 0);
-	if (TREE_CODE_CLASS(TREE_CODE(node)) == tcc_vl_exp)
+	if (TREE_CODE_CLASS(TREE_CODE(node)) == tcc_vl_exp) {
+		WARN_ON(!VL_EXP_OPERAND_LENGTH(node));
 		for (int i = 0; i < VL_EXP_OPERAND_LENGTH(node); i++)
 			do_tree(node0->operands[i]);
-	else
+	} else {
 		for (int i = 0; i < TREE_CODE_LENGTH(TREE_CODE(node)); i++)
 			do_tree(node0->operands[i]);
+	}
 }
 
 static void do_list(tree node, int flag)
@@ -1435,16 +1745,12 @@ static void do_type_non_common(tree node, int flag)
 		return;
 	if (flag) {
 		node_write(node);
-		size_t start = objs_idx - 1;
-#if 0
-		if ((TYPE_NAME(node)) &&
-				((TREE_CODE(TYPE_NAME(node)) == IDENTIFIER_NODE) ||
-				 (DECL_NAME(TYPE_NAME(node)))))
-#endif
-			objs[start].is_type = 1;
+		size_t start = obj_idx - 1;
+		objs[start].is_type = 1;
 	}
 
-	struct tree_type_non_common *node0 = (struct tree_type_non_common *)node;
+	struct tree_type_non_common *node0;
+	node0 = (struct tree_type_non_common *)node;
 	do_type_with_lang_specific((tree)&node0->with_lang_specific, 0);
 	do_tree(node0->values);
 	do_tree(node0->minval);
@@ -1586,31 +1892,15 @@ static void do_var_decl(tree node, int flag)
 		return;
 	if (flag) {
 		node_write(node);
-		size_t start = objs_idx - 1;
-		expanded_location xloc = expand_location(DECL_SOURCE_LOCATION(node));
+		size_t start = obj_idx - 1;
+		expanded_location xloc;
+		xloc = expand_location(DECL_SOURCE_LOCATION(node));
 		if (is_global_var(node) &&
 			((!DECL_CONTEXT(node)) ||
-			 (TREE_CODE(DECL_CONTEXT(node)) == TRANSLATION_UNIT_DECL)) &&
-			(xloc.file)) {
+			 (TREE_CODE(DECL_CONTEXT(node)) ==
+				TRANSLATION_UNIT_DECL)) && (xloc.file)) {
 			objs[start].is_global_var = 1;
 		}
-#if 0
-		if ((!DECL_EXTERNAL(node)) && (DECL_NAME(node)) &&
-				((!DECL_CONTEXT(node)) ||
-				 (TREE_CODE(DECL_CONTEXT(node)) ==
-					TRANSLATION_UNIT_DECL)) &&
-				TREE_STATIC(node))
-			objs[start].is_global_var = 1;
-		if ((DECL_NAME(node)) &&
-				((!DECL_CONTEXT(node)) ||
-				 (TREE_CODE(DECL_CONTEXT(node)) ==
-					TRANSLATION_UNIT_DECL)))
-			objs[start].is_global_var = 1;
-		if ((!DECL_CONTEXT(node)) ||
-			(TREE_CODE(DECL_CONTEXT(node)) == TRANSLATION_UNIT_DECL)) {
-			objs[start].is_global_var = 1;
-		}
-#endif
 	}
 
 	struct tree_var_decl *node0 = (struct tree_var_decl *)node;
@@ -1626,7 +1916,8 @@ static void do_decl_non_common(tree node, int flag)
 	if (flag)
 		node_write(node);
 
-	struct tree_decl_non_common *node0 = (struct tree_decl_non_common *)node;
+	struct tree_decl_non_common *node0;
+	node0 = (struct tree_decl_non_common *)node;
 	do_decl_with_vis((tree)&node0->common, 0);
 	do_tree(node0->result);
 }
@@ -1657,7 +1948,8 @@ static void do_translation_unit_decl(tree node, int flag)
 			(struct tree_translation_unit_decl *)node;
 	do_decl_common((tree)&node0->common, 0);
 	if (!is_obj_checked((void *)node0->language))
-		mem_write((void *)node0->language, strlen(node0->language) + 1);
+		mem_write((void *)node0->language,
+				strlen(node0->language) + 1);
 }
 
 static void do_function_decl(tree node, int flag)
@@ -1665,21 +1957,23 @@ static void do_function_decl(tree node, int flag)
 	if (!node)
 		return;
 	BUG_ON(!flag);
+
+	struct tree_function_decl *node0;
+	node0 = (struct tree_function_decl *)node;
+
+	/*
+	 * plugin/include/tree.h:
+	 *	For example, for a FUNCTION_DECL, DECL_SAVED_TREE may be
+	 *	non-NULL and DECL_EXTERNAL may be true simultaneously; that
+	 *	can be the case for a C99 "extern inline" function.
+	 */
+
+	BUG_ON(node0->saved_tree);
+
 	if (is_obj_checked((void *)node))
 		return;
-
-	/* XXX, check the gimple_body first, if null, do not handle it now */
-	struct tree_function_decl *node0 = (struct tree_function_decl *)node;
-	if (node0->saved_tree)
-		return;
-
-#if 0
-	if ((!node0->f) || (!node0->f->gimple_body))
-		return;
-#endif
-
 	node_write(node);
-	size_t start = objs_idx - 1;
+	size_t start = obj_idx - 1;
 	objs[start].is_function = 1;
 
 	do_decl_non_common((tree)&node0->common, 0);
@@ -1816,8 +2110,8 @@ static void do_optimization_option(tree node, int flag)
 		node_write(node);
 
 	/* kernel/kexec_core.o */
-	struct tree_optimization_option *node0 =
-					(struct tree_optimization_option *)node;
+	struct tree_optimization_option *node0;
+	node0 = (struct tree_optimization_option *)node;
 #if __GNUC__ < 8
 	do_common((tree)&node0->common, 0);
 #else
@@ -1841,44 +2135,7 @@ static void do_target_option(tree node, int flag)
 }
 
 #if 0
-#define	MAX_FUNCS_PER_FILE	0x1000
-static void *func_nodes[MAX_FUNCS_PER_FILE];
-static int node_idx = 0;
-static int collected = 0;
-static void parse_function(void *gcc_data, void *user_data)
-{
-	tree node = (tree)gcc_data;
-
-	if (unlikely(node == NULL_TREE)) {
-		fprintf(stderr, "NULL_TREE happened\n");
-		return;
-	}
-
-	enum tree_code code = TREE_CODE(node);
-	if (DECL_EXTERNAL(node))
-		return;
-	if (DECL_IS_BUILTIN(node))
-		return;
-	if (unlikely(code != FUNCTION_DECL))
-		return;
-#if 0
-#0  0x000000000067d357 in release_function_body(tree_node*) ()
-#1  0x000000000067d3f3 in cgraph_node::release_body(bool) ()
-#2  0x0000000000680b73 in cgraph_node::remove() ()
-#3  0x000000000068aa9f in ?? ()	analyze_functions
-#4  0x000000000068af2b in symbol_table::finalize_compilation_unit() ()
-#5  0x0000000000997c8a in ?? () compile_file
-#6  0x0000000000572310 in toplev::main(int, char**) ()
-#endif
-	/* function body, will be released at release_function_body */
-	if (DECL_SAVED_TREE(node) == NULL_TREE)
-		return;
-
-	func_nodes[node_idx] = gcc_data;
-	node_idx++;
-}
-#endif
-
+static int has_function = 0;
 static void ast_collect(void *gcc_data, void *user_data)
 {
 	if (!has_function) {
@@ -1890,92 +2147,22 @@ static void ast_collect(void *gcc_data, void *user_data)
 	}
 
 	nodes_flush(outfd);
-}
-
-namespace {
-const pass_data pass_data_before_cfg = {
-	GIMPLE_PASS,
-	"before_cfg",
-	OPTGROUP_NONE,
-	TV_NONE,
-	PROP_gimple_lcf,
-	0,
-	0,
-	0,
-	0
-};
-const pass_data pass_data_after_cfg = {
-	GIMPLE_PASS,
-	"after_cfg",
-	OPTGROUP_NONE,
-	TV_NONE,
-	PROP_gimple_lcf,
-	0,
-	0,
-	0,
-	0
-};
-
-class pass_before_cfg : public gimple_opt_pass {
-public:
-pass_before_cfg(gcc::context *ctx) : gimple_opt_pass(pass_data_before_cfg, ctx)
-{}
-
-virtual unsigned int execute(function *func) override
-{
-	has_function = 1;
-	tree func_node = func->decl;
-	BUG_ON(TREE_CODE(func_node) != FUNCTION_DECL);
-	BUG_ON(DECL_STRUCT_FUNCTION(func_node)->gimple_body != func->gimple_body);
-	do_function_decl(func_node, 1);
-	return 0;
-}
-
-virtual pass_before_cfg *clone() override
-{
-	return this;
-}
-
-private:
-#if 0
-static tree callback_stmt(gimple_stmt_iterator *gsi, bool *handled_all_ops,
-			  struct walk_stmt_info *wi)
-{
-	gimple *g = gsi_stmt(*gsi);
-	location_t l = gimple_location(g);
-	enum gimple_code code = gimple_code(g);
-	fprintf(stderr, "Statement of type: %s at %s: %d\n", gimple_code_name[code],
-			LOCATION_FILE(l), LOCATION_LINE(l));
-	return NULL;
-}
-
-static tree callback_op(tree *t, int *arg, void *data)
-{
-	enum tree_code code = TREE_CODE(*t);
-	fprintf(stderr, "\t Operand: %s\n", get_tree_code_name(code));
-	return NULL;
+	close(outfd);
 }
 #endif
-};	/* class pass_before_cfg */
 
-class pass_after_cfg : public gimple_opt_pass {
-public:
-pass_after_cfg(gcc::context *ctx) : gimple_opt_pass(pass_data_after_cfg, ctx)
-{}
-
-virtual unsigned int execute(function *func) override
+static void ast_collect(void *gcc_data, void *user_data)
 {
-	return 0;
-}
+	symtab_node *node = symtab->nodes;
+	while (node) {
+		tree decl = node->decl;
+		do_tree(decl);
+		node = node->next;
+	}
 
-virtual pass_after_cfg *clone() override
-{
-	return this;
+	nodes_flush(outfd);
+	close(outfd);
 }
-
-private:
-};	/* class pass_after_cfg */
-}	/* namespace */
 
 int plugin_init(struct plugin_name_args *plugin_info,
 		struct plugin_gcc_version *version)
@@ -2021,12 +2208,13 @@ int plugin_init(struct plugin_name_args *plugin_info,
 		return -1;
 	}
 
-	/* this is for kicking some folder */
+	/* kicking out some folders */
 	const char *exclude_folders[] = {
 		"scripts/", "Documentation/", "debian/", "debian.master/",
 		"tools/", "samples/", "spl/", "usr/",
 	};
-	for (unsigned int i = 0; i < sizeof(exclude_folders) / sizeof(char *); i++) {
+	unsigned int i = 0;
+	for (i = 0; i < sizeof(exclude_folders) / sizeof(char *); i++) {
 		if (strstr(write_ctx->path, exclude_folders[i]))
 			return 0;
 	}
@@ -2040,36 +2228,8 @@ int plugin_init(struct plugin_name_args *plugin_info,
 	register_callback(plugin_info->base_name, PLUGIN_INFO, NULL,
 				&this_plugin_info);
 
-	/* collect the lower GIMPLE before cfg pass */
-	struct register_pass_info before_info;
-	before_info.pass = new pass_before_cfg(g);
-	before_info.reference_pass_name = "cfg";
-	before_info.ref_pass_instance_number = 1;
-	before_info.pos_op = PASS_POS_INSERT_BEFORE;
-	register_callback(plugin_info->base_name, PLUGIN_PASS_MANAGER_SETUP,
-				NULL, &before_info);
-
-	/* flush data to file */
+	/* collect data, flush data to file */
 	register_callback(plugin_info->base_name, PLUGIN_ALL_IPA_PASSES_START,
 				ast_collect, NULL);
-#if 0
-	/* could not do the flush this way */
-	struct register_pass_info after_info;
-	after_info.pass = new pass_after_cfg(g);
-	after_info.reference_pass_name = "cfg";
-	after_info.ref_pass_instance_number = 1;
-	after_info.pos_op = PASS_POS_INSERT_AFTER;
-	register_callback(plugin_info->base_name, PLUGIN_PASS_MANAGER_SETUP,
-				NULL, &after_info);
-	register_callback(plugin_info->base_name, PLUGIN_FINISH_PARSE_FUNCTION,
-				parse_function, NULL);
-	/* lower GIMPLE */
-	register_callback(plugin_info->base_name, PLUGIN_ALL_IPA_PASSES_START,
-				ast_collect, NULL);
-	register_callback(plugin_info->base_name, PLUGIN_PRE_GENERICIZE,
-				ast_collect, NULL);
-	register_callback(plugin_info->base_name, PLUGIN_FINISH,
-				plugin_exit, NULL);
-#endif
 	return 0;
 }

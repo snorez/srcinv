@@ -11,10 +11,10 @@ INFILE = hacking.c \
 OUTDIR1 = $(SRCINV_BIN)/hacking
 # ==============================================================================
 CC0 = gcc
-CC0_OPT = $(CFLAGS) -rdynamic -shared -fPIC -D_FILE_OFFSET_BITS=64 $(CC_RELEASE)
+CC0_OPT = $(CFLAGS) -rdynamic -shared -fPIC -D_FILE_OFFSET_BITS=64
 
 CC1 = g++
-CC1_OPT=$(CPPFLAGS) -rdynamic -shared -fPIC -Wno-literal-suffix -fno-rtti -D_FILE_OFFSET_BITS=64 $(CC_RELEASE)
+CC1_OPT=$(CPPFLAGS) -rdynamic -shared -fPIC -Wno-literal-suffix -fno-rtti -D_FILE_OFFSET_BITS=64
 # ==============================================================================
 CC0_SO =
 

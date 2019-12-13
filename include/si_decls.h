@@ -28,9 +28,11 @@ C_SYM void *src_buf_get(size_t len);
 C_SYM void si_module_init(struct si_module *p);
 C_SYM int si_module_str_to_category(int *category, char *string);
 C_SYM int si_module_str_to_type(struct si_type *type, char *string);
-C_SYM int si_module_get_abs_path(char *buf, size_t len, int category, char *path);
+C_SYM int si_module_get_abs_path(char *buf, size_t len, int category,
+					char *path);
 C_SYM struct list_head *si_module_get_head(int category);
-C_SYM struct si_module *si_module_find_by_name(char *name, struct list_head *head);
+C_SYM struct si_module *si_module_find_by_name(char *name,
+						struct list_head *head);
 C_SYM struct si_module **si_module_find_by_type(struct si_type *type,
 						struct list_head *head);
 C_SYM int si_module_add(struct si_module *p);
@@ -76,6 +78,8 @@ static void modname##_usage(void)\
 {\
 	fprintf(stdout, "\tEnter %s subshell\n", #modname);\
 }\
+SI_MOD_SUBENV_INIT();\
+SI_MOD_SUBENV_DEINIT();\
 static long modname##_cb(int argc, char *argv[])\
 {\
 	int err = 0;\
@@ -93,15 +97,21 @@ static long modname##_cb(int argc, char *argv[])\
 	err = clib_cmd_ac_add("exit", ____exit_cb, ____exit_usage);\
 	if (err) {\
 		err_dbg(0, "clib_cmd_ac_add err");\
-		clib_cmd_ac_del("help");\
+		clib_cmd_ac_cleanup();\
+		clib_ui_end();\
+		return -1;\
+	}\
+	err = clib_cmd_ac_add("quit", ____exit_cb, ____exit_usage);\
+	if (err) {\
+		err_dbg(0, "clib_cmd_ac_add err");\
+		clib_cmd_ac_cleanup();\
 		clib_ui_end();\
 		return -1;\
 	}\
 	err = SI_MOD_SUBENV_INIT_NAME();\
 	if (err) {\
 		err_dbg(0, "%s_subenv_setup err", #modname);\
-		clib_cmd_ac_del("help");\
-		clib_cmd_ac_del("exit");\
+		clib_cmd_ac_cleanup();\
 		clib_ui_end();\
 		return -1;\
 	}\
@@ -116,7 +126,8 @@ static long modname##_cb(int argc, char *argv[])\
 		int cmd_arg_max = 16;\
 		char *cmd_argv[cmd_arg_max];\
 		memset(cmd_argv, 0, cmd_arg_max*sizeof(char *));\
-		err = clib_cmd_getarg(ibuf,strlen(ibuf)+1,&cmd_argc,cmd_argv,cmd_arg_max);\
+		err = clib_cmd_getarg(ibuf,strlen(ibuf)+1,&cmd_argc,cmd_argv,\
+								cmd_arg_max);\
 		if (err) {\
 			err_dbg(0, "clib_cmd_getarg err, redo");\
 			free(ibuf);\
@@ -130,6 +141,7 @@ static long modname##_cb(int argc, char *argv[])\
 		}\
 		free(ibuf);\
 	}\
+	exit_flag = 0;\
 	SI_MOD_SUBENV_DEINIT_NAME();\
 	clib_cmd_ac_cleanup();\
 	clib_ui_end();\
@@ -198,6 +210,12 @@ CLIB_MODULE_CALL_FUNC0(analysis, resfile_unload_all, void);
 CLIB_MODULE_CALL_FUNC(analysis, resfile_get_filecnt, int,
 		(struct resfile *rf, int *is_new),
 		2, rf, is_new);
+CLIB_MODULE_CALL_FUNC(analysis, resfile_get_offset, int,
+		(char *path,unsigned long filecnt,unsigned long *offs),
+		3, path, filecnt, offs);
+CLIB_MODULE_CALL_FUNC(analysis, resfile_get_filecontext, struct file_context *,
+		(char *path, char *targetfile),
+		2, path, targetfile);
 CLIB_MODULE_CALL_FUNC(analysis, get_func_code_paths_start, void,
 		(struct code_path *codes),
 		1, codes);
@@ -249,7 +267,8 @@ static inline struct sibuf *find_target_sibuf(void *addr)
 	read_lock(&si->lock);
 	list_for_each_entry(tmp, &si->sibuf_head, sibling) {
 		if (((unsigned long)addr >= tmp->load_addr) &&
-			((unsigned long)addr < (tmp->load_addr + tmp->total_len))) {
+			((unsigned long)addr < (tmp->load_addr +
+						tmp->total_len))) {
 			ret = tmp;
 			break;
 		}
@@ -263,7 +282,8 @@ static inline struct resfile *get_builtin_resfile(void)
 {
 	struct resfile *ret = NULL;
 	read_lock(&si->lock);
-	ret = list_first_entry_or_null(&si->resfile_head, struct resfile, sibling);
+	ret = list_first_entry_or_null(&si->resfile_head, struct resfile,
+					sibling);
 	if (ret && (!ret->built_in))
 		ret = NULL;
 	read_unlock(&si->lock);
@@ -549,8 +569,8 @@ static inline struct call_func_list *call_func_list_new(void)
 }
 
 static inline struct call_func_list *call_func_list_find(struct list_head *head,
-								unsigned long value,
-								unsigned long flag)
+							unsigned long value,
+							unsigned long flag)
 {
 	struct call_func_list *tmp;
 	list_for_each_entry(tmp, head, sibling) {
@@ -560,7 +580,8 @@ static inline struct call_func_list *call_func_list_find(struct list_head *head,
 	return NULL;
 }
 
-static inline struct call_func_gimple_stmt_list *call_func_gimple_stmt_list_new(void)
+static inline
+struct call_func_gimple_stmt_list *call_func_gimple_stmt_list_new(void)
 {
 	struct call_func_gimple_stmt_list *_new;
 	_new = (struct call_func_gimple_stmt_list *)src_buf_get(sizeof(*_new));
@@ -620,8 +641,8 @@ static inline struct possible_value_list *possible_value_list_new(void)
 	return _new;
 }
 
-static inline struct possible_value_list *possible_value_list_find(
-						struct list_head *head,
+static inline
+struct possible_value_list *possible_value_list_find(struct list_head *head,
 						unsigned long val_flag,
 						unsigned long value)
 {
@@ -667,6 +688,19 @@ static inline struct path_list_head *path_list_head_new(void)
 }
 
 #include "defdefine.h"
+
+static inline int si_current_resfile(char *p, size_t len, char *name)
+{
+	if (unlikely(!si))
+		return -1;
+
+	memset(p, 0, len);
+	if (!strchr(name, '/'))
+		snprintf(p, len, "%s/%s/%s", DEF_TMPDIR, si->src_id, name);
+	else
+		snprintf(p, len, "%s", name);
+	return 0;
+}
 
 #define	si_get_logfile() ({\
 		char ____path[PATH_MAX];\

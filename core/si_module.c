@@ -321,8 +321,6 @@ int si_module_load_all(struct list_head *head)
 {
 	struct si_module *tmp;
 	list_for_each_entry(tmp, head, sibling) {
-		if ((!tmp->autoload) && (tmp->category != SI_PLUGIN_CATEGORY_CORE))
-			continue;
 		if (si_module_act(tmp, 0))
 			return -1;
 	}
@@ -333,8 +331,6 @@ int si_module_unload_all(struct list_head *head)
 {
 	struct si_module *tmp;
 	list_for_each_entry(tmp, head, sibling) {
-		if ((!tmp->autoload) && (tmp->category != SI_PLUGIN_CATEGORY_CORE))
-			continue;
 		if (si_module_act(tmp, 1))
 			return -1;
 	}

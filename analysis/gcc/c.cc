@@ -3,6 +3,9 @@
  * NOTE, this should be able to used in multiple thread
  * this handle the information collected in lower gimple before cfg pass
  *
+ * TODO:
+ *	SSA_NAME handler
+ *
  * Copyright (C) 2018  zerons
  *
  * This program is free software: you can redistribute it and/or modify
@@ -21,59 +24,8 @@
 #define	vecpfx m_vecpfx
 #define	vecdata m_vecdata
 #include "si_gcc.h"
+#include "si_gcc_extra.h"
 #include "../analysis.h"
-
-#define	DEFTREECODE(SYM, NAME, TYPE, LENGTH) TYPE,
-#define	END_OF_BASE_TREE_CODES tcc_exceptional,
-const enum tree_code_class tree_code_type[] = {
-#include <all-tree.def>
-};
-#undef DEFTREECODE
-#undef END_OF_BASE_TREE_CODES
-
-#define DEFTREECODE(SYM, NAME, TYPE, LENGTH) LENGTH,
-#define END_OF_BASE_TREE_CODES	0,
-const unsigned char tree_code_length[] = {
-#include <all-tree.def>
-};
-#undef DEFTREECODE
-#undef END_OF_BASE_TREE_CODES
-
-#ifndef HAS_TREE_CODE_NAME
-#define	HAS_TREE_CODE_NAME
-#define DEFTREECODE(SYM, NAME, TYPE, LEN) NAME,
-#define END_OF_BASE_TREE_CODES "@dummy",
-static const char *const tree_code_name[] = {
-#include "all-tree.def"
-};
-#undef DEFTREECODE
-#undef END_OF_BASE_TREE_CODES
-#endif
-
-#define DEFGSSTRUCT(SYM, STRUCT, HAS_TREE_OP) \
-	(HAS_TREE_OP ? sizeof (struct STRUCT) - sizeof (tree) : 0),
-EXPORTED_CONST size_t gimple_ops_offset_[] = {
-#include "gsstruct.def"
-};
-#undef DEFGSSTRUCT
-
-#define DEFGSSTRUCT(SYM, STRUCT, HAS_TREE_OP) sizeof (struct STRUCT),
-static const size_t gsstruct_code_size[] = {
-#include "gsstruct.def"
-};
-#undef DEFGSSTRUCT
-
-#define DEFGSCODE(SYM, NAME, GSSCODE)	NAME,
-const char *const gimple_code_name[] = {
-#include "gimple.def"
-};
-#undef DEFGSCODE
-
-#define DEFGSCODE(SYM, NAME, GSSCODE)	GSSCODE,
-EXPORTED_CONST enum gimple_statement_structure_enum gss_for_code_[] = {
-#include "gimple.def"
-};
-#undef DEFGSCODE
 
 static int c_callback(struct sibuf *, int);
 static struct lang_ops c_ops;
@@ -109,97 +61,13 @@ static __thread gimple_seq cur_gimple = NULL;
 static __thread unsigned long cur_gimple_op_idx = 0;
 static __thread struct sinode *cur_fn = NULL;
 static __thread struct func_node *cur_func_node = NULL;
-#if 0
-static __thread void *xrefs_obj_checked[MAX_OBJS_PER_FILE];
-#endif
 static __thread void **xrefs_obj_checked;
 static __thread size_t xrefs_obj_idx = 0;
 
 /* these two are for optimization purpose */
-#if 0
-static __thread void *real_addrs[MAX_OBJS_PER_FILE];
-static __thread void *fake_addrs[MAX_OBJS_PER_FILE];
-#endif
 static __thread void **real_addrs;
 static __thread void **fake_addrs;
 
-#if 0
-static inline void get_real_addr(void **fake_addr, int *do_next)
-{
-	/*
-	 * this function should only return the real addr once,
-	 * and then return some other value that means this orig_addr has
-	 * already been taken care.
-	 */
-	int i = 0;
-	*do_next = 0;
-	if (unlikely(!*fake_addr))
-		return;
-
-	int loop_limit = obj_idx;
-	if (unlikely(loop_limit > (MAX_OBJS_PER_FILE / 8))) {
-		loop_limit = MAX_OBJS_PER_FILE / 8;
-		for (i = loop_limit; i < obj_idx; i++) {
-			if (unlikely(fake_addrs[i] == *fake_addr)) {
-				*fake_addr = (void *)
-						(unsigned long)objs[i].real_addr;
-				return;
-			}
-		}
-	}
-	for (i = 0; i < loop_limit; i++) {
-		if (unlikely(fake_addrs[i] == *fake_addr)) {
-			*fake_addr = (void *)(unsigned long)objs[i].real_addr;
-			return;
-		}
-	}
-
-	while (unlikely(objs[obj_idx].is_adjusted))
-		obj_idx++;
-
-	if (unlikely((void *)(unsigned long)objs[obj_idx].fake_addr != *fake_addr)) {
-		fprintf(stderr, "hello world\n");
-		BUG();
-	}
-	*fake_addr = (void *)(unsigned long)objs[obj_idx].real_addr;
-	objs[obj_idx].is_adjusted = 1;
-	*do_next = 1;
-	obj_idx++;
-}
-#define	do_nothing() \
-	({ do {;}while(0); })
-#define	do_real_addr(addr,next) \
-	({ \
-	 void **ptr = (void **)addr; \
-	 int do_next; \
-	 get_real_addr(ptr, &do_next); \
-	 if (do_next) \
-		next; \
-	 })
-
-static inline int is_obj_checked(void *real_addr)
-{
-	int i = 0;
-	int loop_limit;
-	if (unlikely(!obj_idx))
-		loop_limit = 0;
-	else
-		loop_limit = obj_idx-1;
-	if (unlikely(loop_limit > (MAX_OBJS_PER_FILE / 8))) {
-		loop_limit = MAX_OBJS_PER_FILE / 8;
-		for (i = loop_limit; i <  obj_idx-1; i++) {
-			if (unlikely(real_addr == real_addrs[i]))
-				return 1;
-		}
-	}
-
-	for (i = 0; i < loop_limit; i++) {
-		if (unlikely(real_addr == real_addrs[i]))
-			return 1;
-	}
-	return 0;
-}
-#endif
 static inline void get_real_addr(void **fake_addr, int *do_next)
 {
 	/*
@@ -217,8 +85,8 @@ static inline void get_real_addr(void **fake_addr, int *do_next)
 		loop_limit = MAX_OBJS_PER_FILE / 8;
 		for (i = loop_limit; i < obj_cnt; i++) {
 			if (unlikely(fake_addrs[i] == *fake_addr)) {
-				*fake_addr = (void *)
-						(unsigned long)objs[i].real_addr;
+				*fake_addr = (void *)(unsigned long)
+							objs[i].real_addr;
 				if (!objs[i].is_adjusted)
 					*do_next = 1;
 				return;
@@ -288,7 +156,8 @@ static inline int is_obj_checked(void *real_addr)
 		if (unlikely(loop_limit > (MAX_OBJS_PER_FILE / 8))) {
 			loop_limit = MAX_OBJS_PER_FILE / 8;
 			for (i = loop_limit; i < xrefs_obj_idx; i++) {
-				if (unlikely(real_addr == xrefs_obj_checked[i])) {
+				if (unlikely(real_addr ==
+						xrefs_obj_checked[i])) {
 					return 1;
 				}
 			}
@@ -352,20 +221,44 @@ static void do_omp_clause(tree node, int flag);
 static void do_optimization_option(tree node, int flag);
 static void do_target_option(tree node, int flag);
 
+static inline int __maybe_unused is_location(unsigned long fake_addr)
+{
+	return fake_addr >= (unsigned long)0x800000000000;
+}
 static expanded_location *my_expand_location(location_t *loc)
 {
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+#if 0
+		size_t i = 0;
+		size_t this_idx = 0;
+		for (i = 0; i < obj_cnt; i++) {
+			if ((is_location(objs[i].fake_addr)) &&
+					(!objs[i].is_adjusted)) {
+				this_idx = i;
+				break;
+			}
+		}
+		BUG_ON(i == obj_cnt);
+#else
+		/*
+		 * TODO: there might be an issue here:
+		 *	the obj_idx may not be the right location we save
+		 */
+		size_t __maybe_unused saved_idx = obj_idx;
 		while (unlikely(objs[obj_idx].is_adjusted))
 			obj_idx++;
-		BUG_ON((unsigned long)objs[obj_idx].fake_addr <
-				(unsigned long)0x800000000000);
-		*loc = objs[obj_idx].offs;
-		objs[obj_idx].is_adjusted = 1;
+		size_t this_idx = obj_idx;
+		BUG_ON(!is_location(objs[this_idx].fake_addr));
+#endif
+
+		*loc = objs[this_idx].offs;
+		objs[this_idx].is_adjusted = 1;
 		obj_adjusted++;
-		expanded_location *ret =
-		      (expanded_location *)((unsigned long)objs[obj_idx].real_addr);
+		expanded_location *ret;
+		ret = (expanded_location *)(
+				(unsigned long)objs[this_idx].real_addr);
 		return ret;
 	}
 	default:
@@ -397,12 +290,11 @@ static void do_vec_tree(void *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
-		vec<tree, va_gc, vl_embed> *node0 =
-			(vec<tree, va_gc, vl_embed> *)node;
+		vec<tree, va_gc, vl_embed> *node0;
+		node0 = (vec<tree, va_gc, vl_embed> *)node;
 
 		struct vec_prefix *pfx = (struct vec_prefix *)&node0->vecpfx;
 		unsigned long length = pfx->m_num;
-		BUG_ON(!length);
 		tree *addr = &node0->vecdata[0];
 		for (unsigned long i = 0; i < length; i++) {
 			do_real_addr(&addr[i], do_tree(addr[i]));
@@ -416,7 +308,6 @@ static void do_vec_tree(void *node, int flag)
 
 		struct vec_prefix *pfx = (struct vec_prefix *)&node0->vecpfx;
 		unsigned long length = pfx->m_num;
-		BUG_ON(!length);
 		tree *addr = &node0->vecdata[0];
 		for (unsigned long i = 0; i < length; i++) {
 			do_tree(addr[i]);
@@ -441,7 +332,6 @@ static void do_vec_constructor(void *node, int flag)
 		vec<constructor_elt, va_gc> *node0 =
 			(vec<constructor_elt, va_gc> *)node;
 		unsigned long length = node0->vecpfx.m_num;
-		BUG_ON(!length);
 		struct constructor_elt *addr = &node0->vecdata[0];
 		for (unsigned long i = 0; i < length; i++) {
 			do_real_addr(&addr[i].index,do_tree(addr[i].index));
@@ -454,7 +344,6 @@ static void do_vec_constructor(void *node, int flag)
 		vec<constructor_elt, va_gc> *node0 =
 			(vec<constructor_elt, va_gc> *)node;
 		unsigned long length = node0->vecpfx.m_num;
-		BUG_ON(!length);
 		struct constructor_elt *addr = &node0->vecdata[0];
 		for (unsigned long i = 0; i < length; i++) {
 			do_tree(addr[i].index);
@@ -597,7 +486,6 @@ static void do_vec_c_goto_bindings(void *node, int flag)
 		vec<c_goto_bindings_p, va_gc> *node0 =
 					(vec<c_goto_bindings_p, va_gc> *)node;
 		unsigned long len = node0->vecpfx.m_num;
-		BUG_ON(!len);
 		c_goto_bindings_p *addr = node0->vecdata;
 		for (unsigned long i = 0; i < len; i++) {
 			do_real_addr(&addr[i], do_c_goto_bindings(addr[i], 1));
@@ -610,7 +498,6 @@ static void do_vec_c_goto_bindings(void *node, int flag)
 		vec<c_goto_bindings_p, va_gc> *node0 =
 					(vec<c_goto_bindings_p, va_gc> *)node;
 		unsigned long len = node0->vecpfx.m_num;
-		BUG_ON(!len);
 		c_goto_bindings_p *addr = node0->vecdata;
 		for (unsigned long i = 0; i < len; i++) {
 			do_c_goto_bindings(addr[i], 1);
@@ -639,12 +526,13 @@ static void do_c_label_vars(struct c_label_vars *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
-		do_real_addr(&node->shadowed, do_c_label_vars(node->shadowed, 1));
+		do_real_addr(&node->shadowed,
+				do_c_label_vars(node->shadowed, 1));
 		do_c_spot_bindings(&node->label_bindings, 0);
 		do_real_addr(&node->decls_in_scope,
 				do_vec_tree((void *)node->decls_in_scope, 1));
 		do_real_addr(&node->gotos,
-				do_vec_c_goto_bindings((void *)node->gotos, 1));
+				do_vec_c_goto_bindings((void *)node->gotos,1));
 		return;
 	}
 	case MODE_GETXREFS:
@@ -814,7 +702,8 @@ static void do_cpp_marco_arg(struct cpp_macro_arg *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
-		do_real_addr(&node->spelling, do_cpp_hashnode(node->spelling, 1));
+		do_real_addr(&node->spelling,
+				do_cpp_hashnode(node->spelling, 1));
 		return;
 	}
 	case MODE_GETXREFS:
@@ -862,7 +751,8 @@ static void do_cpp_identifier(struct cpp_identifier *node, int flag)
 	case MODE_ADJUST:
 	{
 		do_real_addr(&node->node, do_cpp_hashnode(node->node, 1));
-		do_real_addr(&node->spelling, do_cpp_hashnode(node->spelling, 1));
+		do_real_addr(&node->spelling,
+				do_cpp_hashnode(node->spelling, 1));
 		return;
 	}
 	case MODE_GETXREFS:
@@ -943,9 +833,9 @@ static void do_cpp_token(struct cpp_token *node, int flag)
 
 struct GTY(()) cpp_macro { /* libcpp/include/cpp-id-data.h */
 	cpp_hashnode **GTY((nested_ptr(union tree_node,
-				"%h?CPP_HASHNODE(GCC_IDENT_TO_HT_IDENT(%h)):NULL",
-				"%h?HT_IDENT_TO_GCC_IDENT(HT_NODE(%h)):NULL"),
-				length("%h.paramc"))) params;
+			"%h?CPP_HASHNODE(GCC_IDENT_TO_HT_IDENT(%h)):NULL",
+			"%h?HT_IDENT_TO_GCC_IDENT(HT_NODE(%h)):NULL"),
+			length("%h.paramc"))) params;
 	union cpp_macro_u {
 		cpp_token *GTY((tag("0"), length("%0.count"))) tokens;
 		const unsigned char *GTY((tag("1"))) text;
@@ -971,10 +861,12 @@ static void __maybe_unused do_cpp_macro(struct cpp_macro *node, int flag)
 	{
 		do_location(&node->line);
 		if (node->params) {
-			do_real_addr(&node->params, is_obj_checked(node->params));
+			do_real_addr(&node->params,
+					is_obj_checked(node->params));
 			cpp_hashnode **addr = node->params;
 			for (unsigned short i = 0; i < node->paramc; i++) {
-				do_real_addr(&addr[i], do_cpp_hashnode(addr[i], 1));
+				do_real_addr(&addr[i],
+						do_cpp_hashnode(addr[i], 1));
 			}
 		}
 		switch (node->traditional) {
@@ -982,11 +874,10 @@ static void __maybe_unused do_cpp_macro(struct cpp_macro *node, int flag)
 		{
 			if (node->exp.tokens) {
 				do_real_addr(&node->exp.tokens,
-						is_obj_checked(node->exp.tokens));
+					is_obj_checked(node->exp.tokens));
 				struct cpp_token *addr = node->exp.tokens;
-				for (unsigned int i = 0; i < node->count; i++) {
+				for (unsigned int i = 0;i < node->count;i++)
 					do_cpp_token(&addr[i], 0);
-				}
 			}
 			break;
 		}
@@ -994,7 +885,8 @@ static void __maybe_unused do_cpp_macro(struct cpp_macro *node, int flag)
 		{
 			if (node->exp.text)
 				do_real_addr(&node->exp.text,
-					is_obj_checked((void *)node->exp.text));
+						is_obj_checked((void *)
+							node->exp.text));
 			break;
 		}
 		default:
@@ -1016,7 +908,7 @@ static void __maybe_unused do_cpp_macro(struct cpp_macro *node, int flag)
 		{
 			if (node->exp.tokens) {
 				struct cpp_token *addr = node->exp.tokens;
-				for (unsigned int i = 0; i < node->count; i++) {
+				for (unsigned i = 0; i < node->count; i++) {
 					do_cpp_token(&addr[i], 0);
 				}
 			}
@@ -1053,7 +945,6 @@ static void do_answer(struct answer *node, int flag)
 	case MODE_ADJUST:
 	{
 		unsigned int len = node->count;
-		BUG_ON(!len);
 		do_real_addr(&node->next, do_answer(node->next, 1));
 		for (unsigned int i = 0; i < len; i++) {
 			do_cpp_token(&node->first[i], 0);
@@ -1064,7 +955,6 @@ static void do_answer(struct answer *node, int flag)
 	{
 #if 0
 		unsigned int len = node->count;
-		BUG_ON(!len);
 		do_answer(node->next, 1);
 		for (unsigned int i = 0; i < len; i++) {
 			do_cpp_token(&node->first[i], 0);
@@ -1115,8 +1005,7 @@ static void do_real_value(struct real_value *node, int flag)
 	return;
 }
 
-static void do_sorted_fields_type(struct sorted_fields_type *node,
-							int flag)
+static void do_sorted_fields_type(struct sorted_fields_type *node, int flag)
 {
 	if (!node)
 		return;
@@ -1211,15 +1100,18 @@ static void do_symtab_node(void *node, int flag)
 		struct symtab_node *node0 = (struct symtab_node *)node;
 		do_real_addr(&node0->decl, do_tree(node0->decl));
 		do_real_addr(&node0->next, do_symtab_node(node0->next, 1));
-		do_real_addr(&node0->previous, do_symtab_node(node0->previous, 1));
+		do_real_addr(&node0->previous,
+				do_symtab_node(node0->previous, 1));
 		do_real_addr(&node0->next_sharing_asm_name,
-				do_symtab_node(node0->next_sharing_asm_name, 1));
+			     do_symtab_node(node0->next_sharing_asm_name, 1));
 		do_real_addr(&node0->previous_sharing_asm_name,
-				do_symtab_node(node0->previous_sharing_asm_name, 1));
+			  do_symtab_node(node0->previous_sharing_asm_name, 1));
 		do_real_addr(&node0->same_comdat_group,
 				do_symtab_node(node0->same_comdat_group, 1));
-		do_real_addr(&node0->alias_target, do_tree(node0->alias_target));
-		do_real_addr(&node0->x_comdat_group, do_tree(node0->x_comdat_group));
+		do_real_addr(&node0->alias_target,
+				do_tree(node0->alias_target));
+		do_real_addr(&node0->x_comdat_group,
+				do_tree(node0->x_comdat_group));
 		return;
 	}
 	case MODE_GETXREFS:
@@ -1344,8 +1236,10 @@ static void do_splay_tree_node_s(struct splay_tree_node_s *node,
 	switch (mode) {
 	case MODE_ADJUST:
 	{
-		do_real_addr(&node->left, do_splay_tree_node_s(node->left, 1));
-		do_real_addr(&node->right, do_splay_tree_node_s(node->right, 1));
+		do_real_addr(&node->left,
+				do_splay_tree_node_s(node->left, 1));
+		do_real_addr(&node->right,
+				do_splay_tree_node_s(node->right, 1));
 		return;
 	}
 	case MODE_GETXREFS:
@@ -1420,7 +1314,8 @@ static void do_c_switch(struct c_switch *node, int flag)
 		do_real_addr(&node->switch_expr, do_tree(node->switch_expr));
 		do_real_addr(&node->orig_type, do_tree(node->orig_type));
 		do_real_addr(&node->cases, do_splay_tree_s(node->cases, 1));
-		do_real_addr(&node->bindings, do_c_spot_bindings(node->bindings, 1));
+		do_real_addr(&node->bindings,
+				do_c_spot_bindings(node->bindings, 1));
 		do_real_addr(&node->next, do_c_switch(node->next, 1));
 		return;
 	}
@@ -1528,7 +1423,8 @@ static void do_c_arg_info(struct c_arg_info *node, int flag)
 		do_real_addr(&node->tags, do_vec_c_arg_tag(node->tags, 1));
 		do_real_addr(&node->types, do_tree(node->types));
 		do_real_addr(&node->others, do_tree(node->others));
-		do_real_addr(&node->pending_sizes, do_tree(node->pending_sizes));
+		do_real_addr(&node->pending_sizes,
+				do_tree(node->pending_sizes));
 		return;
 	}
 	case MODE_GETXREFS:
@@ -1570,11 +1466,13 @@ static void do_language_function(struct language_function *node,
 	case MODE_ADJUST:
 	{
 		do_c_language_function(&node->base, 0);
-		do_real_addr(&node->x_break_label, do_tree(node->x_break_label));
+		do_real_addr(&node->x_break_label,
+				do_tree(node->x_break_label));
 		do_real_addr(&node->x_cont_label, do_tree(node->x_cont_label));
 		do_real_addr(&node->x_switch_stack,
 				do_c_switch(node->x_switch_stack, 1));
-		do_real_addr(&node->arg_info, do_c_arg_info(node->arg_info, 1));
+		do_real_addr(&node->arg_info,
+				do_c_arg_info(node->arg_info, 1));
 		return;
 	}
 	case MODE_GETXREFS:
@@ -1593,6 +1491,7 @@ static void do_language_function(struct language_function *node,
 	}
 }
 
+static void do_basic_block(void *node, int flag);
 static void do_gimple_seq(gimple_seq gs, int flag)
 {
 	if (!gs)
@@ -1608,12 +1507,390 @@ static void do_gimple_seq(gimple_seq gs, int flag)
 		for (unsigned int i = 0; i < gimple_num_ops(gs); i++) {
 			do_real_addr(&ops[i], do_tree(ops[i]));
 		}
+		do_real_addr(&gs->bb, do_basic_block(gs->bb, 1));
 		do_real_addr(&gs->next, do_gimple_seq(gs->next, 1));
 		do_real_addr(&gs->prev, do_gimple_seq(gs->prev, 1));
 		return;
 	}
 	case MODE_GETXREFS:
 	{
+		return;
+	}
+	default:
+		BUG();
+	}
+}
+
+static void do_edge(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		struct edge_def *node0;
+		node0 = (struct edge_def *)node;
+		do_location(&node0->goto_locus);
+		do_real_addr(&node0->src, do_basic_block(node0->src, 1));
+		do_real_addr(&node0->dest, do_basic_block(node0->dest, 1));
+		do_real_addr(&node0->insns.g,
+				do_gimple_seq(node0->insns.g, 1));
+		return;
+	}
+	default:
+		BUG();
+	}
+}
+
+static void do_vec_edge(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		vec<edge, va_gc> *node0;
+		node0 = (vec<edge, va_gc> *)node;
+
+		struct vec_prefix *pfx;
+		pfx = &node0->vecpfx;
+		unsigned long length = pfx->m_num;
+		edge *addr = &node0->vecdata[0];
+		for (unsigned long i = 0; i < length; i++) {
+			do_real_addr(&addr[i], do_edge(addr[i], 1));
+		}
+		return;
+	}
+	default:
+		BUG();
+	}
+}
+
+static void do_nb_iter_bound(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		struct nb_iter_bound *node0;
+		node0 = (struct nb_iter_bound *)node;
+		do_real_addr(&node0->stmt, do_gimple_seq(node0->stmt, 1));
+		do_real_addr(&node0->next, do_nb_iter_bound(node0->next, 1));
+		return;
+	}
+	default:
+		BUG();
+	}
+}
+
+static void do_control_iv(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		struct control_iv *node0;
+		node0 = (struct control_iv *)node;
+		do_real_addr(&node0->base, do_tree(node0->base));
+		do_real_addr(&node0->step, do_tree(node0->step));
+		do_real_addr(&node0->next,
+				do_control_iv(node0->next, 1));
+		return;
+	}
+	default:
+		BUG();
+	}
+}
+
+static void do_loop_exit(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		struct loop_exit *node0;
+		node0 = (struct loop_exit *)node;
+		do_real_addr(&node0->e, do_edge(node0->e, 1));
+		do_real_addr(&node0->prev, do_loop_exit(node0->prev, 1));
+		do_real_addr(&node0->next, do_loop_exit(node0->next, 1));
+		do_real_addr(&node0->next_e, do_loop_exit(node0->next_e, 1));
+		return;
+	}
+	default:
+		BUG();
+	}
+}
+
+static void do_niter_desc(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		struct niter_desc *node0;
+		node0 = (struct niter_desc *)node;
+		do_real_addr(&node0->out_edge, do_edge(node0->out_edge, 1));
+		do_real_addr(&node0->in_edge, do_edge(node0->in_edge, 1));
+		return;
+	}
+	default:
+		BUG();
+	}
+}
+
+static void do_vec_loop(void *node, int flag);
+static void do_loop(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		struct loop *node0;
+		node0 = (struct loop *)node;
+		do_real_addr(&node0->header,
+				do_basic_block(node0->header, 1));
+		do_real_addr(&node0->latch,
+				do_basic_block(node0->latch, 1));
+		do_real_addr(&node0->superloops,
+				do_vec_loop(node0->superloops, 1));
+		do_real_addr(&node0->inner,
+				do_loop(node0->inner, 1));
+		do_real_addr(&node0->next,
+				do_loop(node0->next, 1));
+		do_real_addr(&node0->nb_iterations,
+				do_tree(node0->nb_iterations));
+		do_real_addr(&node0->simduid,
+				do_tree(node0->simduid));
+		do_real_addr(&node0->bounds,
+				do_nb_iter_bound(node0->bounds, 1));
+		do_real_addr(&node0->control_ivs,
+				do_control_iv(node0->control_ivs, 1));
+		do_real_addr(&node0->exits,
+				do_loop_exit(node0->exits, 1));
+		do_real_addr(&node0->simple_loop_desc,
+				do_niter_desc(node0->simple_loop_desc, 1));
+		do_real_addr(&node0->former_header,
+				do_basic_block(node0->former_header, 1));
+		return;
+	}
+	default:
+		BUG();
+	}
+}
+
+static void do_vec_loop(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		vec<loop_p,va_gc> *node0;
+		node0 = (vec<loop_p,va_gc> *)node;
+
+		struct vec_prefix *pfx;
+		pfx = &node0->vecpfx;
+		unsigned long length = pfx->m_num;
+		loop_p *addr;
+		addr = &node0->vecdata[0];
+		for (unsigned long i = 0; i < length; i++) {
+			do_real_addr(&addr[i],
+					do_loop(addr[i], 1));
+		}
+		return;
+	}
+	default:
+		BUG();
+	}
+}
+
+static void do_basic_block(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		struct basic_block_def *node0;
+		node0 = (struct basic_block_def *)node;
+
+		do_real_addr(&node0->preds,
+				do_vec_edge(node0->preds, 1));
+		do_real_addr(&node0->succs,
+				do_vec_edge(node0->succs, 1));
+		do_real_addr(&node0->loop_father,
+				do_loop(node0->loop_father, 1));
+		do_real_addr(&node0->prev_bb,
+				do_basic_block(node0->prev_bb, 1));
+		do_real_addr(&node0->next_bb,
+				do_basic_block(node0->next_bb, 1));
+		do_real_addr(&node0->il.gimple.seq,
+				do_gimple_seq(node0->il.gimple.seq, 1));
+		do_real_addr(&node0->il.gimple.phi_nodes,
+				do_gimple_seq(node0->il.gimple.phi_nodes, 1));
+		return;
+	}
+	default:
+		BUG();
+	}
+}
+
+static void do_vec_basic_block(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		vec<basic_block, va_gc> *node0;
+		node0 = (vec<basic_block, va_gc> *)node;
+
+		struct vec_prefix *pfx;
+		pfx = &node0->vecpfx;
+		unsigned long length;
+		length = pfx->m_num;
+
+		basic_block *addr;
+		addr = &node0->vecdata[0];
+		for (unsigned long i = 0; i < length; i++) {
+			do_real_addr(&addr[i],
+					do_basic_block(addr[i], 1));
+		}
+		return;
+	}
+	default:
+		BUG();
+	}
+}
+
+static void do_cfg(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		struct control_flow_graph *node0;
+		node0 = (struct control_flow_graph *)node;
+
+		do_real_addr(&node0->x_entry_block_ptr,
+				do_basic_block(node0->x_entry_block_ptr, 1));
+		do_real_addr(&node0->x_exit_block_ptr,
+				do_basic_block(node0->x_exit_block_ptr, 1));
+		do_real_addr(&node0->x_basic_block_info,
+			     do_vec_basic_block(node0->x_basic_block_info, 1));
+		do_real_addr(&node0->x_label_to_block_map,
+			   do_vec_basic_block(node0->x_label_to_block_map, 1));
+		return;
+	}
+	default:
+		BUG();
+	}
+}
+
+static void do_ssa_operands(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		struct ssa_operands __maybe_unused *node0;
+		node0 = (struct ssa_operands *)node;
+		return;
+	}
+	default:
+		BUG();
+	}
+}
+
+static void do_gimple_df(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		struct gimple_df *node0;
+		node0 = (struct gimple_df *)node;
+
+		do_real_addr(&node0->ssa_names,
+				do_vec_tree(node0->ssa_names, 1));
+		do_real_addr(&node0->vop,
+				do_tree(node0->vop));
+		do_real_addr(&node0->free_ssanames,
+				do_vec_tree(node0->free_ssanames, 1));
+		do_real_addr(&node0->free_ssanames_queue,
+				do_vec_tree(node0->free_ssanames_queue, 1));
+		do_ssa_operands(&node0->ssa_operands, 0);
+		return;
+	}
+	default:
+		BUG();
+	}
+}
+
+static void do_loops(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		struct loops *node0;
+		node0 = (struct loops *)node;
+
+		do_real_addr(&node0->larray,
+				do_vec_loop(node0->larray, 1));
+		do_real_addr(&node0->tree_root,
+				do_loop(node0->tree_root, 1));
 		return;
 	}
 	default:
@@ -1640,13 +1917,20 @@ static void do_function(struct function *node, int flag)
 				do_tree(node->static_chain_decl));
 		do_real_addr(&node->nonlocal_goto_save_area,
 				do_tree(node->nonlocal_goto_save_area));
-		do_real_addr(&node->local_decls, do_vec_tree(node->local_decls, 1));
+		do_real_addr(&node->local_decls,
+				do_vec_tree(node->local_decls, 1));
 #if __GNUC__ < 8
 		do_real_addr(&node->cilk_frame_decl,
 				do_tree(node->cilk_frame_decl));
 #endif
 		do_real_addr(&node->gimple_body,
 				do_gimple_seq(node->gimple_body, 1));
+		do_real_addr(&node->cfg,
+				do_cfg(node->cfg, 1));
+		do_real_addr(&node->gimple_df,
+				do_gimple_df(node->gimple_df, 1));
+		do_real_addr(&node->x_current_loops,
+				do_loops(node->x_current_loops, 1));
 		return;
 	}
 	case MODE_GETXREFS:
@@ -1667,10 +1951,6 @@ static void do_function(struct function *node, int flag)
 	}
 #if 0
 	/* TODO, node0->eh, except.h, ignore it */
-	/* TODO, node0->cfg, ignore */
-	/* TODO, node0->gimple_body */
-	/* TODO, node0->gimple_df */
-	/* TODO, node0->x_current_loops */
 	/* TODO, node0->su */
 	/* TODO, node0->value_histograms */
 	/* TODO, node0->used_types_hash */
@@ -1693,9 +1973,9 @@ static void do_statement_list_node(void *node, int flag)
 		struct tree_statement_list_node *node0 =
 				(struct tree_statement_list_node *)node;
 		do_real_addr(&node0->prev,
-				do_statement_list_node((void *)node0->prev, 1));
+			     do_statement_list_node((void *)node0->prev, 1));
 		do_real_addr(&node0->next,
-				do_statement_list_node((void *)node0->next, 1));
+			     do_statement_list_node((void *)node0->next, 1));
 		do_real_addr(&node0->stmt, do_tree(node0->stmt));
 		return;
 	}
@@ -2047,7 +2327,8 @@ static void do_c_lang_identifier(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
-		struct c_lang_identifier *node0 = (struct c_lang_identifier *)node;
+		struct c_lang_identifier *node0;
+		node0 = (struct c_lang_identifier *)node;
 		do_c_common_identifier(&node0->common_id, 0);
 #ifdef COLLECT_MORE
 		do_real_addr(&node0->symbol_binding,
@@ -2062,7 +2343,8 @@ static void do_c_lang_identifier(tree node, int flag)
 	case MODE_GETXREFS:
 	{
 #if 0
-		struct c_lang_identifier *node0 = (struct c_lang_identifier *)node;
+		struct c_lang_identifier *node0;
+		node0 = (struct c_lang_identifier *)node;
 		do_c_common_identifier(&node0->common_id, 0);
 #ifdef COLLECT_MORE
 		do_c_binding(node0->symbol_binding, 1);
@@ -2122,9 +2404,9 @@ static void do_statement_list(tree node, int flag)
 		do_typed((tree)&node0->typed, 0);
 
 		do_real_addr(&node0->head,
-				do_statement_list_node((void *)node0->head, 1));
+			     do_statement_list_node((void *)node0->head, 1));
 		do_real_addr(&node0->tail,
-				do_statement_list_node((void *)node0->tail, 1));
+			     do_statement_list_node((void *)node0->tail, 1));
 		return;
 	}
 	case MODE_GETXREFS:
@@ -2164,7 +2446,8 @@ static void do_block(tree node, int flag)
 		do_real_addr(&node0->nonlocalized_vars,
 				do_vec_tree(node0->nonlocalized_vars, 1));
 		do_real_addr(&node0->subblocks, do_tree(node0->subblocks));
-		do_real_addr(&node0->supercontext, do_tree(node0->supercontext));
+		do_real_addr(&node0->supercontext,
+				do_tree(node0->supercontext));
 		do_real_addr(&node0->abstract_origin,
 				do_tree(node0->abstract_origin));
 		do_real_addr(&node0->fragment_origin,
@@ -2209,15 +2492,17 @@ static void do_exp(tree node, int flag)
 		do_location(&node0->locus);
 		do_typed((tree)&node0->typed, 0);
 
+		int i = 0;
 		if (TREE_CODE_CLASS(TREE_CODE(node)) == tcc_vl_exp) {
 			do_real_addr(&node0->operands[0],
 					do_tree(node0->operands[0]));
-			for (int i = 1; i < VL_EXP_OPERAND_LENGTH(node); i++) {
+			BUG_ON(!VL_EXP_OPERAND_LENGTH(node));
+			for (i = 1; i < VL_EXP_OPERAND_LENGTH(node); i++) {
 				do_real_addr(&node0->operands[i],
 						do_tree(node0->operands[i]));
 			}
 		} else {
-			for (int i = 0;i<TREE_CODE_LENGTH(TREE_CODE(node));i++) {
+			for (i = 0;i<TREE_CODE_LENGTH(TREE_CODE(node));i++) {
 				do_real_addr(&node0->operands[i],
 						do_tree(node0->operands[i]));
 			}
@@ -2229,13 +2514,14 @@ static void do_exp(tree node, int flag)
 		struct tree_exp *node0 = (struct tree_exp *)node;
 		do_typed((tree)&node0->typed, 0);
 
+		int i = 0;
 		if (TREE_CODE_CLASS(TREE_CODE(node)) == tcc_vl_exp) {
 			do_tree(node0->operands[0]);
-			for (int i = 1; i < VL_EXP_OPERAND_LENGTH(node); i++) {
+			for (i = 1; i < VL_EXP_OPERAND_LENGTH(node); i++) {
 				do_tree(node0->operands[i]);
 			}
 		} else {
-			for (int i = 0;i<TREE_CODE_LENGTH(TREE_CODE(node));i++) {
+			for (i = 0;i<TREE_CODE_LENGTH(TREE_CODE(node));i++) {
 				do_tree(node0->operands[i]);
 			}
 		}
@@ -2291,7 +2577,7 @@ static void do_type_with_lang_specific(tree node, int flag)
 				(struct tree_type_with_lang_specific *)node;
 		do_type_common((tree)&node0->common, 0);
 		do_real_addr(&node0->lang_specific,
-				do_c_lang_type((void *)node0->lang_specific, 1));
+			     do_c_lang_type((void *)node0->lang_specific, 1));
 		return;
 	}
 	case MODE_GETXREFS:
@@ -2318,17 +2604,21 @@ static void do_type_common(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
-		struct tree_type_common *node0 = (struct tree_type_common *)node;
+		struct tree_type_common *node0;
+		node0 = (struct tree_type_common *)node;
 		do_common((tree)&node0->common, 0);
 
 		do_real_addr(&node0->size, do_tree(node0->size));
 		do_real_addr(&node0->size_unit, do_tree(node0->size_unit));
 		do_real_addr(&node0->attributes, do_tree(node0->attributes));
 		do_real_addr(&node0->pointer_to, do_tree(node0->pointer_to));
-		do_real_addr(&node0->reference_to, do_tree(node0->reference_to));
+		do_real_addr(&node0->reference_to,
+				do_tree(node0->reference_to));
 		do_real_addr(&node0->canonical, do_tree(node0->canonical));
-		do_real_addr(&node0->next_variant, do_tree(node0->next_variant));
-		do_real_addr(&node0->main_variant, do_tree(node0->main_variant));
+		do_real_addr(&node0->next_variant,
+				do_tree(node0->next_variant));
+		do_real_addr(&node0->main_variant,
+				do_tree(node0->main_variant));
 		do_real_addr(&node0->context, do_tree(node0->context));
 		do_real_addr(&node0->name, do_tree(node0->name));
 		return;
@@ -2336,7 +2626,8 @@ static void do_type_common(tree node, int flag)
 	case MODE_GETXREFS:
 	{
 #if 0
-		struct tree_type_common *node0 = (struct tree_type_common *)node;
+		struct tree_type_common *node0;
+		node0 = (struct tree_type_common *)node;
 		do_common((tree)&node0->common, 0);
 
 		do_tree(node0->size);
@@ -2370,7 +2661,7 @@ static void do_type_non_common(tree node, int flag)
 		struct tree_type_non_common *node0 =
 			(struct tree_type_non_common *)node;
 
-		do_type_with_lang_specific((tree)&node0->with_lang_specific, 0);
+		do_type_with_lang_specific((tree)&node0->with_lang_specific,0);
 		do_real_addr(&node0->values, do_tree(node0->values));
 		do_real_addr(&node0->minval, do_tree(node0->minval));
 		do_real_addr(&node0->maxval, do_tree(node0->maxval));
@@ -2388,7 +2679,7 @@ static void do_type_non_common(tree node, int flag)
 		struct tree_type_non_common *node0 =
 			(struct tree_type_non_common *)node;
 
-		do_type_with_lang_specific((tree)&node0->with_lang_specific, 0);
+		do_type_with_lang_specific((tree)&node0->with_lang_specific,0);
 		do_tree(node0->values);
 		do_tree(node0->minval);
 		do_tree(node0->maxval);
@@ -2466,7 +2757,8 @@ static void do_decl_common(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
-		struct tree_decl_common *node0 = (struct tree_decl_common *)node;
+		struct tree_decl_common *node0;
+		node0 = (struct tree_decl_common *)node;
 		do_decl_minimal((tree)&node0->common, 0);
 
 		do_real_addr(&node0->size, do_tree(node0->size));
@@ -2476,13 +2768,15 @@ static void do_decl_common(tree node, int flag)
 		do_real_addr(&node0->abstract_origin,
 				do_tree(node0->abstract_origin));
 		do_real_addr(&node0->lang_specific,
-			do_c_lang_decl((struct c_lang_decl*)node0->lang_specific,1));
+				do_c_lang_decl((struct c_lang_decl*)
+						node0->lang_specific,1));
 		return;
 	}
 	case MODE_GETXREFS:
 	{
 #if 0
-		struct tree_decl_common *node0 = (struct tree_decl_common *)node;
+		struct tree_decl_common *node0;
+		node0 = (struct tree_decl_common *)node;
 		do_decl_minimal((tree)&node0->common, 0);
 
 		do_tree(node0->size);
@@ -2607,7 +2901,8 @@ static void do_result_decl(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
-		struct tree_result_decl *node0 = (struct tree_result_decl *)node;
+		struct tree_result_decl *node0;
+		node0 = (struct tree_result_decl *)node;
 		do_decl_with_rtl((tree)&node0->common, 0);
 		return;
 	}
@@ -2619,7 +2914,8 @@ static void do_result_decl(tree node, int flag)
 		struct use_at_list *newua_var;
 		if (unlikely(is_global_var(node) &&
 			((!DECL_CONTEXT(node)) ||
-			 (TREE_CODE(DECL_CONTEXT(node))==TRANSLATION_UNIT_DECL)))) {
+			 (TREE_CODE(DECL_CONTEXT(node))==
+				TRANSLATION_UNIT_DECL)))) {
 			si_log1("in func: %s\n", cur_fn->name);
 			BUG();
 		}
@@ -2629,10 +2925,12 @@ static void do_result_decl(tree node, int flag)
 			if (DECL_NAME(node)) {
 				memset(name, 0, NAME_MAX);
 				get_node_name(DECL_NAME(node), name);
-				vnl->var.name = (char *)src_buf_get(strlen(name)+1);
+				vnl->var.name = (char *)src_buf_get(
+							strlen(name)+1);
 				memcpy(vnl->var.name, name, strlen(name)+1);
 			}
-			list_add_tail(&vnl->sibling, &cur_func_node->local_vars);
+			list_add_tail(&vnl->sibling,
+					&cur_func_node->local_vars);
 		}
 		if (!vnl->var.type)
 			__get_type_detail(&vnl->var.type, NULL, NULL,
@@ -2782,7 +3080,8 @@ static void do_var_decl(tree node, int flag)
 		struct sibuf *b = find_target_sibuf(node);
 		xloc = get_location(GET_LOC_VAR, b->payload, node);
 		if (is_global_var(node) &&
-			((!ctx) || (TREE_CODE(ctx) == TRANSLATION_UNIT_DECL)) &&
+			((!ctx) ||
+			 (TREE_CODE(ctx) == TRANSLATION_UNIT_DECL)) &&
 			(xloc->file)) {
 			/* global vars */
 			struct sinode *global_var_sn;
@@ -2790,7 +3089,8 @@ static void do_var_decl(tree node, int flag)
 			struct id_list *newgv = NULL;
 			long value;
 			long val_flag;
-			struct use_at_list *newua_type = NULL, *newua_var = NULL;
+			struct use_at_list *newua_type = NULL;
+			struct use_at_list *newua_var = NULL;
 
 			get_var_sinode(node, &global_var_sn, 1);
 			if (!global_var_sn) {
@@ -2815,13 +3115,16 @@ static void do_var_decl(tree node, int flag)
 				return;
 
 			if (gvn->type) {
-				newua_type = use_at_list_find(&gvn->type->used_at,
-								cur_gimple,
-								cur_gimple_op_idx);
+				newua_type = use_at_list_find(
+							&gvn->type->used_at,
+							cur_gimple,
+							cur_gimple_op_idx);
 				if (!newua_type) {
 					newua_type = use_at_list_new();
-					newua_type->func_id = cur_fn->node_id.id;
-					newua_type->gimple_stmt = (void *)cur_gimple;
+					newua_type->func_id =
+							cur_fn->node_id.id;
+					newua_type->gimple_stmt =
+							(void *)cur_gimple;
 					newua_type->op_idx = cur_gimple_op_idx;
 					list_add_tail(&newua_type->sibling,
 							&gvn->type->used_at);
@@ -2842,14 +3145,15 @@ static void do_var_decl(tree node, int flag)
 			return;
 		}
 
-		/* so, a local variable. static local variable should be handled */
+		/* local variable. static local variable should be handled */
 		while (ctx && (TREE_CODE(ctx) == BLOCK))
 			ctx = BLOCK_SUPERCONTEXT(ctx);
 		if ((ctx == cur_func) || (!ctx)) {
 			/* current function local vars */
 			char name[NAME_MAX];
 			struct var_node_list *newlv = NULL;
-			struct use_at_list *newua_type = NULL, *newua_var = NULL;
+			struct use_at_list *newua_type = NULL;
+			struct use_at_list *newua_var = NULL;
 			newlv = var_node_list_find(&cur_func_node->local_vars,
 							(void *)node);
 			if (!newlv) {
@@ -2858,9 +3162,9 @@ static void do_var_decl(tree node, int flag)
 					memset(name, 0, NAME_MAX);
 					get_node_name(DECL_NAME(node), name);
 					newlv->var.name = (char *)src_buf_get(
-								strlen(name)+1);
-					memcpy(newlv->var.name, name,
-								strlen(name)+1);
+							      strlen(name)+1);
+					memcpy(newlv->var.name,
+						name, strlen(name)+1);
 				}
 				list_add_tail(&newlv->sibling,
 						&cur_func_node->local_vars);
@@ -2870,17 +3174,19 @@ static void do_var_decl(tree node, int flag)
 							TREE_TYPE(node));
 
 			if (newlv->var.type) {
-				newua_type =
-					use_at_list_find(&newlv->var.type->used_at,
-							cur_gimple,
-							cur_gimple_op_idx);
+				newua_type = use_at_list_find(
+						&newlv->var.type->used_at,
+						cur_gimple,
+						cur_gimple_op_idx);
 				if (!newua_type) {
 					newua_type = use_at_list_new();
-					newua_type->func_id = cur_fn->node_id.id;
-					newua_type->gimple_stmt = (void *)cur_gimple;
+					newua_type->func_id =
+							cur_fn->node_id.id;
+					newua_type->gimple_stmt =
+							(void *)cur_gimple;
 					newua_type->op_idx = cur_gimple_op_idx;
 					list_add_tail(&newua_type->sibling,
-							&newlv->var.type->used_at);
+						    &newlv->var.type->used_at);
 				}
 			}
 
@@ -3017,7 +3323,8 @@ static void do_function_decl(tree node, int flag)
 		do_real_addr(&node0->function_specific_target,
 				do_tree(node0->function_specific_target));
 		do_real_addr(&node0->function_specific_optimization,
-				do_tree(node0->function_specific_optimization));
+				do_tree(node0->
+					function_specific_optimization));
 		do_real_addr(&node0->saved_tree, do_tree(node0->saved_tree));
 		do_real_addr(&node0->vindex, do_tree(node0->vindex));
 		return;
@@ -3034,9 +3341,9 @@ static void do_function_decl(tree node, int flag)
 		struct func_node *fn = (struct func_node *)fsn->data;
 		if (!fn)
 			return;
-		struct use_at_list *newua = use_at_list_find(&fn->used_at,
-								cur_gimple,
-								cur_gimple_op_idx);
+		struct use_at_list *newua;
+		newua = use_at_list_find(&fn->used_at, cur_gimple,
+					 cur_gimple_op_idx);
 		if (!newua) {
 			newua = use_at_list_new();
 			newua->func_id = cur_fn->node_id.id;
@@ -3252,8 +3559,8 @@ static void do_optimization_option(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
-		struct tree_optimization_option *node0 =
-					(struct tree_optimization_option *)node;
+		struct tree_optimization_option *node0;
+		node0 = (struct tree_optimization_option *)node;
 #if __GNUC__ < 8
 		do_common((tree)&node0->common, 0);
 #else
@@ -3264,8 +3571,8 @@ static void do_optimization_option(tree node, int flag)
 	case MODE_GETXREFS:
 	{
 #if 0
-		struct tree_optimization_option *node0 =
-					(struct tree_optimization_option *)node;
+		struct tree_optimization_option *node0;
+		node0 = (struct tree_optimization_option *)node;
 		do_common((tree)&node0->common, 0);
 #endif
 		return;
@@ -3306,15 +3613,17 @@ static int func_conflict(expanded_location *newl, struct sinode *old)
 #if 0
 	if ((strlen(old->loc_file->name) == strlen(newl->file)) &&
 		(!strcmp((char *)old->loc_file->name, newl->file)) &&
-		(newl->line == old->loc_line) && (newl->column == old->loc_col))
+		(newl->line == old->loc_line) &&
+		(newl->column == old->loc_col))
 		BUG();
 		return TREE_NAME_CONFLICT_DROP;
 #endif
 
 	tree oldtree = (tree)(long)old->obj->real_addr;
 	tree newtree = (tree)(long)(objs[obj_idx].real_addr);
-	struct tree_decl_with_vis *oldvis = (struct tree_decl_with_vis *)oldtree;
-	struct tree_decl_with_vis *newvis = (struct tree_decl_with_vis *)newtree;
+	struct tree_decl_with_vis *oldvis, *newvis;
+	oldvis = (struct tree_decl_with_vis *)oldtree;
+	newvis = (struct tree_decl_with_vis *)newtree;
 
 	if (oldvis->weak_flag <= newvis->weak_flag)
 		return TREE_NAME_CONFLICT_DROP;
@@ -3327,14 +3636,16 @@ static int var_conflict(expanded_location *newl, struct sinode *old)
 #if 0
 	if ((strlen(old->loc_file->name) == strlen(newl->file)) &&
 		(!strcmp((char *)old->loc_file->name, newl->file)) &&
-		(newl->line == old->loc_line) && (newl->column == old->loc_col))
+		(newl->line == old->loc_line) &&
+		(newl->column == old->loc_col))
 		return TREE_NAME_CONFLICT_DROP;
 #endif
 
 	tree oldtree = (tree)(long)old->obj->real_addr;
 	tree newtree = (tree)(long)(objs[obj_idx].real_addr);
-	struct tree_decl_with_vis *oldvis = (struct tree_decl_with_vis *)oldtree;
-	struct tree_decl_with_vis *newvis = (struct tree_decl_with_vis *)newtree;
+	struct tree_decl_with_vis *oldvis, *newvis;
+	oldvis = (struct tree_decl_with_vis *)oldtree;
+	newvis = (struct tree_decl_with_vis *)newtree;
 
 	if (oldvis->weak_flag <= newvis->weak_flag)
 		return TREE_NAME_CONFLICT_DROP;
@@ -3374,7 +3685,7 @@ static int type_conflict(expanded_location *newl, struct sinode *old)
 /*
  * RETURN VALUES:
  *	TREE_NAME_CONFLICT_DROP		drop the new node
- *	TREE_NAME_CONFLICT_REPLACE	force insert the new node, replace old one
+ *	TREE_NAME_CONFLICT_REPLACE	force insert the new node, replace old
  *	TREE_NAME_CONFLICT_SOFT		this is only for var, to same_name_head
  *	TREE_NAME_CONFLICT_FAILED	-1, check failed
  */
@@ -3501,7 +3812,8 @@ static void do_get_base(struct sibuf *buf)
 						strlen(xloc->file)+1,
 						NULL, 0);
 		BUG_ON(!loc_file);
-		BUG_ON(analysis__sinode_insert(loc_file, SINODE_INSERT_BH_NONE));
+		BUG_ON(analysis__sinode_insert(loc_file,
+						SINODE_INSERT_BH_NONE));
 
 step_1:
 		if ((type == TYPE_FUNC_GLOBAL) || (type == TYPE_VAR_GLOBAL)) {
@@ -3512,7 +3824,8 @@ step_1:
 			args[2] = (long)name;
 			sn_tmp = analysis__sinode_search(type, SEARCH_BY_SPEC,
 							(void *)args);
-		} else if ((type == TYPE_FUNC_STATIC) || (type == TYPE_VAR_STATIC) ||
+		} else if ((type == TYPE_FUNC_STATIC) ||
+				(type == TYPE_VAR_STATIC) ||
 				(type == TYPE_TYPE)) {
 			BUG_ON(!loc_file);
 			BUG_ON(!name[0]);
@@ -3526,7 +3839,8 @@ step_1:
 		} else if (type == TYPE_NONE) {
 			struct type_node *tn;
 			enum tree_code tc = TREE_CODE((tree)obj_addr);
-			tn = analysis__sibuf_type_node_search(buf, tc, obj_addr);
+			tn = analysis__sibuf_type_node_search(buf, tc,
+								obj_addr);
 			if (tn)
 				goto next_loop;
 
@@ -3564,7 +3878,8 @@ step_1:
 				BUG();
 		}
 
-		sn_new = analysis__sinode_new(type, name, strlen(name)+1, NULL, 0);
+		sn_new = analysis__sinode_new(type, name,
+						strlen(name)+1, NULL, 0);
 		BUG_ON(!sn_new);
 		sn_new->buf = buf;
 		sn_new->obj = &objs[obj_idx];
@@ -3575,21 +3890,24 @@ step_1:
 		}
 		if (type == TYPE_TYPE) {
 			struct type_node *tn;
-			tn = type_node_new(obj_addr, TREE_CODE(tree(obj_addr)));
+			tn = type_node_new(obj_addr,
+						TREE_CODE(tree(obj_addr)));
 			tn->type_name = sn_new->name;
 			sn_new->data = (char *)tn;
 			sn_new->datalen = sizeof(*tn);
-		} else if ((type == TYPE_VAR_GLOBAL) || (type == TYPE_VAR_STATIC)) {
+		} else if ((type == TYPE_VAR_GLOBAL) ||
+				(type == TYPE_VAR_STATIC)) {
 			struct var_node *vn;
 			vn = var_node_new(obj_addr);
 			vn->name = sn_new->name;
 			sn_new->data = (char *)vn;
 			sn_new->datalen = sizeof(*vn);
-		} else if ((type==TYPE_FUNC_GLOBAL) || (type==TYPE_FUNC_STATIC)) {
+		} else if ((type==TYPE_FUNC_GLOBAL) ||
+				(type==TYPE_FUNC_STATIC)) {
 			struct func_node *fn = NULL;
 			struct function *func;
 			func = DECL_STRUCT_FUNCTION((tree)obj_addr);
-			if (func && func->gimple_body) {
+			if (func && func->cfg) {
 				fn = func_node_new((void *)obj_addr);
 				fn->name = sn_new->name;
 				sn_new->data = (char *)fn;
@@ -3616,7 +3934,8 @@ static struct type_node *find_type_node(tree type)
 }
 
 /*
- * XXX: if this is the upper call, base MUST NOT be NULL, otherwise, MUST be NULL
+ * XXX: if this is the upper call, base MUST NOT be NULL;
+ *	otherwise, MUST be NULL
  * if new field_list should be inserted into a list, then head is not NULL,
  * if new field_list should be pointed by next, then next is not NULL
  */
@@ -3650,7 +3969,8 @@ static void __get_type_detail(struct type_node **base, struct list_head *head,
 		if (new_type->is_set)
 			break;
 		new_type->is_set = 1;
-		__get_type_detail(NULL, NULL, &new_type->next, TREE_TYPE(node));
+		__get_type_detail(NULL, NULL, &new_type->next,
+					TREE_TYPE(node));
 		break;
 	}
 	case POINTER_BOUNDS_TYPE:
@@ -3687,15 +4007,17 @@ static void __get_type_detail(struct type_node **base, struct list_head *head,
 			_new_var->var.name =
 					(char *)src_buf_get(strlen(name)+1);
 			memcpy(_new_var->var.name, name, strlen(name)+1);
-			long value = (long)TREE_INT_CST_LOW(TREE_VALUE(enum_list));
+			long value;
+			value = (long)TREE_INT_CST_LOW(TREE_VALUE(enum_list));
 			struct possible_value_list *pv = NULL;
-			if (!possible_value_list_find(&_new_var->var.possible_values,
+			if (!possible_value_list_find(
+						&_new_var->var.possible_values,
 						VALUE_IS_INT_CST, value)) {
 				pv = possible_value_list_new();
 				pv->value_flag = VALUE_IS_INT_CST;
 				pv->value = value;
 				list_add_tail(&pv->sibling,
-						&_new_var->var.possible_values);
+					      &_new_var->var.possible_values);
 			}
 			list_add_tail(&_new_var->sibling, &new_type->children);
 
@@ -3776,9 +4098,12 @@ static void __get_type_detail(struct type_node **base, struct list_head *head,
 			break;
 
 		new_type->is_set = 1;
-		if (TYPE_DOMAIN(node) && TYPE_MAX_VALUE(TYPE_DOMAIN(node)))
-			new_type->baselen = TREE_INT_CST_LOW(TYPE_MAX_VALUE(
-							TYPE_DOMAIN(node))) + 1;
+		if (TYPE_DOMAIN(node) && TYPE_MAX_VALUE(TYPE_DOMAIN(node))) {
+			size_t len = 1;
+			len += TREE_INT_CST_LOW(TYPE_MAX_VALUE(
+							   TYPE_DOMAIN(node)));
+			new_type->baselen = len;
+		}
 		if (TYPE_SIZE(node))
 			new_type->ofsize = TREE_INT_CST_LOW(TYPE_SIZE(node));
 
@@ -3815,7 +4140,8 @@ static void __get_type_detail(struct type_node **base, struct list_head *head,
 			if (DECL_NAME(fields)) {
 				memset(name, 0, NAME_MAX);
 				get_node_name(DECL_NAME(fields), name);
-				newf1->name = (char *)src_buf_get(strlen(name)+1);
+				newf1->name =
+					(char *)src_buf_get(strlen(name) + 1);
 				memcpy(newf1->name, name, strlen(name)+1);
 			}
 			list_add_tail(&newf0->sibling, &new_type->children);
@@ -3841,18 +4167,20 @@ static void __get_type_detail(struct type_node **base, struct list_head *head,
 		tree args = TYPE_ARG_TYPES(node);
 		while (args) {
 			if ((!TREE_CHAIN(args)) &&
-				(TYPE_MODE_RAW(TREE_VALUE(args)) == VOIDmode)) {
+			    (TYPE_MODE_RAW(TREE_VALUE(args)) == VOIDmode)) {
 				memset(name, 0, NAME_MAX);
 				memcpy(name, ARG_VA_LIST_NAME,
 						strlen(ARG_VA_LIST_NAME));
-				struct type_node *_new = type_node_new((void *)args,
-									VOID_TYPE);
-				_new->type_name=(char *)src_buf_get(strlen(name)+1);
+				struct type_node *_new;
+				_new = type_node_new((void *)args, VOID_TYPE);
+				_new->type_name =
+					(char *)src_buf_get(strlen(name)+1);
 				memcpy(_new->type_name, name, strlen(name)+1);
-				list_add_tail(&_new->sibling, &new_type->children);
+				list_add_tail(&_new->sibling,
+						&new_type->children);
 			} else {
 				__get_type_detail(NULL, &new_type->children,
-							NULL, TREE_VALUE(args));
+						  NULL, TREE_VALUE(args));
 			}
 
 			args = TREE_CHAIN(args);
@@ -3901,6 +4229,231 @@ static void get_var_detail(struct sinode *sn)
 	return;
 }
 
+/*
+ * NOTE: the gimple_body is now converted and added to cfg
+ */
+static void get_function_detail(struct sinode *sn)
+{
+	analysis__resfile_load(sn->buf);
+	tree node = (tree)(long)sn->obj->real_addr;
+	get_attributes(&sn->attributes, DECL_ATTRIBUTES(node));
+
+	/* XXX: the function body is now in node->f->cfg */
+	struct function *f;
+	f = DECL_STRUCT_FUNCTION(node);
+	if ((!f) || (!f->cfg))
+		return;
+
+	/* handle the return type and argument list */
+	char name[NAME_MAX];
+	struct func_node *new_func;
+	new_func = (struct func_node *)sn->data;
+
+	__get_type_detail(&new_func->ret_type, NULL, NULL,
+				TREE_TYPE(TREE_TYPE(node)));
+
+	tree args;
+	args = DECL_ARGUMENTS(node);
+	while (args) {
+		struct var_node_list *new_arg;
+		new_arg = var_node_list_new((void *)args);
+
+		struct var_node *new_vn;
+		new_vn = &new_arg->var;
+		__get_type_detail(&new_vn->type, NULL, NULL, TREE_TYPE(args));
+
+		memset(name, 0, NAME_MAX);
+		get_node_name(DECL_NAME(args), name);
+		BUG_ON(!name[0]);
+		new_vn->name = (char *)src_buf_get(strlen(name) + 1);
+		memcpy(new_vn->name, name, strlen(name) + 1);
+
+		list_add_tail(&new_arg->sibling, &new_func->args);
+
+		args = TREE_CHAIN(args);
+	}
+
+	/* XXX: okay, time to parse the control flow graph */
+	basic_block bb, b;
+	bb = f->cfg->x_entry_block_ptr; /* the first basic_block of the f */
+
+	/*
+	 * the gimple statements are normally in basic_block.
+	 * However, some may be in edge(check edge_def structure).
+	 * the basic_blocks can be searched by bb->next_bb till NULL.
+	 * each block may have several preds and 2-succs?, which can
+	 * be used for GIMPLE_COND, and that, is the control flow graph.
+	 *
+	 * extract_true_false_edges_from_block() show that the edge with
+	 * EDGE_TRUE_VALUE flag is the true edge
+	 */
+	int block_cnt = f->cfg->x_n_basic_blocks;
+	int edge_cnt = f->cfg->x_n_edges;
+	int block_cur = 0, edge_cur = 0, cps_cur = 0;
+	basic_block bbs[block_cnt] = { 0 };
+	edge edges[edge_cnt] = { 0 };
+	struct code_path *cps[block_cnt] = { 0 };
+
+	/* first, check if we know cfg well */
+	b = bb;
+	while (b) {
+		int i;
+		for (i = 0; i < block_cur; i++) {
+			BUG_ON(bbs[i] == b);
+		}
+		BUG_ON(block_cur >= block_cnt);
+		bbs[block_cur] = b;
+		block_cur++;
+
+		unsigned long brs = 0;
+		vec<edge,va_gc> *in, *out;
+		in = b->preds;
+		out = b->succs;
+
+		if (in) {
+			struct vec_prefix *pfx;
+			pfx = &in->vecpfx;
+
+			size_t cnt;
+			cnt = pfx->m_num;
+
+			edge *addr = &in->vecdata[0];
+			for (size_t i = 0; i < cnt; i++) {
+				int j;
+				for (j = 0; j < edge_cur; j++) {
+					if (edges[j] == addr[i])
+						break;
+				}
+				if (j == edge_cur) {
+					BUG_ON(edge_cur >= edge_cnt);
+					edges[edge_cur] = addr[i];
+					edge_cur++;
+					if (unlikely(addr[i]->insns.g))
+						si_log1("edge has gimple\n");
+				}
+			}
+		}
+
+		if (out) {
+			struct vec_prefix *pfx;
+			pfx = &out->vecpfx;
+
+			size_t cnt;
+			cnt = pfx->m_num;
+			if (unlikely(cnt > 2))
+				brs = cnt - 2;
+
+			edge *addr = &out->vecdata[0];
+			for (size_t i = 0; i < cnt; i++) {
+				int j;
+				for (j = 0; j < edge_cnt; j++) {
+					if (edges[j] == addr[i])
+						break;
+				}
+				if (j == edge_cur) {
+					BUG_ON(edge_cur >= edge_cnt);
+					edges[edge_cur] = addr[i];
+					edge_cur++;
+					if (unlikely(addr[i]->insns.g))
+						si_log1("edge has gimple\n");
+				}
+			}
+		}
+
+		cps[cps_cur] = code_path_new(new_func, brs);
+		gimple_seq gs;
+		gs = b->il.gimple.seq;
+		while (gs) {
+			if ((!gs->next) && (gimple_code(gs) == GIMPLE_COND)) {
+				cps[cps_cur]->cond_head = gs;
+				break;
+			}
+			BUG_ON(gimple_code(gs) == GIMPLE_COND);
+
+			struct code_sentence *newcs;
+			newcs = (struct code_sentence *)
+					src_buf_get(sizeof(*newcs));
+			memset(newcs, 0, sizeof(*newcs));
+			newcs->head = gs;
+			list_add_tail(&newcs->sibling,
+					&cps[cps_cur]->sentences);
+
+			gs = gs->next;
+		}
+
+		cps_cur++;
+		b = b->next_bb;
+	}
+	/* NOTE: we really handle all the basic_blocks? */
+	BUG_ON(block_cur != block_cnt);
+	BUG_ON(edge_cur != edge_cnt);
+
+	/* time to handle cps[]->next[] */
+	for (int i = 0; i < block_cnt; i++) {
+		basic_block b0, b1;
+		b0 = bbs[i];
+
+		vec<edge,va_gc> *out;
+		out = b0->succs;
+		if (!out)
+			continue;
+
+		struct vec_prefix *pfx;
+		pfx = &out->vecpfx;
+		size_t cnt = pfx->m_num;
+		edge *addr = &out->vecdata[0];
+		int res[cnt];
+		for (size_t i = 0; i < cnt; i++)
+			res[i] = -1;
+		for (size_t j = 0; j < cnt; j++) {
+			edge t = addr[j];
+			for (int k = 0; k < block_cnt; k++) {
+				b1 = bbs[k];
+				vec<edge,va_gc> *in;
+				in = b1->preds;
+				if (!in)
+					continue;
+
+				struct vec_prefix *pfx;
+				pfx = &in->vecpfx;
+				size_t cnt = pfx->m_num;
+				edge *addr = &in->vecdata[0];
+				for (size_t m = 0; m < cnt; m++) {
+					if (addr[m] != t)
+						continue;
+					BUG_ON(res[j] != -1);
+					res[j] = k;
+				}
+			}
+			BUG_ON(res[j] == -1);
+		}
+
+		struct code_path *cp;
+		cp = cps[i];
+		if (cp->cond_head) {
+			if (addr[0]->flags & EDGE_TRUE_VALUE) {
+				BUG_ON(!(addr[1]->flags & EDGE_FALSE_VALUE));
+				cp->next[1] = cps[res[0]];
+				cp->next[0] = cps[res[1]];
+			} else {
+				BUG_ON(!(addr[0]->flags & EDGE_FALSE_VALUE));
+				BUG_ON(!(addr[1]->flags & EDGE_TRUE_VALUE));
+				cp->next[0] = cps[res[0]];
+				cp->next[1] = cps[res[1]];
+			}
+		} else {
+			for (size_t j = 0; j < cnt; j++) {
+				cp->next[j] = cps[res[j]];
+			}
+		}
+	}
+
+	new_func->codes = cps[0];
+	return;
+}
+
+#if 0
+/* obsolete, following function is for gimple_body */
 static void get_function_detail(struct sinode *sn)
 {
 	analysis__resfile_load(sn->buf);
@@ -3967,7 +4520,8 @@ static void get_function_detail(struct sinode *sn)
 				BUG();
 			}
 		} else if (gc == GIMPLE_SWITCH) {
-			BUG_ON((next->next) && (next->next->code != GIMPLE_LABEL));
+			BUG_ON((next->next) &&
+				(next->next->code != GIMPLE_LABEL));
 			int branches = gimple_num_ops(next)-1;
 			if (branches <= 2)
 				branches = 0;
@@ -4014,16 +4568,17 @@ next_loop0:
 				cps[i]->cond_head = (void *)next;
 				reachable[reachable_idx++] = next;
 				tree *ops = gimple_ops(next);
-				for (unsigned int k = 1; k < gimple_num_ops(next);
-						k++) {
-					BUG_ON(TREE_CODE(ops[k]) != CASE_LABEL_EXPR);
+				unsigned int k = 0;
+				for (k = 1; k < gimple_num_ops(next); k++) {
+					BUG_ON(TREE_CODE(ops[k]) !=
+							CASE_LABEL_EXPR);
 					tree label = CASE_LABEL(ops[k]);
 					int j = 0;
 					if (body->code != GIMPLE_LABEL)
 						j = 1;
 					while (j < label_idx) {
-						struct glabel *gl =
-							(struct glabel *)labels[j];
+						struct glabel *gl;
+						gl=(struct glabel *)labels[j];
 						if (label == gl->op[0])
 							break;
 						j++;
@@ -4043,7 +4598,8 @@ next_loop0:
 				if (body->code != GIMPLE_LABEL)
 					j = 1;
 				while (j < label_idx) {
-					struct glabel *gl=(struct glabel *)labels[j];
+					struct glabel *gl;
+					gl = (struct glabel *)labels[j];
 					if (true_label == gl->op[0])
 						break;
 					j++;
@@ -4056,7 +4612,8 @@ next_loop0:
 				if (body->code != GIMPLE_LABEL)
 					j = 1;
 				while (j < label_idx) {
-					struct glabel *gl=(struct glabel *)labels[j];
+					struct glabel *gl;
+					gl = (struct glabel *)labels[j];
 					if (false_label == gl->op[0])
 						break;
 					j++;
@@ -4073,7 +4630,8 @@ next_loop0:
 				if (body->code != GIMPLE_LABEL)
 					j = 1;
 				while (j < label_idx) {
-					struct glabel *gl=(struct glabel *)labels[j];
+					struct glabel *gl;
+					gl =(struct glabel *)labels[j];
 					if (label == gl->op[0])
 						break;
 					j++;
@@ -4089,8 +4647,8 @@ next_loop0:
 				if (body->code != GIMPLE_LABEL)
 					j = 1;
 				while (j < label_idx) {
-					struct glabel *gl1 =
-							(struct glabel *)labels[j];
+					struct glabel *gl1;
+					gl1 = (struct glabel *)labels[j];
 					if (label == gl1->op[0])
 						break;
 					j++;
@@ -4114,7 +4672,8 @@ next_loop0:
 				reachable[reachable_idx++] = next;
 				tree *tls = &ga->op[ga->ni + ga->nc];
 				for (int il = 0; il < asm_labels; il++) {
-					BUG_ON(TREE_CODE(tls[il]) != TREE_LIST);
+					BUG_ON(TREE_CODE(tls[il]) !=
+							TREE_LIST);
 					struct tree_list *tl;
 					tl = (struct tree_list *)tls[il];
 					tree tlbl = tl->value;
@@ -4123,7 +4682,7 @@ next_loop0:
 						j = 1;
 					while (j < label_idx) {
 						struct glabel *gl1;
-						gl1 = (struct glabel *)labels[j];
+						gl1=(struct glabel *)labels[j];
 						if (tlbl == gl1->op[0])
 							break;
 						j++;
@@ -4136,7 +4695,8 @@ next_loop0:
 			}
 regular_stmt:
 			struct code_sentence *newcs;
-			newcs = (struct code_sentence *)src_buf_get(sizeof(*newcs));
+			newcs = (struct code_sentence *)
+				src_buf_get(sizeof(*newcs));
 			memset(newcs, 0, sizeof(*newcs));
 			newcs->head = (void *)next;
 			reachable[reachable_idx++] = next;
@@ -4192,10 +4752,9 @@ do_insert:
 
 	return;
 }
+#endif
 
 /*
- * The gimple body is the key. we should get vars/funcs cross references info,
- * however we need do global_vars with type first.
  * For each type, we could know every global_var with this type.
  * For each global var, we could know where it is used.
  * For each codepath/func, we could know what it need and what it does.
@@ -4246,8 +4805,6 @@ static void do_get_detail(struct sibuf *b)
 				continue;
 
 			get_function_detail(n);
-		} else {
-			continue;
 		}
 	}
 
@@ -4374,13 +4931,15 @@ static int is_same_field(tree field0, tree field1, int macro_expanded)
 	}
 }
 
-static struct var_node_list *get_target_field0(struct type_node *tn, tree field)
+static struct var_node_list *get_target_field0(struct type_node *tn,
+						tree field)
 {
 	if (!tn)
 		return NULL;
 
 	struct var_node_list *tmp = NULL;
-	BUG_ON((tn->type_code != RECORD_TYPE) && (tn->type_code != UNION_TYPE));
+	BUG_ON((tn->type_code != RECORD_TYPE) &&
+			(tn->type_code != UNION_TYPE));
 	BUG_ON(TREE_CODE(field) != FIELD_DECL);
 	int macro_expanded = is_type_from_expand_macro(tn);
 
@@ -4467,8 +5026,8 @@ re_search:
 			}
 			default:
 			{
-				si_log1("miss %s\n",
-				     tree_code_name[prev_vnl->var.type->type_code]);
+				si_log1("miss %s\n", tree_code_name[
+					       prev_vnl->var.type->type_code]);
 				BUG();
 			}
 			}
@@ -4526,8 +5085,8 @@ static void do_struct_init(struct type_node *tn, tree init_tree)
 {
 	BUG_ON(tn->type_code != RECORD_TYPE);
 
-	vec<constructor_elt, va_gc> *init_elts =
-			(vec<constructor_elt, va_gc> *)(CONSTRUCTOR_ELTS(init_tree));
+	vec<constructor_elt, va_gc> *init_elts;
+	init_elts=(vec<constructor_elt, va_gc> *)(CONSTRUCTOR_ELTS(init_tree));
 
 	/* XXX, some structures may init the element NULL */
 	if (!init_elts)
@@ -4548,8 +5107,8 @@ static void do_union_init(struct type_node *tn, tree init_tree)
 {
 	BUG_ON(tn->type_code != UNION_TYPE);
 
-	vec<constructor_elt, va_gc> *init_elts =
-			(vec<constructor_elt, va_gc> *)(CONSTRUCTOR_ELTS(init_tree));
+	vec<constructor_elt, va_gc> *init_elts;
+	init_elts=(vec<constructor_elt, va_gc> *)(CONSTRUCTOR_ELTS(init_tree));
 
 	if (!init_elts)
 		return;
@@ -4575,8 +5134,9 @@ static void do_init_value(struct var_node *vn, tree init_tree)
 	switch (init_tc) {
 	case CONSTRUCTOR:
 	{
-		vec<constructor_elt, va_gc> *init_elts =
-			(vec<constructor_elt, va_gc> *)(CONSTRUCTOR_ELTS(init_tree));
+		vec<constructor_elt, va_gc> *init_elts;
+		init_elts=(vec<constructor_elt, va_gc> *)
+				(CONSTRUCTOR_ELTS(init_tree));
 
 		if (!init_elts)
 			break;
@@ -4659,9 +5219,10 @@ static void do_init_value(struct var_node *vn, tree init_tree)
 				/* FIXME, this function not found yet */
 				long value = (long)addr;
 				struct possible_value_list *pv = NULL;
-				if (!possible_value_list_find(&vn->possible_values,
-								VALUE_IS_TREE,
-								value)) {
+				if (!possible_value_list_find(
+							&vn->possible_values,
+							VALUE_IS_TREE,
+							value)) {
 					pv = possible_value_list_new();
 					pv->value_flag = VALUE_IS_TREE;
 					pv->value = value;
@@ -4671,9 +5232,10 @@ static void do_init_value(struct var_node *vn, tree init_tree)
 			} else {
 				long value = fsn->node_id.id.id1;
 				struct possible_value_list *pv = NULL;
-				if (!possible_value_list_find(&vn->possible_values,
-								VALUE_IS_FUNC,
-								value)) {
+				if (!possible_value_list_find(
+							&vn->possible_values,
+							VALUE_IS_FUNC,
+							value)) {
 					pv = possible_value_list_new();
 					pv->value_flag = VALUE_IS_FUNC;
 					pv->value = value;
@@ -4690,7 +5252,8 @@ static void do_init_value(struct var_node *vn, tree init_tree)
 				pv = possible_value_list_new();
 				pv->value_flag = VALUE_IS_VAR_ADDR;
 				pv->value = value;
-				list_add_tail(&pv->sibling, &vn->possible_values);
+				list_add_tail(&pv->sibling,
+						&vn->possible_values);
 			}
 		} else if (TREE_CODE(addr) == STRING_CST) {
 			do_init_value(vn, addr);
@@ -4703,7 +5266,8 @@ static void do_init_value(struct var_node *vn, tree init_tree)
 				pv = possible_value_list_new();
 				pv->value_flag = VALUE_IS_VAR_ADDR;
 				pv->value = value;
-				list_add_tail(&pv->sibling, &vn->possible_values);
+				list_add_tail(&pv->sibling,
+						&vn->possible_values);
 			}
 		} else if (TREE_CODE(addr) == ARRAY_REF) {
 			long value = (long)init_tree;
@@ -4714,7 +5278,8 @@ static void do_init_value(struct var_node *vn, tree init_tree)
 				pv = possible_value_list_new();
 				pv->value_flag = VALUE_IS_EXPR;
 				pv->value = value;
-				list_add_tail(&pv->sibling, &vn->possible_values);
+				list_add_tail(&pv->sibling,
+						&vn->possible_values);
 			}
 		} else if (TREE_CODE(addr) == COMPOUND_LITERAL_EXPR) {
 			tree vd = COMPOUND_LITERAL_EXPR_DECL(addr);
@@ -4852,207 +5417,6 @@ static void do_indcfg2(struct sibuf *buf)
 	return;
 }
 
-static __thread long show_progress_arg[0x10];
-static int show_progress_timeout = 3;
-static void c_show_progress(int signo, siginfo_t *si, void *arg, int last)
-{
-	long *args = (long *)arg;
-	char __maybe_unused *status = (char *)args[0];
-	char *parsing_file = (char *)args[1];
-	long cur = *(long *)args[2];
-	long goal = *(long *)args[3];
-	pthread_t id = (pthread_t)args[4];
-
-	long percent = (cur) * 100 / (goal);
-#if 0
-	char *buf;
-	buf = clib_ap_start("%s %s... %.3f%%\n", status, parsing_file, percent);
-	mt_print0(id, buf);
-	clib_ap_end(buf);
-#else
-	mt_print1(id, "%s (%ld%%)\n", parsing_file, percent);
-#endif
-}
-
-static int c_callback(struct sibuf *buf, int parse_mode)
-{
-	struct file_context *fc = (struct file_context *)buf->load_addr;
-	mode = parse_mode;
-	cur_sibuf = buf;
-	addr_base = buf->payload;
-	obj_cnt = buf->obj_cnt;
-	objs = buf->objs;
-	obj_idx = 0;
-	obj_adjusted = 0;
-	if (!obj_cnt)
-		return 0;
-
-	switch (mode) {
-	case MODE_ADJUST:
-	{
-		if (unlikely((buf->status != FC_STATUS_NONE) ||
-				(fc->status != FC_STATUS_NONE)))
-			break;
-
-		show_progress_arg[0] = (long)"ADJUST";
-		show_progress_arg[1] = (long)fc->path;
-		show_progress_arg[2] = (long)&obj_adjusted;
-		show_progress_arg[3] = (long)&obj_cnt;
-		show_progress_arg[4] = (long)pthread_self();
-		mt_print_add();
-		mt_add_timer(show_progress_timeout, c_show_progress,
-				show_progress_arg, 0, 1);
-
-		void *raddrs[obj_cnt];
-		void *faddrs[obj_cnt];
-		for (size_t i = 0; i < obj_cnt; i++) {
-			objs[i].is_adjusted = 0;
-			raddrs[i] = (void *)(unsigned long)objs[i].real_addr;
-			faddrs[i] = (void *)(unsigned long)objs[i].fake_addr;
-		}
-		real_addrs = raddrs;
-		fake_addrs = faddrs;
-
-		/*
-		 * we collect the lower gimple before cfg pass, all functions have
-		 * been chained
-		 */
-		do_tree((tree)(unsigned long)objs[0].real_addr);
-
-		BUG_ON(obj_adjusted != obj_cnt);
-
-		fc->status = FC_STATUS_ADJUSTED;
-
-		mt_del_timer(0);
-		mt_print_del();
-		break;
-	}
-	case MODE_GETBASE:
-	{
-		if (unlikely((buf->status != FC_STATUS_ADJUSTED) ||
-				(fc->status != FC_STATUS_ADJUSTED)))
-			break;
-
-		show_progress_arg[0] = (long)"GETBASE";
-		show_progress_arg[1] = (long)fc->path;
-		show_progress_arg[2] = (long)&obj_idx;
-		show_progress_arg[3] = (long)&obj_cnt;
-		show_progress_arg[4] = (long)pthread_self();
-		mt_print_add();
-		mt_add_timer(show_progress_timeout, c_show_progress,
-				show_progress_arg, 0, 1);
-
-		do_get_base(buf);
-
-		fc->status = FC_STATUS_GETBASE;
-
-		mt_del_timer(0);
-		mt_print_del();
-		break;
-	}
-	case MODE_GETDETAIL:
-	{
-		if (unlikely((buf->status != FC_STATUS_GETBASE) ||
-				(fc->status != FC_STATUS_GETBASE)))
-			break;
-
-		show_progress_arg[0] = (long)"GETDETAIL";
-		show_progress_arg[1] = (long)fc->path;
-		show_progress_arg[2] = (long)&obj_idx;
-		show_progress_arg[3] = (long)&obj_cnt;
-		show_progress_arg[4] = (long)pthread_self();
-		mt_print_add();
-		mt_add_timer(show_progress_timeout, c_show_progress,
-				show_progress_arg, 0, 1);
-
-		/* XXX: get details till codepath */
-		do_get_detail(buf);
-
-		fc->status = FC_STATUS_GETDETAIL;
-
-		mt_del_timer(0);
-		mt_print_del();
-		break;
-	}
-	case MODE_GETXREFS:
-	{
-		if (unlikely((buf->status != FC_STATUS_GETDETAIL) ||
-				(fc->status != FC_STATUS_GETDETAIL)))
-			break;
-
-		show_progress_arg[0] = (long)"GETXREFS";
-		show_progress_arg[1] = (long)fc->path;
-		show_progress_arg[2] = (long)&obj_idx;
-		show_progress_arg[3] = (long)&obj_cnt;
-		show_progress_arg[4] = (long)pthread_self();
-		mt_print_add();
-		mt_add_timer(show_progress_timeout, c_show_progress,
-				show_progress_arg, 0, 1);
-
-		void *xaddrs[obj_cnt];
-		xrefs_obj_checked = xaddrs;
-		/* XXX, get func_node's callees/callers/global/local_vars... */
-		do_xrefs(buf);
-
-		fc->status = FC_STATUS_GETXREFS;
-
-		mt_del_timer(0);
-		mt_print_del();
-		break;
-	}
-	case MODE_GETINDCFG1:
-	{
-		if (unlikely((buf->status != FC_STATUS_GETXREFS) ||
-				(fc->status != FC_STATUS_GETXREFS)))
-			break;
-
-		show_progress_arg[0] = (long)"GETINDCFG1";
-		show_progress_arg[1] = (long)fc->path;
-		show_progress_arg[2] = (long)&obj_idx;
-		show_progress_arg[3] = (long)&obj_cnt;
-		show_progress_arg[4] = (long)pthread_self();
-		mt_print_add();
-		mt_add_timer(show_progress_timeout, c_show_progress,
-				show_progress_arg, 0, 1);
-
-		do_indcfg1(buf);
-
-		fc->status = FC_STATUS_GETINDCFG1;
-
-		mt_del_timer(0);
-		mt_print_del();
-		break;
-	}
-	case MODE_GETINDCFG2:
-	{
-		if (unlikely((buf->status != FC_STATUS_GETINDCFG1) ||
-				(fc->status != FC_STATUS_GETINDCFG1)))
-			break;
-
-		show_progress_arg[0] = (long)"GETINDCFG2";
-		show_progress_arg[1] = (long)fc->path;
-		show_progress_arg[2] = (long)&obj_idx;
-		show_progress_arg[3] = (long)&obj_cnt;
-		show_progress_arg[4] = (long)pthread_self();
-		mt_print_add();
-		mt_add_timer(show_progress_timeout, c_show_progress,
-				show_progress_arg, 0, 1);
-
-		do_indcfg2(buf);
-
-		fc->status = FC_STATUS_GETINDCFG2;
-
-		mt_del_timer(0);
-		mt_print_del();
-		break;
-	}
-	default:
-		BUG();
-	}
-
-	return 0;
-}
-
 /*
  * ************************************************************************
  * the following functions are for cross references for functions/types/vars
@@ -5082,6 +5446,8 @@ static struct type_node *do_mem_ref(struct tree_exp *op)
 			(TREE_CODE(tvar) != VAR_DECL));
 		struct type_node *tn0 = find_type_node(TREE_TYPE(tvar));
 		tn = tn0;
+	} else if (TREE_CODE(t0) == SSA_NAME) {
+		/* TODO */
 	} else {
 		si_log1("miss %s\n", tree_code_name[TREE_CODE(t0)]);
 		BUG();
@@ -5108,7 +5474,8 @@ static struct type_node *get_array_ref_tn(struct tree_exp *exp)
 }
 
 /*
- * this is a RECORD/UNION, we just get the field's var_node_list, and add use_at
+ * this is a RECORD/UNION, we just get the field's var_node_list,
+ * and add use_at
  */
 static struct var_node_list *component_ref_get_vnl(struct tree_exp *op)
 {
@@ -5143,7 +5510,8 @@ static struct var_node_list *component_ref_get_vnl(struct tree_exp *op)
 	{
 		enum gimple_code gc = gimple_code(cur_gimple);
 		expanded_location *xloc;
-		xloc = get_gimple_loc(cur_fn->buf->payload, &cur_gimple->location);
+		xloc = get_gimple_loc(cur_fn->buf->payload,
+					&cur_gimple->location);
 		si_log1("%s in %s, loc: %s %d %d\n",
 				tree_code_name[tc], gimple_code_name[gc],
 				xloc->file, xloc->line, xloc->column);
@@ -5162,6 +5530,9 @@ static struct var_node_list *component_ref_get_vnl(struct tree_exp *op)
 static void do_component_ref(struct tree_exp *op)
 {
 	struct var_node_list *target_vn = component_ref_get_vnl(op);
+	if (!target_vn)
+		return;
+
 	struct use_at_list *newua_type = NULL, *newua_var = NULL;
 	if (target_vn->var.type) {
 		newua_type = use_at_list_find(&target_vn->var.type->used_at,
@@ -5192,8 +5563,8 @@ static void do_component_ref(struct tree_exp *op)
 static void do_bit_field_ref(struct tree_exp *op)
 {
 	tree t0 = op->operands[0];
-	tree __maybe_unused t1 = op->operands[1];	/* how many bits to read */
-	tree t2 = op->operands[2];	/* where to read */
+	tree __maybe_unused t1 = op->operands[1]; /* how many bits to read */
+	tree t2 = op->operands[2];		/* where to read */
 	struct type_node *tn = NULL;
 	struct var_node_list __maybe_unused *vnl = NULL;
 
@@ -5229,7 +5600,8 @@ static void do_bit_field_ref(struct tree_exp *op)
 	{
 		enum gimple_code gc = gimple_code(cur_gimple);
 		expanded_location *xloc;
-		xloc = get_gimple_loc(cur_fn->buf->payload, &cur_gimple->location);
+		xloc = get_gimple_loc(cur_fn->buf->payload,
+					&cur_gimple->location);
 		si_log1("%s in %s, loc: %s %d %d\n",
 				tree_code_name[TREE_CODE(t0)],
 				gimple_code_name[gc],
@@ -5260,7 +5632,10 @@ static void do_bit_field_ref(struct tree_exp *op)
 		}
 
 		if (unlikely(!found)) {
-			/* TODO, bit_field_0 == bit_field_1, four GIMPLE_ASSIGNs */
+			/*
+			 * TODO, bit_field_0 == bit_field_1,
+			 * four GIMPLE_ASSIGNs
+			 */
 			return;
 		}
 
@@ -5401,10 +5776,11 @@ static void do_gimple_op_xref(tree op)
 			BUG_ON(gimple_code(cur_gimple) != GIMPLE_ASSIGN);
 		} else {
 			expanded_location *xloc;
-			xloc = get_gimple_loc(fsn->buf->payload, &gs->location);
+			xloc = get_gimple_loc(fsn->buf->payload,&gs->location);
 			si_log1("%s %s in %s, loc: %s %d %d\n",
 					tree_code_name[TREE_CODE(op0)],
-					tree_code_name[tc], gimple_code_name[gc],
+					tree_code_name[tc],
+					gimple_code_name[gc],
 					xloc->file, xloc->line, xloc->column);
 			BUG();
 		}
@@ -5416,11 +5792,15 @@ static void do_gimple_op_xref(tree op)
 		struct tree_exp *exp = (struct tree_exp *)op;
 		tree t0 = exp->operands[0];
 		tree __maybe_unused t1 = exp->operands[1];
-		if (((TREE_CODE(t0) == PARM_DECL) || (TREE_CODE(t0) == VAR_DECL))) {
+		if (((TREE_CODE(t0) == PARM_DECL) ||
+				(TREE_CODE(t0) == VAR_DECL))) {
 			break;
 		} else if (TREE_CODE(t0) == ADDR_EXPR) {
 			do_gimple_op_xref(t0);
+		} else if (TREE_CODE(t0) == SSA_NAME) {
+			/* TODO */
 		} else {
+			si_log1("miss %s\n", tree_code_name[TREE_CODE(t0)]);
 			BUG();
 		}
 
@@ -5452,12 +5832,18 @@ static void do_gimple_op_xref(tree op)
 	}
 	case CONSTRUCTOR:
 	{
-		struct tree_constructor __maybe_unused *exp = (struct tree_constructor *)op;
+		struct tree_constructor __maybe_unused *exp;
+		exp = (struct tree_constructor *)op;
 		/* TODO */
 		break;
 	}
 	case TREE_LIST:
 	{
+		break;
+	}
+	case SSA_NAME:
+	{
+		/* TODO */
 		break;
 	}
 	default:
@@ -5488,7 +5874,11 @@ static void get_var_func_marked(struct sinode *func_sn)
 			gimple_seq gs = (gimple_seq)cs->head;
 			cur_gimple = gs;
 			enum gimple_code gc = gimple_code(gs);
-			BUG_ON(gc == GIMPLE_LABEL);
+			if (gc == GIMPLE_LABEL) {
+				si_log1("GIMPLE_LABEL in %s\n",
+						func_sn->name);
+				continue;
+			}
 			tree *ops = gimple_ops(gs);
 			for (unsigned int i = 0; i < gimple_num_ops(gs); i++) {
 				if ((gc == GIMPLE_CALL) && (i == 1))
@@ -5624,18 +6014,22 @@ static void get_direct_callee_caller(struct sinode *func_sn)
 			g = (struct gcall *)next_gs;
 			if (next_gs->subcode & GF_CALL_INTERNAL) {
 				struct call_func_list *_newc;
-				_newc = call_func_list_find(&fn->callees,
-							(long)g->u.internal_fn, 0);
+				_newc = call_func_list_find(
+							&fn->callees,
+							(long)g->u.internal_fn,
+							0);
 				if (!_newc) {
 					_newc = call_func_list_new();
-					_newc->value =
-						(unsigned long)g->u.internal_fn;
+					_newc->value = (unsigned long)
+							      g->u.internal_fn;
 					_newc->value_flag = 0;
 					_newc->body_missing = 1;
-					list_add_tail(&_newc->sibling, &fn->callees);
+					list_add_tail(&_newc->sibling,
+							&fn->callees);
 				}
-				call_func_gimple_stmt_list_add(&_newc->gimple_stmts,
-								(void *)next_gs);
+				call_func_gimple_stmt_list_add(
+							&_newc->gimple_stmts,
+							(void *)next_gs);
 				cs->handled = 1;
 
 				continue;
@@ -5651,8 +6045,10 @@ static void get_direct_callee_caller(struct sinode *func_sn)
 				cfn = (struct tree_exp *)call_op;
 				if (!cfn->operands[0])
 					break;
-				BUG_ON(TREE_CODE(cfn->operands[0]) != FUNCTION_DECL);
-				get_func_sinode(cfn->operands[0], &call_fn_sn, 1);
+				BUG_ON(TREE_CODE(cfn->operands[0]) !=
+							FUNCTION_DECL);
+				get_func_sinode(cfn->operands[0],
+						&call_fn_sn, 1);
 				long value;
 				long val_flag;
 				if (!call_fn_sn) {
@@ -5665,17 +6061,19 @@ static void get_direct_callee_caller(struct sinode *func_sn)
 
 				struct call_func_list *_newc;
 				_newc = call_func_list_find(&fn->callees,
-								value, val_flag);
+							    value, val_flag);
 				if (!_newc) {
 					_newc = call_func_list_new();
 					_newc->value = value;
 					_newc->value_flag = val_flag;
 					if (val_flag)
 						_newc->body_missing = 1;
-					list_add_tail(&_newc->sibling, &fn->callees);
+					list_add_tail(&_newc->sibling,
+							&fn->callees);
 				}
-				call_func_gimple_stmt_list_add(&_newc->gimple_stmts,
-								(void *)next_gs);
+				call_func_gimple_stmt_list_add(
+							&_newc->gimple_stmts,
+							(void *)next_gs);
 				cs->handled = 1;
 
 				/* FIXME, what if call_fn_sn has no data? */
@@ -5689,7 +6087,14 @@ static void get_direct_callee_caller(struct sinode *func_sn)
 			{
 				break;
 			}
+			case SSA_NAME:
+			{
+				/* TODO */
+				break;
+			}
 			default:
+				si_log1("miss %s\n",
+					tree_code_name[TREE_CODE(call_op)]);
 				BUG();
 			}
 		}
@@ -5718,6 +6123,8 @@ static struct var_node *get_target_var_node(struct sinode *fsn, tree node)
 
 	struct sinode *target_vsn = NULL;
 	get_var_sinode(node, &target_vsn, 1);
+	if (!target_vsn)
+		return NULL;
 
 	struct id_list *t;
 	list_for_each_entry(t, &fn->global_vars, sibling) {
@@ -5793,8 +6200,11 @@ static void _handle_marked_func(struct sinode *n, struct sinode *fsn, tree op)
 	case COMPONENT_REF:
 	{
 		struct tree_exp *exp = (struct tree_exp *)op;
-		struct var_node_list *vnl =
-				component_ref_get_vnl(exp);
+		struct var_node_list *vnl;
+		vnl = component_ref_get_vnl(exp);
+		if (!vnl)
+			break;
+
 		struct possible_value_list *pv;
 		if (possible_value_list_find(
 					&vnl->var.possible_values,
@@ -5831,7 +6241,8 @@ static void handle_marked_func(struct sinode *n)
 	list_for_each_entry(tmp_ua, &fn->used_at, sibling) {
 		struct sinode *fsn;
 		fsn = analysis__sinode_search(siid_get_type(&tmp_ua->func_id),
-						SEARCH_BY_ID, &tmp_ua->func_id);
+						SEARCH_BY_ID,
+						&tmp_ua->func_id);
 		BUG_ON(!fsn);
 		analysis__resfile_load(fsn->buf);
 
@@ -5880,7 +6291,8 @@ static void add_callee(struct sinode *caller_fsn, struct code_sentence *cs,
 	cs->handled = 1;
 }
 
-static void add_possible_callee(struct sinode *caller_fsn, struct code_sentence *cs,
+static void add_possible_callee(struct sinode *caller_fsn,
+				struct code_sentence *cs,
 				struct list_head *head)
 {
 	struct possible_value_list *tmp_pv;
@@ -5888,9 +6300,10 @@ static void add_possible_callee(struct sinode *caller_fsn, struct code_sentence 
 		if (tmp_pv->value_flag != VALUE_IS_FUNC)
 			continue;
 		union siid *id = (union siid *)&tmp_pv->value;
-		struct sinode *called_fsn = analysis__sinode_search(TYPE_FUNC_GLOBAL,
-								SEARCH_BY_ID,
-								id);
+		struct sinode *called_fsn;
+		called_fsn = analysis__sinode_search(TYPE_FUNC_GLOBAL,
+							SEARCH_BY_ID,
+							id);
 		BUG_ON(!called_fsn);
 		add_callee(caller_fsn, cs, called_fsn);
 	}
@@ -5911,7 +6324,8 @@ static void __do_var_call(struct sinode *fsn, tree call_node,
 	add_possible_callee(fsn, cs, &vn->possible_values);
 }
 
-static void _do_var_call(struct sinode *fsn, tree node, struct code_sentence *cs)
+static void _do_var_call(struct sinode *fsn, tree node,
+			 struct code_sentence *cs)
 {
 	enum tree_code tc = TREE_CODE(node);
 	switch (tc) {
@@ -5919,6 +6333,9 @@ static void _do_var_call(struct sinode *fsn, tree node, struct code_sentence *cs
 	{
 		struct tree_exp *exp = (struct tree_exp *)node;
 		struct var_node_list *vnl = component_ref_get_vnl(exp);
+		if (!vnl)
+			break;
+
 		add_possible_callee(fsn, cs, &vnl->var.possible_values);
 		break;
 	}
@@ -5965,7 +6382,8 @@ static void _do_var_call(struct sinode *fsn, tree node, struct code_sentence *cs
 	}
 }
 
-static void do_var_call(struct sinode *fsn, tree call_node, struct code_sentence *cs)
+static void do_var_call(struct sinode *fsn, tree call_node,
+			struct code_sentence *cs)
 {
 	struct var_node *vn = get_target_var_node(fsn, call_node);
 	__do_var_call(fsn, call_node, cs);
@@ -6026,10 +6444,15 @@ static void get_indirect_cfg(struct sinode *func_sn)
 			{
 				break;
 			}
+			case SSA_NAME:
+			{
+				/* TODO */
+				break;
+			}
 			default:
 			{
 				si_log1("miss %s\n",
-						tree_code_name[TREE_CODE(call_op)]);
+					tree_code_name[TREE_CODE(call_op)]);
 				BUG();
 			}
 			}
@@ -6037,4 +6460,212 @@ static void get_indirect_cfg(struct sinode *func_sn)
 	}
 
 	return;
+}
+
+static __thread long show_progress_arg[0x10];
+static int show_progress_timeout = 3;
+static void c_show_progress(int signo, siginfo_t *si, void *arg, int last)
+{
+	long *args = (long *)arg;
+	char __maybe_unused *status = (char *)args[0];
+	char *parsing_file = (char *)args[1];
+	long cur = *(long *)args[2];
+	long goal = *(long *)args[3];
+	pthread_t id = (pthread_t)args[4];
+
+	long percent = (cur) * 100 / (goal);
+#if 0
+	char *buf;
+	buf = clib_ap_start("%s %s... %.3f%%\n", status,
+				parsing_file, percent);
+	mt_print0(id, buf);
+	clib_ap_end(buf);
+#else
+	mt_print1(id, "%s (%ld%%)\n", parsing_file, percent);
+#endif
+}
+
+static int gcc_ver_major = __GNUC__;
+static int gcc_ver_minor = __GNUC_MINOR__;
+static int c_callback(struct sibuf *buf, int parse_mode)
+{
+	struct file_context *fc = (struct file_context *)buf->load_addr;
+	if ((fc->gcc_ver_major != gcc_ver_major) ||
+		(fc->gcc_ver_minor != gcc_ver_minor))
+		return -1;
+
+	mode = parse_mode;
+	cur_sibuf = buf;
+	addr_base = buf->payload;
+	obj_cnt = buf->obj_cnt;
+	objs = buf->objs;
+	obj_idx = 0;
+	obj_adjusted = 0;
+	if (!obj_cnt)
+		return 0;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		if (unlikely((buf->status != FC_STATUS_NONE) ||
+				(fc->status != FC_STATUS_NONE)))
+			break;
+
+		show_progress_arg[0] = (long)"ADJUST";
+		show_progress_arg[1] = (long)fc->path;
+		show_progress_arg[2] = (long)&obj_adjusted;
+		show_progress_arg[3] = (long)&obj_cnt;
+		show_progress_arg[4] = (long)pthread_self();
+		mt_print_add();
+		mt_add_timer(show_progress_timeout, c_show_progress,
+				show_progress_arg, 0, 1);
+
+		void *raddrs[obj_cnt];
+		void *faddrs[obj_cnt];
+		for (size_t i = 0; i < obj_cnt; i++) {
+			objs[i].is_adjusted = 0;
+			raddrs[i] = (void *)(unsigned long)objs[i].real_addr;
+			faddrs[i] = (void *)(unsigned long)objs[i].fake_addr;
+		}
+		real_addrs = raddrs;
+		fake_addrs = faddrs;
+
+		/*
+		 * we collect the lower gimple before cfg pass, all functions
+		 * have been chained
+		 */
+		do_tree((tree)(unsigned long)objs[0].real_addr);
+
+		BUG_ON(obj_adjusted != obj_cnt);
+
+		fc->status = FC_STATUS_ADJUSTED;
+
+		mt_del_timer(0);
+		mt_print_del();
+		break;
+	}
+	case MODE_GETBASE:
+	{
+		if (unlikely((buf->status != FC_STATUS_ADJUSTED) ||
+				(fc->status != FC_STATUS_ADJUSTED)))
+			break;
+
+		show_progress_arg[0] = (long)"GETBASE";
+		show_progress_arg[1] = (long)fc->path;
+		show_progress_arg[2] = (long)&obj_idx;
+		show_progress_arg[3] = (long)&obj_cnt;
+		show_progress_arg[4] = (long)pthread_self();
+		mt_print_add();
+		mt_add_timer(show_progress_timeout, c_show_progress,
+				show_progress_arg, 0, 1);
+
+		do_get_base(buf);
+
+		fc->status = FC_STATUS_GETBASE;
+
+		mt_del_timer(0);
+		mt_print_del();
+		break;
+	}
+	case MODE_GETDETAIL:
+	{
+		if (unlikely((buf->status != FC_STATUS_GETBASE) ||
+				(fc->status != FC_STATUS_GETBASE)))
+			break;
+
+		show_progress_arg[0] = (long)"GETDETAIL";
+		show_progress_arg[1] = (long)fc->path;
+		show_progress_arg[2] = (long)&obj_idx;
+		show_progress_arg[3] = (long)&obj_cnt;
+		show_progress_arg[4] = (long)pthread_self();
+		mt_print_add();
+		mt_add_timer(show_progress_timeout, c_show_progress,
+				show_progress_arg, 0, 1);
+
+		/* XXX: get details till codepath */
+		do_get_detail(buf);
+
+		fc->status = FC_STATUS_GETDETAIL;
+
+		mt_del_timer(0);
+		mt_print_del();
+		break;
+	}
+	case MODE_GETXREFS:
+	{
+		if (unlikely((buf->status != FC_STATUS_GETDETAIL) ||
+				(fc->status != FC_STATUS_GETDETAIL)))
+			break;
+
+		show_progress_arg[0] = (long)"GETXREFS";
+		show_progress_arg[1] = (long)fc->path;
+		show_progress_arg[2] = (long)&obj_idx;
+		show_progress_arg[3] = (long)&obj_cnt;
+		show_progress_arg[4] = (long)pthread_self();
+		mt_print_add();
+		mt_add_timer(show_progress_timeout, c_show_progress,
+				show_progress_arg, 0, 1);
+
+		void *xaddrs[obj_cnt];
+		xrefs_obj_checked = xaddrs;
+		/* XXX, get func_node's callees/callers/global/local_vars... */
+		do_xrefs(buf);
+
+		fc->status = FC_STATUS_GETXREFS;
+
+		mt_del_timer(0);
+		mt_print_del();
+		break;
+	}
+	case MODE_GETINDCFG1:
+	{
+		if (unlikely((buf->status != FC_STATUS_GETXREFS) ||
+				(fc->status != FC_STATUS_GETXREFS)))
+			break;
+
+		show_progress_arg[0] = (long)"GETINDCFG1";
+		show_progress_arg[1] = (long)fc->path;
+		show_progress_arg[2] = (long)&obj_idx;
+		show_progress_arg[3] = (long)&obj_cnt;
+		show_progress_arg[4] = (long)pthread_self();
+		mt_print_add();
+		mt_add_timer(show_progress_timeout, c_show_progress,
+				show_progress_arg, 0, 1);
+
+		do_indcfg1(buf);
+
+		fc->status = FC_STATUS_GETINDCFG1;
+
+		mt_del_timer(0);
+		mt_print_del();
+		break;
+	}
+	case MODE_GETINDCFG2:
+	{
+		if (unlikely((buf->status != FC_STATUS_GETINDCFG1) ||
+				(fc->status != FC_STATUS_GETINDCFG1)))
+			break;
+
+		show_progress_arg[0] = (long)"GETINDCFG2";
+		show_progress_arg[1] = (long)fc->path;
+		show_progress_arg[2] = (long)&obj_idx;
+		show_progress_arg[3] = (long)&obj_cnt;
+		show_progress_arg[4] = (long)pthread_self();
+		mt_print_add();
+		mt_add_timer(show_progress_timeout, c_show_progress,
+				show_progress_arg, 0, 1);
+
+		do_indcfg2(buf);
+
+		fc->status = FC_STATUS_GETINDCFG2;
+
+		mt_del_timer(0);
+		mt_print_del();
+		break;
+	}
+	default:
+		BUG();
+	}
+
+	return 0;
 }

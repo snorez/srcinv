@@ -16,6 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "si_gcc.h"
+#include "si_gcc_extra.h"
 #include "./hacking.h"
 
 CLIB_MODULE_NAME(uninit);
@@ -386,6 +387,9 @@ static void show_progress(int signo, siginfo_t *si, void *arg, int last)
 
 static void uninit_cb(void)
 {
+	si_log2("checking uninitialized variables not supported now\n");
+	return;
+
 	si_log2("checking uninitialized variables\n");
 
 	unsigned long func_id = 0;

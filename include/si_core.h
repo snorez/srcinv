@@ -38,8 +38,18 @@ DECL_BEGIN
  * structures and macros and variables declare
  * ************************************************************************
  */
+#ifndef CONFIG_ID_VALUE_BITS
 #define	ID_VALUE_BITS		28
+#else
+#define	ID_VALUE_BITS		(CONFIG_ID_VALUE_BITS)
+#endif
+
+#ifndef CONFIG_ID_TYPE_BITS
 #define	ID_TYPE_BITS		4
+#else
+#define	ID_TYPE_BITS		(CONFIG_ID_TYPE_BITS)
+#endif
+
 union siid {
 	struct {
 		unsigned int	id_value: ID_VALUE_BITS;
@@ -78,14 +88,8 @@ struct si_type {
 	unsigned int	kernel: 2;/* 0: invalid 1: kernel 2: usr 3: both */
 	unsigned int	os_type:4;
 	unsigned int	type_more: 8;
-	unsigned int	padding: 16;
+	/* TODO: 2 byte padding? si_type take 4 byte size */
 };
-
-#if 0
-#define	FC_FORMAT_BEFORE_CFG	0
-#define	FC_FORMAT_AFTER_CFG	1
-#define	FC_FORMAT_AFTER_CGRAPH	2
-#endif
 
 /* default mode, not used */
 #define	MODE_TEST	0
@@ -115,10 +119,12 @@ struct si_type {
 struct file_context {
 	/* must be first field */
 	unsigned int		total_size;
-
 	unsigned int		objs_offs;
 	unsigned int		objs_cnt;
 	struct si_type		type;
+	unsigned char		gcc_ver_major;
+	unsigned char		gcc_ver_minor;
+
 	unsigned short		path_len;
 
 	/*
@@ -150,17 +156,48 @@ struct file_obj {
 	unsigned char		is_type		: 1;
 } __attribute__((packed));
 
-/* this buf is not expandable, the maxium size and start address is not changeable */
-#define	SRC_BUF_START		(unsigned long)0x100000000
-#define	SRC_BUF_BLKSZ		(unsigned long)0x10000000
+/* this buf is not expandable, maxium size and start address not changeable */
+#ifndef CONFIG_SRC_BUF_START
+#define	SRC_BUF_START		((unsigned long)0x100000000)
+#else
+#define	SRC_BUF_START		((unsigned long)(CONFIG_SRC_BUF_START))
+#endif
+
+#ifndef CONFIG_SRC_BUF_BLKSZ
+#define	SRC_BUF_BLKSZ		((unsigned long)0x10000000)
+#else
+#define	SRC_BUF_BLKSZ		((unsigned long)(CONFIG_SRC_BUF_BLKSZ))
+#endif
+
 /* src index information size up to 8G, maxium could be 64G */
-#define	SRC_BUF_END		(unsigned long)0x300000000
+#ifndef CONFIG_SRC_BUF_END
+#define	SRC_BUF_END		((unsigned long)0x300000000)
+#else
+#define	SRC_BUF_END		((unsigned long)(CONFIG_SRC_BUF_END))
+#endif
 
 /* this buf is expandable, the maxium size used is always RESFILE_BUF_SIZE */
-#define	RESFILE_BUF_START	(unsigned long)0x1000000000
-#define	RESFILE_BUF_SIZE	(unsigned long)0x80000000
+#ifndef CONFIG_RESFILE_BUF_START
+#define	RESFILE_BUF_START	((unsigned long)0x1000000000)
+#else
+#define	RESFILE_BUF_START	((unsigned long)(CONFIG_RESFILE_BUF_START))
+#endif
 
-#define	SIBUF_LOADED_MAX	(unsigned long)0x100000000
+#ifndef CONFIG_RESFILE_BUF_SIZE
+#define	RESFILE_BUF_SIZE	((unsigned long)0x80000000)
+#else
+#define	RESFILE_BUF_SIZE	((unsigned long)(CONFIG_RESFILE_BUF_SIZE))
+#endif
+
+#ifndef CONFIG_SIBUF_LOADED_MAX
+#define	SIBUF_LOADED_MAX	((unsigned long)0x100000000)
+#else
+#define	SIBUF_LOADED_MAX	((unsigned long)(CONFIG_SIBUF_LOADED_MAX))
+#endif
+
+BUILD_BUG_ON(SIBUF_LOADED_MAX > SRC_BUF_START, "build arg check err");
+BUILD_BUG_ON(SRC_BUF_START > SRC_BUF_END, "build arg check err");
+BUILD_BUG_ON(SRC_BUF_END > RESFILE_BUF_START, "build arg check err");
 
 #define	TYPE_DEFINED	0
 #define	TYPE_UNDEFINED	1
@@ -198,8 +235,17 @@ enum sinode_type {
 #define	RB_NODE_BY_SPEC		1
 #define	RB_NODE_BY_MAX		2
 
+#ifndef CONFIG_SI_PATH_MAX
 #define	SI_PATH_MAX		128
+#else
+#define	SI_PATH_MAX		(CONFIG_SI_PATH_MAX)
+#endif
+
+#ifndef CONFIG_SRC_ID_LEN
 #define	SRC_ID_LEN		4
+#else
+#define	SRC_ID_LEN		(CONFIG_SRC_ID_LEN)
+#endif
 
 /* for a whole project, all information unpacked here */
 struct src {
@@ -246,8 +292,17 @@ struct si_module {
 	int			loaded;
 };
 
+#ifndef CONFIG_MAX_OBJS_PER_FILE
 #define	MAX_OBJS_PER_FILE (unsigned long)0x800000
+#else
+#define	MAX_OBJS_PER_FILE ((unsigned long)(CONFIG_MAX_OBJS_PER_FILE))
+#endif
+
+#ifndef CONFIG_MAX_SIZE_PER_FILE
 #define	MAX_SIZE_PER_FILE (unsigned long)0x8000000
+#else
+#define	MAX_SIZE_PER_FILE ((unsigned long)(CONFIG_MAX_SIZE_PER_FILE))
+#endif
 
 /* for just one resfile, a project could have many resfiles */
 struct resfile {

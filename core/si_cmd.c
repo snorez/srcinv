@@ -331,6 +331,7 @@ static struct {
 } si_def_cmds[] = {
 	{(char *)"help", si_help, si_help_usage},
 	{(char *)"quit", si_exit, si_exit_usage},
+	{(char *)"exit", si_exit, si_exit_usage},
 #if 0
 	{(char *)"load_module", si_load_module, si_load_module_usage},
 	{(char *)"unload_module", si_unload_module, si_unload_module_usage},

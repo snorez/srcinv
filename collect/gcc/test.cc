@@ -19,39 +19,8 @@
  * traversal the ast tree, keep as much information as you can.
  * if there are multiple source files, we may need to reduce the info we collected
  */
-
-#include <gcc-plugin.h>
-#include <plugin-version.h>
-#include <c-tree.h>
-#include <context.h>
-#include <function.h>
-#include <internal-fn.h>
-#include <is-a.h>
-#include <predict.h>
-#include <basic-block.h>
-#include <tree.h>
-#include <tree-ssa-alias.h>
-#include <gimple-expr.h>
-#include <gimple.h>
-#include <gimple-ssa.h>
-#include <tree-pretty-print.h>
-#include <tree-pass.h>
-#include <tree-ssa-operands.h>
-#include <tree-phinodes.h>
-#include <gimple-pretty-print.h>
-#include <gimple-iterator.h>
-#include <gimple-walk.h>
-#include <diagnostic.h>
-#include <stringpool.h>
-#include <ssa-iterators.h>
-#include <iostream>
-#include <cassert>
-#include <set>
-#include <utility>
-#include <algorithm>
-#include <toplev.h>
-#include <opts.h>
-#include <clib.h>
+#include "si_gcc.h"
+#include "si_gcc_extra.h"
 
 struct plugin_info this_plugin_info = {
 	.version = "0.1",
@@ -135,8 +104,6 @@ DEF_CB_FUNC(finish_parse_function);
 void finish_type(void *gcc_data, void *user_data)
 {
 	fprintf(stderr, "%s\n", __FUNCTION__);
-	tree node = (tree)gcc_data;
-	dump_node(node, TDF_TREE, stderr);
 }
 //DEF_CB_FUNC(finish_decl);
 void finish_decl(void *gcc_data, void *user_data)
@@ -173,7 +140,6 @@ void start_unit(void *gcc_data, void *user_data)
 DEF_CB_FUNC(pragmas);
 DEF_CB_FUNC(all_passes_start);
 DEF_CB_FUNC(all_passes_end);
-DEF_CB_FUNC(all_ipa_passes_start);
 DEF_CB_FUNC(all_ipa_passes_end);
 DEF_CB_FUNC(early_gimple_passes_start);
 DEF_CB_FUNC(early_gimple_passes_end);
@@ -249,10 +215,90 @@ static tree callback_op(tree *t, int *arg, void *data)
 
 }	/* namespace */
 
+void all_ipa_passes_hook(void *gcc_data, void *user_data)
+{
+	fprintf(stderr, "all_ipa_passes_hook hit\n");
+
+	symtab_node *node = symtab->nodes;
+	while (node) {
+		tree decl = node->decl;
+		if (TREE_CODE(decl) != FUNCTION_DECL) {
+			fprintf(stderr, "not a function, %s\n",
+					tree_code_name[TREE_CODE(decl)]);
+			node = node->next;
+			continue;
+		}
+
+		fprintf(stderr, "function: %s\n",
+				IDENTIFIER_POINTER(DECL_NAME(decl)));
+		if (!DECL_STRUCT_FUNCTION(decl)) {
+			node = node->next;
+			continue;
+		}
+		struct control_flow_graph *cfg;
+		cfg = DECL_STRUCT_FUNCTION(decl)->cfg;
+		basic_block b = cfg->x_entry_block_ptr;
+		while (b) {
+			fprintf(stderr, "b: %p\n", b);
+			gimple_seq gs = b->il.gimple.seq;
+			while (gs) {
+				expanded_location xloc;
+				xloc = expand_location(gs->location);
+				fprintf(stderr, "%s:%d:%d:%s\n",
+					xloc.file, xloc.line, xloc.column,
+					gimple_code_name[gimple_code(gs)]);
+				tree __maybe_unused *ops;
+				ops = gimple_ops(gs);
+				if (gimple_code(gs) == GIMPLE_COND) {
+					struct gcond __maybe_unused *gc;
+					gc = (struct gcond *)gs;
+					for (unsigned i = 0;
+						i < gimple_num_ops(gs);
+						i++) {
+						fprintf(stderr,
+							"ops[%d]: %p,",
+							i, ops[i]);
+						if (ops[i])
+							fprintf(stderr, "%s\n",
+								tree_code_name[TREE_CODE(ops[i])]);
+						else
+							fprintf(stderr, "\n");
+					}
+				}
+				gs = gs->next;
+			}
+			vec<edge,va_gc> *in, *out;
+			in = b->preds;
+			out = b->succs;
+			edge *addr;
+
+			if (in) {
+				fprintf(stderr, "in ");
+				addr = in->address();
+				for (unsigned i = 0; i < in->length(); i++) {
+					fprintf(stderr, "%p ", addr[i]);
+				}
+				fprintf(stderr, "\n");
+			}
+
+			if (out) {
+				fprintf(stderr, "out ");
+				addr = out->address();
+				for (unsigned i = 0; i < out->length(); i++) {
+					fprintf(stderr, "%p ", addr[i]);
+				}
+				fprintf(stderr, "\n");
+			}
+			b = b->next_bb;
+		}
+		node = node->next;
+	}
+}
+
 int plugin_init(struct plugin_name_args *plugin_info,
 		struct plugin_gcc_version *version)
 {
-	int err = 0;
+	int __maybe_unused err = 0;
 
 	/* XXX check current gcc version */
 	if (strncmp(version->basever, version_needed.basever,
@@ -299,8 +345,6 @@ int plugin_init(struct plugin_name_args *plugin_info,
 			all_passes_start, NULL);
 	register_callback(plugin_info->base_name, PLUGIN_ALL_PASSES_END,
 			all_passes_end, NULL);
-	register_callback(plugin_info->base_name, PLUGIN_ALL_IPA_PASSES_START,
-			all_ipa_passes_start, NULL);
 	register_callback(plugin_info->base_name, PLUGIN_ALL_IPA_PASSES_END,
 			all_ipa_passes_end, NULL);
 	register_callback(plugin_info->base_name, PLUGIN_EARLY_GIMPLE_PASSES_START,
@@ -309,7 +353,6 @@ int plugin_init(struct plugin_name_args *plugin_info,
 			early_gimple_passes_end, NULL);
 	register_callback(plugin_info->base_name, PLUGIN_NEW_PASS,
 			new_pass, NULL);
-#endif
 
 	struct register_pass_info pass_info;
 	pass_info.pass = new pass_before_cfg(g);
@@ -317,7 +360,10 @@ int plugin_init(struct plugin_name_args *plugin_info,
 	pass_info.ref_pass_instance_number = 1;
 	pass_info.pos_op = PASS_POS_INSERT_BEFORE;
 
-	register_callback(plugin_info->base_name, PLUGIN_PASS_MANAGER_SETUP, NULL,
-				&pass_info);
+	register_callback(plugin_info->base_name, PLUGIN_PASS_MANAGER_SETUP,
+				NULL, &pass_info);
+#endif
+	register_callback(plugin_info->base_name, PLUGIN_ALL_IPA_PASSES_START,
+			all_ipa_passes_hook, NULL);
 	return 0;
 }

@@ -45,8 +45,18 @@ static int _do_phase(struct sibuf *buf, int step)
 }
 
 /* XXX: use multiple threads to parse the file, core*3 */
+#ifndef CONFIG_ANALYSIS_THREAD
 #define	THREAD_CNT	0x18
+#else
+#define THREAD_CNT	(CONFIG_ANALYSIS_THREAD)
+#endif
+
+#ifndef CONFIG_THREAD_STACKSZ
 #define	THREAD_STACKSZ	(1024*1024*0x10)
+#else
+#define	THREAD_STACKSZ	(CONFIG_THREAD_STACKSZ)
+#endif
+
 static atomic_t *parsed_files;
 struct mt_parse {
 	struct sibuf	*buf;
@@ -212,7 +222,7 @@ int parse_resfile(char *path, int built_in, int step)
 		char *line;
 		line = readline("resfile is not clean, force parsing?(Y/N)");
 		int ch = *line;
-		if ((ch != 'Y') && (ch != 'y')) {
+		if ((ch == 'N') || (ch == 'n')) {
 			fprintf(stdout, "ignore parsing the dirty resfile\n");
 			fflush(stdout);
 			return 0;
@@ -429,10 +439,7 @@ static void parse_usage(void)
 static long parse_cb(int argc, char *argv[])
 {
 	int err;
-	if (unlikely(!si)) {
-		err_dbg(0, "si not set yet");
-		return -1;
-	}
+	char respath[PATH_MAX];
 
 	if (argc != 5) {
 		parse_usage();
@@ -440,18 +447,11 @@ static long parse_cb(int argc, char *argv[])
 		return -1;
 	}
 
-	/*
-	 * getinfo:
-	 *	if the resfile_head is empty, this is a builtin
-	 *	we use step 0
-	 */
-	char respath[PATH_MAX];
-	if (!strchr(argv[1], '/')) {
-		snprintf(respath, PATH_MAX, "%s/%s/%s",
-				DEF_TMPDIR, si->src_id, argv[1]);
-	} else {
-		snprintf(respath, PATH_MAX, "%s", argv[1]);
+	if (si_current_resfile(respath, PATH_MAX, argv[1])) {
+		err_dbg(0, "si_current_resfile err");
+		return -1;
 	}
+
 	int kernel = atoi(argv[2]);
 	int builtin = atoi(argv[3]);
 	int step = atoi(argv[4]);
@@ -466,6 +466,78 @@ static long parse_cb(int argc, char *argv[])
 	return 0;
 }
 
+static char getoffs_cmdname[] = "getoffs";
+static void getoffs_usage(void)
+{
+	fprintf(stdout, "\t(resfile) (filecnt)\n"
+			"\tCount filecnt files and calculate the offset\n");
+}
+static long getoffs_cb(int argc, char *argv[])
+{
+	long err;
+	char respath[PATH_MAX];
+
+	if (argc != 3) {
+		getoffs_usage();
+		err_dbg(0, "argc invalid");
+		return -1;
+	}
+
+	if (si_current_resfile(respath, PATH_MAX, argv[1])) {
+		err_dbg(0, "si_current_resfile err");
+		return -1;
+	}
+
+	unsigned long filecnt = atoll(argv[2]);
+	unsigned long offs;
+	err = analysis__resfile_get_offset(respath, filecnt, &offs);
+	if (err) {
+		err_dbg(0, "analysis__resfile_get_offset err");
+		return -1;
+	}
+
+	fprintf(stdout, "%ld files take size %ld\n", filecnt, offs);
+	return 0;
+}
+
+static char cmdline_cmdname[] = "cmdline";
+static void cmdline_usage(void)
+{
+	fprintf(stdout, "\t(resfile) (filepath)\n"
+			"\tShow the command line used to compile the file\n");
+}
+static long cmdline_cb(int argc, char *argv[])
+{
+	char respath[PATH_MAX];
+
+	if (argc != 3) {
+		cmdline_usage();
+		err_dbg(0, "arg invalid");
+		return -1;
+	}
+
+	if (argv[2][0] != '/') {
+		err_dbg(0, "filepath not an absolute path");
+		return -1;
+	}
+
+	if (si_current_resfile(respath, PATH_MAX, argv[1])) {
+		err_dbg(0, "si_current_resfile err");
+		return -1;
+	}
+
+	struct file_context *fc;
+	fc = analysis__resfile_get_filecontext(respath, argv[2]);
+	if (!fc) {
+		err_dbg(0, "analysis__resfile_get_filecontext err");
+		return -1;
+	}
+
+	fprintf(stdout, "the target command line is\n"
+			"\t%s\n", (char *)file_context_cmd_position(fc));
+	return 0;
+}
+
 SI_MOD_SUBENV_INIT()
 {
 	int err;
@@ -477,6 +549,18 @@ SI_MOD_SUBENV_INIT()
 		return -1;
 	}
 
+	err = clib_cmd_ac_add(getoffs_cmdname, getoffs_cb, getoffs_usage);
+	if (err) {
+		err_dbg(0, "clib_cmd_ac_add err");
+		goto err0;
+	}
+
+	err = clib_cmd_ac_add(cmdline_cmdname, cmdline_cb, cmdline_usage);
+	if (err) {
+		err_dbg(0, "clib_cmd_ac_add err");
+		goto err1;
+	}
+
 	/*
 	 * load analysis modules first
 	 */
@@ -484,18 +568,24 @@ SI_MOD_SUBENV_INIT()
 	head = si_module_get_head(SI_PLUGIN_CATEGORY_ANALYSIS);
 	if (!head) {
 		err_dbg(0, "si_module_get_head err");
-		clib_cmd_ac_del(parse_cmdname);
-		return -1;
+		goto err2;
 	}
 
 	err = si_module_load_all(head);
 	if (err) {
 		err_dbg(0, "si_module_load_all err");
-		clib_cmd_ac_del(parse_cmdname);
-		return -1;
+		goto err2;
 	}
 
 	return 0;
+
+err2:
+	clib_cmd_ac_del(cmdline_cmdname);
+err1:
+	clib_cmd_ac_del(getoffs_cmdname);
+err0:
+	clib_cmd_ac_del(parse_cmdname);
+	return -1;
 }
 
 SI_MOD_SUBENV_DEINIT()

@@ -1,7 +1,7 @@
 include ../pre_defines.makefile
 
 CC = gcc
-CC_OPT =$(CFLAGS) -rdynamic -fPIC -D_FILE_OFFSET_BITS=64 $(CC_RELEASE)
+CC_OPT =$(CFLAGS) -rdynamic -fPIC -D_FILE_OFFSET_BITS=64
 
 OUTDIR = $(SRCINV_BIN)
 OUTFILE = si_core
