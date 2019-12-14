@@ -34,8 +34,9 @@
 #define	CHAR_LEFT	'\001'
 #define	CHAR_RIGHT	'\002'
 static char term_prompt[] = {
-	CHAR_LEFT,CHAR_B,'[','0','m',CHAR_B,'[','0','4',';','4','2','m',CHAR_RIGHT,
-	'S','R','C','I','N', 'V', '>',
+	CHAR_LEFT,CHAR_B,'[','0','m',
+	CHAR_B,'[','0','4',';','4','2','m',
+	CHAR_RIGHT,'S','R','C','I','N', 'V', '>',
 	CHAR_LEFT,CHAR_B,'[','0','m',CHAR_RIGHT,
 	' ',
 };
@@ -104,7 +105,6 @@ int main(int argc, char *argv[])
 	}
 
 	set_dbg_mode(DEBUG_MODE);
-	set_eh(NULL);
 
 	int err0 = tmp_close_std(STDOUT_FILENO);
 

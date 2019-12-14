@@ -28,8 +28,10 @@ static int _do_phase(struct sibuf *buf, int step)
 	if (step > STEP1)
 		analysis__resfile_load(buf);
 
-	struct file_context *fc = (struct file_context *)buf->load_addr;
-	struct lang_ops *ops = lang_ops_find(&analysis_lang_ops_head, &fc->type);
+	struct file_context *fc;
+	fc = (struct file_context *)buf->load_addr;
+	struct lang_ops *ops;
+	ops = lang_ops_find(&analysis_lang_ops_head, &fc->type);
 	if (!ops) {
 		err_dbg(0, "lang_ops TYPE: %d not found", fc->type);
 		return -1;
@@ -205,7 +207,7 @@ int parse_resfile(char *path, int built_in, int step)
 	if (is_new) {
 		char b[PATH_MAX];
 		struct stat st;
-		snprintf(b, PATH_MAX, "%s_bkp", path);
+		snprintf(b, PATH_MAX, "%s.0", path);
 		err = stat(b, &st);
 		if (err == -1) {
 			if (errno == ENOENT) {
@@ -292,8 +294,12 @@ int parse_resfile(char *path, int built_in, int step)
 					signal(SIGQUIT, sigquit_hdl);
 				}
 				if (sigsetjmp(parse_jmp_env, sigjmp_lbl)) {
-					/* jump out this loop, wait for all threads */
-					err_dbg(0, "receive SIGQUIT signal, quit parsing");
+					/*
+					 * jump out this loop
+					 * wait for all threads
+					 */
+					err_dbg(0, "receive SIGQUIT signal, "
+							"quit parsing");
 					break;
 				}
 
@@ -308,11 +314,13 @@ int parse_resfile(char *path, int built_in, int step)
 					break;
 				}
 
-				err = analysis__resfile_read(newrf, t->buf, force);
+				err = analysis__resfile_read(newrf,
+								t->buf, force);
 				if (force)
 					force = 0;
 				if (err == -1) {
-					err_dbg(0, "analysis__resfile_read err");
+					err_dbg(0,
+						  "analysis__resfile_read err");
 					break;
 				} else if (!err) {
 					break;
@@ -330,7 +338,8 @@ int parse_resfile(char *path, int built_in, int step)
 					t->tid = 0;
 				}
 redo1:
-				err = pthread_create(&t->tid, &attr, do_phase, t);
+				err = pthread_create(&t->tid, &attr,
+							do_phase, t);
 				if (err) {
 					err_dbg(0, "pthread_create err");
 					sleep(1);
@@ -350,14 +359,19 @@ redo1:
 		case STEP6:
 		{
 			struct sibuf *tmp;
-			list_for_each_entry_reverse(tmp, &si->sibuf_head, sibling) {
+			list_for_each_entry_reverse(tmp, &si->sibuf_head,
+							sibling) {
 				if (unlikely(!parse_sig_set)) {
 					parse_sig_set = 1;
 					signal(SIGQUIT, sigquit_hdl);
 				}
 				if (sigsetjmp(parse_jmp_env, sigjmp_lbl)) {
-					/* jump out this loop, wait for all threads */
-					err_dbg(0, "receive SIGQUIT signal, quit parsing");
+					/*
+					 * jump out this loop
+					 * wait for all threads
+					 */
+					err_dbg(0, "receive SIGQUIT signal, "
+							"quit parsing");
 					break;
 				}
 
@@ -386,7 +400,8 @@ redo1:
 					t->tid = 0;
 				}
 redo2:
-				err = pthread_create(&t->tid, &attr, do_phase, t);
+				err = pthread_create(&t->tid, &attr,
+							do_phase, t);
 				if (err) {
 					err_dbg(0, "pthread_create err");
 					sleep(1);

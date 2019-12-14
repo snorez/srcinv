@@ -36,7 +36,7 @@ static void buf_restore(void);
 static int buf_expanded(size_t expand_len);
 void *src_buf_get(size_t len);
 static void do_flush_outfile(void);
-static __maybe_unused void src_eh_do_flush(int signo, siginfo_t *si, void *arg);
+static __maybe_unused int src_eh_do_load(int signo, siginfo_t *si, void *arg);
 
 static char cmd0[] = "load_srcfile";
 static char cmd1[] = "flush_srcfile";
@@ -47,13 +47,12 @@ static long cmd1_cb(int argc, char *argv[]);
 
 int si_src_setup(void)
 {
-#if 0
 	struct eh_list *new_eh;
-	new_eh = eh_list_new(src_eh_do_flush);
+	new_eh = eh_list_new(src_eh_do_load, SIGSEGV, 1, 1);
+	set_eh_mode(1);
 	set_eh(new_eh);
-#endif
-	int err;
 
+	int err;
 	err = clib_cmd_ac_add(cmd0, cmd0_cb, cmd0_usage);
 	if (err == -1) {
 		err_msg("clib_cmd_ac_add err");
@@ -243,9 +242,21 @@ static void do_flush_outfile(void)
 	return;
 }
 
-static void src_eh_do_flush(int signo, siginfo_t *si, void *arg)
+/*
+ * while we met a SIGSEGV signal, we check the addr,
+ * load the memory if we need.
+ */
+static int src_eh_do_load(int signo, siginfo_t *si, void *arg)
 {
-	do_flush_outfile();
+	if (unlikely(signo != SIGSEGV))
+		return -1;
+
+	struct sibuf *b;
+	b = find_target_sibuf((void *)si->si_addr);
+	if (!b)
+		return -1;	/* let the original signal handler handle it */
+	analysis__resfile_load(b);
+	return 0;
 }
 
 static void cmd1_usage(void)

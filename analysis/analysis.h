@@ -39,7 +39,8 @@ struct lang_ops {
 	int			(*callback)(struct sibuf *buf, int parse_mode);
 };
 
-static inline struct lang_ops *lang_ops_find(struct list_head *h,struct si_type *type)
+static inline struct lang_ops *lang_ops_find(struct list_head *h,
+						struct si_type *type)
 {
 	struct lang_ops *tmp;
 	list_for_each_entry(tmp, h, sibling) {

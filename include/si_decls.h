@@ -421,7 +421,8 @@ static inline unsigned long sinode_get_id_whole(struct sinode *sn)
 	return siid_get_whole(&sn->node_id.id);
 }
 
-static inline void type_node_init(struct type_node *tn, void *node, int type_code)
+static inline void type_node_init(struct type_node *tn,
+					void *node, int type_code)
 {
 	struct type_node *_new = tn;
 	_new->node = node;
@@ -704,7 +705,8 @@ static inline int si_current_resfile(char *p, size_t len, char *name)
 
 #define	si_get_logfile() ({\
 		char ____path[PATH_MAX];\
-		snprintf(____path, PATH_MAX, "%s/%s/log", DEF_TMPDIR, si->src_id);\
+		snprintf(____path, PATH_MAX, "%s/%s/log", DEF_TMPDIR,\
+				si->src_id);\
 		____path;\
 		})
 
@@ -748,7 +750,8 @@ static inline void __si_log(const char *fmt, ...)
 
 #define	si_log(str, fmt, ...) ({\
 	SI_LOG_TM();\
-	__si_log(SI_LOG_FMT(fmt),SI_LOG_TMARGS,str,SI_LOG_LINEINFO,##__VA_ARGS__);\
+	__si_log(SI_LOG_FMT(fmt),SI_LOG_TMARGS,str,\
+			SI_LOG_LINEINFO,##__VA_ARGS__);\
 	})
 #define	si_log1(fmt, ...) \
 	si_log("analysis", fmt, ##__VA_ARGS__)

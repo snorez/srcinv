@@ -153,8 +153,9 @@ mmap_again0:
 		 */
 		void *addr;
 		unsigned long unmap_addr = rf->buf_start;
-		unsigned long unmap_end =
-			clib_round_down(rf->buf_start + rf->buf_offs, PAGE_SIZE);
+		unsigned long unmap_end;
+		unmap_end = clib_round_down(rf->buf_start + rf->buf_offs,
+						PAGE_SIZE);
 		prepare_unmap((void *)unmap_addr, unmap_end - unmap_addr);
 		err = munmap((void *)unmap_addr, unmap_end - unmap_addr);
 		if (err == -1) {
@@ -188,7 +189,8 @@ mmap_again1:
 		rf->buf_size = mmaplen + (unmap_end - unmap_addr);
 		rf->buf_offs = rf->buf_offs-(unmap_end-unmap_addr);
 #endif
-		rf->buf_size = mmaplen + (rf->buf_size - (unmap_end - unmap_addr));
+		rf->buf_size = mmaplen +
+				(rf->buf_size - (unmap_end - unmap_addr));
 		rf->buf_offs = 0;
 		si->next_mmap_area += mmaplen;
 
@@ -241,13 +243,14 @@ void resfile_load(struct sibuf *buf)
 	loff_t offs_of_resfile = buf->offs_of_resfile;
 	unsigned int filelen = buf->total_len;
 	unsigned long mmap_addr = clib_round_down(load_addr, PAGE_SIZE);
-	size_t mmap_size = clib_round_up(load_addr+filelen, PAGE_SIZE) - mmap_addr;
+	size_t mmap_size;
+	mmap_size = clib_round_up(load_addr+filelen, PAGE_SIZE) - mmap_addr;
 
 	if (buf->need_unload)
 		goto fill_buf;
 	/* TODO, race condition */
 	if ((mmap_addr >= si->next_mmap_area) &&
-		((mmap_addr+mmap_size) <= (si->next_mmap_area + RESFILE_BUF_SIZE)))
+	    ((mmap_addr+mmap_size) <= (si->next_mmap_area + RESFILE_BUF_SIZE)))
 		goto fill_buf;
 
 	if ((mmap_addr < si->next_mmap_area) &&
@@ -295,7 +298,8 @@ void resfile_unload(struct sibuf *buf)
 	unsigned long load_addr = buf->load_addr;
 	size_t filelen = buf->total_len;
 	unsigned long mmap_addr = clib_round_down(load_addr, PAGE_SIZE);
-	size_t mmap_size = clib_round_up(load_addr+filelen, PAGE_SIZE) - mmap_addr;
+	size_t mmap_size;
+	mmap_size = clib_round_up(load_addr+filelen, PAGE_SIZE) - mmap_addr;
 	BUG_ON(munmap((void *)mmap_addr, mmap_size) == -1);
 	buf->need_unload = 0;
 	atomic_sub(buf->total_len, &si->sibuf_mem_usage);

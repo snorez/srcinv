@@ -1,3 +1,7 @@
+Sat Dec 14 17:57:39 CST 2019
+	* fix SIGSEGV issue by loading target sibuf automatically. Use the
+	latest clib.
+
 Sat Dec 14 09:52:32 CST 2019
 	* ignore GIMPLE_DEBUG and GIMPLE_NOP in get_function_detail()
 	* check if the new function_decl has a function body while the old

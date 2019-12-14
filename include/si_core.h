@@ -190,12 +190,11 @@ struct file_obj {
 #endif
 
 #ifndef CONFIG_SIBUF_LOADED_MAX
-#define	SIBUF_LOADED_MAX	((unsigned long)0x100000000)
+#define	SIBUF_LOADED_MAX	((unsigned long)0x200000000)
 #else
 #define	SIBUF_LOADED_MAX	((unsigned long)(CONFIG_SIBUF_LOADED_MAX))
 #endif
 
-BUILD_BUG_ON(SIBUF_LOADED_MAX > SRC_BUF_START, "build arg check err");
 BUILD_BUG_ON(SRC_BUF_START > SRC_BUF_END, "build arg check err");
 BUILD_BUG_ON(SRC_BUF_END > RESFILE_BUF_START, "build arg check err");
 

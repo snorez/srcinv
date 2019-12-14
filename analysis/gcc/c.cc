@@ -1,11 +1,14 @@
 /*
  * this should match with collect/c.cc
- * NOTE, this should be able to used in multiple thread
- * this handle the information collected in lower gimple before cfg pass
+ * NOTE: this should be able to used in multiple thread
+ * handle the information collected in lower gimple at ALL_IPA_PASSES_START
+ * We assume that a static inline function has the same body in separate source
+ *	files.
  *
  * TODO:
  *	SSA_NAME handler
  *	why still contain GIMPLE_LABEL
+ *	do_bit_field_ref() TODOs
  *
  * Copyright (C) 2018  zerons
  *
@@ -3966,7 +3969,6 @@ static void __get_type_detail(struct type_node **base, struct list_head *head,
 	case LANG_TYPE:
 	default:
 		si_log1("miss %s\n", tree_code_name[code]);
-		BUG();
 		break;
 	case REFERENCE_TYPE:
 	{
@@ -5042,7 +5044,7 @@ re_search:
 			{
 				si_log1("miss %s\n", tree_code_name[
 					       prev_vnl->var.type->type_code]);
-				BUG();
+				break;
 			}
 			}
 		}
@@ -5087,7 +5089,7 @@ re_search:
 		{
 			si_log1("miss %s\n",
 			     tree_code_name[prev_vnl->var.type->type_code]);
-			BUG();
+			return NULL;
 		}
 		}
 	}
@@ -5303,7 +5305,6 @@ static void do_init_value(struct var_node *vn, tree init_tree)
 			si_log1("miss %s, %s\n",
 					tree_code_name[TREE_CODE(addr)],
 					vn->name);
-			BUG();
 		}
 		break;
 	}
@@ -5331,7 +5332,7 @@ static void do_init_value(struct var_node *vn, tree init_tree)
 	default:
 	{
 		si_log1("miss %s\n", tree_code_name[init_tc]);
-		BUG();
+		break;
 	}
 	}
 }
@@ -5464,7 +5465,6 @@ static struct type_node *do_mem_ref(struct tree_exp *op)
 		/* TODO */
 	} else {
 		si_log1("miss %s\n", tree_code_name[TREE_CODE(t0)]);
-		BUG();
 	}
 
 	return tn;
@@ -5529,7 +5529,7 @@ static struct var_node_list *component_ref_get_vnl(struct tree_exp *op)
 		si_log1("%s in %s, loc: %s %d %d\n",
 				tree_code_name[tc], gimple_code_name[gc],
 				xloc->file, xloc->line, xloc->column);
-		BUG();
+		break;
 	}
 	}
 
@@ -5620,7 +5620,7 @@ static void do_bit_field_ref(struct tree_exp *op)
 				tree_code_name[TREE_CODE(t0)],
 				gimple_code_name[gc],
 				xloc->file, xloc->line, xloc->column);
-		BUG();
+		break;
 	}
 	}
 
@@ -5692,15 +5692,20 @@ static void do_bit_field_ref(struct tree_exp *op)
 			case BIT_XOR_EXPR:
 			{
 				/* TODO, not found */
-				BUG_ON((TREE_CODE(ops[2]) != VAR_DECL) ||
-					(TREE_CODE(ops[1]) != VAR_DECL));
-				return;
+				si_log1("TODO: ops[2] and ops[1] are not "
+						"VAR_DECL\n");
+				break;
+			}
+			case RSHIFT_EXPR:
+			{
+				si_log1("TODO: recheck RSHIFT_EXPR");
+				break;
 			}
 			default:
 			{
 				si_log1("miss %s\n",
 						tree_code_name[next_gs_tc]);
-				BUG();
+				break;
 			}
 			}
 		} else {
@@ -5708,11 +5713,12 @@ static void do_bit_field_ref(struct tree_exp *op)
 		}
 	} else {
 		si_log1("miss %s\n", gimple_code_name[gimple_code(next_gs)]);
-		BUG();
 	}
 
-	if (unlikely(!target_vn))
-		BUG();
+	if (unlikely(!target_vn)) {
+		si_log1("TODO: recheck target_vn == NULL\n");
+		return;
+	}
 
 	struct use_at_list *newua_type = NULL, *newua_var = NULL;
 	if (target_vn->var.type) {
@@ -5796,7 +5802,6 @@ static void do_gimple_op_xref(tree op)
 					tree_code_name[tc],
 					gimple_code_name[gc],
 					xloc->file, xloc->line, xloc->column);
-			BUG();
 		}
 		break;
 	}
@@ -5815,7 +5820,6 @@ static void do_gimple_op_xref(tree op)
 			/* TODO */
 		} else {
 			si_log1("miss %s\n", tree_code_name[TREE_CODE(t0)]);
-			BUG();
 		}
 
 		break;
@@ -5860,6 +5864,16 @@ static void do_gimple_op_xref(tree op)
 		/* TODO */
 		break;
 	}
+	case IMAGPART_EXPR:
+	{
+		/* TODO */
+		break;
+	}
+	case REALPART_EXPR:
+	{
+		/* TODO */
+		break;
+	}
 	default:
 	{
 		expanded_location *xloc;
@@ -5867,7 +5881,7 @@ static void do_gimple_op_xref(tree op)
 		si_log1("%s in %s, loc: %s %d %d\n",
 				tree_code_name[tc], gimple_code_name[gc],
 				xloc->file, xloc->line, xloc->column);
-		BUG();
+		break;
 	}
 	}
 }
@@ -5889,8 +5903,7 @@ static void get_var_func_marked(struct sinode *func_sn)
 			cur_gimple = gs;
 			enum gimple_code gc = gimple_code(gs);
 			if (gc == GIMPLE_LABEL) {
-				si_log1("GIMPLE_LABEL in %s\n",
-						func_sn->name);
+				/* TODO */
 				continue;
 			}
 			tree *ops = gimple_ops(gs);
@@ -6109,7 +6122,7 @@ static void get_direct_callee_caller(struct sinode *func_sn)
 			default:
 				si_log1("miss %s\n",
 					tree_code_name[TREE_CODE(call_op)]);
-				BUG();
+				break;
 			}
 		}
 	}
@@ -6243,7 +6256,7 @@ static void _handle_marked_func(struct sinode *n, struct sinode *fsn, tree op)
 	default:
 	{
 		si_log1("miss %s\n", tree_code_name[tc]);
-		BUG();
+		break;
 	}
 	}
 }
@@ -6277,7 +6290,6 @@ static void handle_marked_func(struct sinode *n)
 			/* TODO */
 		} else {
 			si_log1("miss %s\n", gimple_code_name[gc]);
-			BUG();
 		}
 	}
 }
@@ -6391,7 +6403,7 @@ static void _do_var_call(struct sinode *fsn, tree node,
 		si_log1("miss %s in %s\n",
 				tree_code_name[tc],
 				fsn->name);
-		BUG();
+		break;
 	}
 	}
 }
@@ -6467,7 +6479,7 @@ static void get_indirect_cfg(struct sinode *func_sn)
 			{
 				si_log1("miss %s\n",
 					tree_code_name[TREE_CODE(call_op)]);
-				BUG();
+				break;
 			}
 			}
 		}
