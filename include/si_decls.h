@@ -731,7 +731,7 @@ static inline void __si_log(const char *fmt, ...)
 	}
 }
 
-#define	SI_LOG_FMT(fmt)	"[%02d/%02d/%d %02d:%02d:%02d][%s %s:%d]\n\t" fmt
+#define	SI_LOG_FMT(fmt)	"[%02d/%02d/%d %02d:%02d:%02d][%s %s:%d] " fmt
 #define	SI_LOG_TMARGS \
 	____tm.tm_mon+1, ____tm.tm_mday, ____tm.tm_year, \
 	____tm.tm_hour, ____tm.tm_min, ____tm.tm_sec

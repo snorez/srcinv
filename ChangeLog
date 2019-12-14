@@ -1,3 +1,8 @@
+Sat Dec 14 09:52:32 CST 2019
+	* ignore GIMPLE_DEBUG and GIMPLE_NOP in get_function_detail()
+	* check if the new function_decl has a function body while the old
+	one doesn't, mostly happen when a function is static inline...
+
 Thu Dec 12 19:22:16 CST 2019
 	* collect ast info at IPA_ALL_PASSES_START, to ensure that the
 	information we collected is correct. At that time, the original

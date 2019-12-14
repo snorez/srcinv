@@ -5,6 +5,7 @@
  *
  * TODO:
  *	SSA_NAME handler
+ *	why still contain GIMPLE_LABEL
  *
  * Copyright (C) 2018  zerons
  *
@@ -3625,10 +3626,12 @@ static int func_conflict(expanded_location *newl, struct sinode *old)
 	oldvis = (struct tree_decl_with_vis *)oldtree;
 	newvis = (struct tree_decl_with_vis *)newtree;
 
-	if (oldvis->weak_flag <= newvis->weak_flag)
-		return TREE_NAME_CONFLICT_DROP;
-	else
+	if (oldvis->weak_flag > newvis->weak_flag)
 		return TREE_NAME_CONFLICT_REPLACE;
+	if ((!DECL_STRUCT_FUNCTION(oldtree)) &&
+		(DECL_STRUCT_FUNCTION(newtree)))
+		return TREE_NAME_CONFLICT_REPLACE;
+	return TREE_NAME_CONFLICT_DROP;
 }
 
 static int var_conflict(expanded_location *newl, struct sinode *old)
@@ -3702,6 +3705,7 @@ static int check_conflict(enum sinode_type type,
 	int ret = TREE_NAME_CONFLICT_FAILED;
 	/* do the first node */
 	switch (type) {
+	case TYPE_FUNC_STATIC:
 	case TYPE_FUNC_GLOBAL:
 		ret = func_conflict(newl, old);
 		break;
@@ -3853,13 +3857,16 @@ step_1:
 			BUG();
 		}
 
-		if (sn_tmp && ((type == TYPE_FUNC_STATIC) ||
+		if (sn_tmp && (((type == TYPE_FUNC_STATIC) &&
+					(sn_tmp->data)) ||
 				(type == TYPE_VAR_STATIC) ||
 				(type == TYPE_TYPE))) {
 			goto next_loop;
 		}
 
 		if (sn_tmp && ((type == TYPE_FUNC_GLOBAL) ||
+				((type == TYPE_FUNC_STATIC) &&
+					(!sn_tmp->data)) ||
 				(type == TYPE_VAR_GLOBAL))) {
 			analysis__resfile_load(sn_tmp->buf);
 			int chk_val = TREE_NAME_CONFLICT_FAILED;
@@ -4364,6 +4371,13 @@ static void get_function_detail(struct sinode *sn)
 		gimple_seq gs;
 		gs = b->il.gimple.seq;
 		while (gs) {
+			/* ignore GIMPLE_DEBUG and GIMPLE_NOP */
+			if ((gimple_code(gs) == GIMPLE_DEBUG) ||
+				(gimple_code(gs) == GIMPLE_NOP)) {
+				gs = gs->next;
+				continue;
+			}
+
 			if ((!gs->next) && (gimple_code(gs) == GIMPLE_COND)) {
 				cps[cps_cur]->cond_head = gs;
 				break;

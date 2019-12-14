@@ -198,17 +198,17 @@ static int _sinode_insert_name_loc(enum sinode_type type, struct sinode *sn)
 static void sinode_insert_do_replace(struct sinode *oldn, struct sinode *newn)
 {
 	char *odata = oldn->data;
-	struct file_obj *oobj = oldn->obj;
 	size_t olddlen = oldn->datalen;
 	struct sibuf *oldbuf = oldn->buf;
+	struct file_obj *oobj = oldn->obj;
 	struct sinode *old_loc_file = oldn->loc_file;
 	int old_loc_line = oldn->loc_line;
 	int old_loc_col = oldn->loc_col;
 
 	oldn->data = newn->data;
-	oldn->obj = newn->obj;
 	oldn->datalen = newn->datalen;
 	oldn->buf = newn->buf;
+	oldn->obj = newn->obj;
 	oldn->loc_file = newn->loc_file;
 	oldn->loc_line = newn->loc_line;
 	oldn->loc_col = newn->loc_col;
@@ -250,7 +250,8 @@ static int _sinode_insert_name_resfile(enum sinode_type type, struct sinode *sn,
 
 		/* should handle SINODE_INSERT_BH_REPLACE first */
 		if (behavior == SINODE_INSERT_BH_REPLACE) {
-			BUG_ON(sn->datalen != data->datalen);
+			if (type != TYPE_FUNC_STATIC)
+				BUG_ON(sn->datalen != data->datalen);
 
 			write_lock(&data->lock);
 			sinode_insert_do_replace(data, sn);
@@ -292,9 +293,13 @@ static int sinode_insert_func_global(struct sinode *sn, int behavior)
 	return _sinode_insert_name_resfile(TYPE_FUNC_GLOBAL, sn, behavior);
 }
 
-static int sinode_insert_func_static(struct sinode *sn)
+static int sinode_insert_func_static(struct sinode *sn, int behavior)
 {
-	return _sinode_insert_name_loc(TYPE_FUNC_STATIC, sn);
+	if (behavior != SINODE_INSERT_BH_REPLACE)
+		return _sinode_insert_name_loc(TYPE_FUNC_STATIC, sn);
+	else
+		return _sinode_insert_name_resfile(TYPE_FUNC_STATIC, sn,
+							behavior);
 }
 
 static int sinode_insert_var_global(struct sinode *sn, int behavior)
@@ -343,7 +348,7 @@ int sinode_insert(struct sinode *node, int behavior)
 	}
 	case TYPE_FUNC_STATIC:
 	{
-		err = sinode_insert_func_static(node);
+		err = sinode_insert_func_static(node, behavior);
 		break;
 	}
 	case TYPE_VAR_GLOBAL:
