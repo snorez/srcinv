@@ -66,18 +66,13 @@
 #include <tree-pass.h>
 #include <tree-phinodes.h>
 #include <tree-cfg.h>
+#include <value-prof.h>
+#include <stringpool.h>
+#include <tree-vrp.h>
+#include <tree-ssanames.h>
 #include <cpplib.h>
 
-#ifndef HAS_TREE_CODE_NAME
-#define	HAS_TREE_CODE_NAME
-#define DEFTREECODE(SYM, NAME, TYPE, LEN) NAME,
-#define END_OF_BASE_TREE_CODES "@dummy",
-static const char *const tree_code_name[] = {
-#include "all-tree.def"
-};
-#undef DEFTREECODE
-#undef END_OF_BASE_TREE_CODES
-#endif
+#include "g++_treecodes.h"
 
 #ifndef TYPE_MODE_RAW
 #define	TYPE_MODE_RAW(NODE) (TYPE_CHECK(NODE)->type_common.mode)
@@ -91,9 +86,9 @@ static const char *const tree_code_name[] = {
 
 #include "si_core.h"
 
-DECL_BEGIN
-
 #ifdef __cplusplus
+
+DECL_BEGIN
 
 #if __GNUC__ == 8
 struct GTY(()) sorted_fields_type {
@@ -144,9 +139,9 @@ static inline int check_file_var(tree node)
 }
 
 /*
- * Now, we collect data at IPA_ALL_PASSES_START, which is after cfg,
+ * Now, we collect data at IPA_ALL_PASSES_END, which is after cfg,
  * the gimple_body is cleared, and the cfg is set.
- * NOTE: is this right?
+ * FIXME: is this right?
  */
 static inline int check_file_func(tree node)
 {
@@ -155,7 +150,9 @@ static inline int check_file_func(tree node)
 	if ((!DECL_EXTERNAL(node)) || DECL_SAVED_TREE(node) ||
 		(DECL_STRUCT_FUNCTION(node) &&
 		 (DECL_STRUCT_FUNCTION(node)->cfg))) {
-		BUG_ON(DECL_SAVED_TREE(node));
+		if (DECL_SAVED_TREE(node))
+			return FUNC_IS_NONE;
+
 		if (TREE_PUBLIC(node)) {
 			return FUNC_IS_GLOBAL;
 		} else {
@@ -194,6 +191,20 @@ static inline expanded_location *get_location(int flag, char *payload,
 	}
 
 	return NULL;
+}
+
+/* EXPR_LOCATION */
+static inline expanded_location *si_expr_location(tree expr)
+{
+	struct sibuf *b;
+	b = find_target_sibuf((void *)expr);
+	BUG_ON(!b);
+	analysis__resfile_load(b);
+
+	if (CAN_HAVE_LOCATION_P(expr))
+		return (expanded_location *)(b->payload + (expr)->exp.locus);
+	else
+		return NULL;
 }
 
 static inline expanded_location *get_gimple_loc(char *payload, location_t *loc)
@@ -321,7 +332,7 @@ static inline void get_type_xnode(tree node, struct sinode **sn_ret,
 		sn = analysis__sinode_search(type, SEARCH_BY_SPEC,
 						(void *)args);
 	} else {
-		tn = analysis__sibuf_type_node_search(b, TREE_CODE(node), node);
+		tn = analysis__sibuf_typenode_search(b, TREE_CODE(node), node);
 	}
 
 	if (sn) {
@@ -439,18 +450,18 @@ static inline void show_gimple(gimple_seq gs)
 {
 	tree *ops = gimple_ops(gs);
 	enum gimple_code gc = gimple_code(gs);
-	si_log(NULL, "Statement %s\n", gimple_code_name[gc]);
+	si_log("Statement %s\n", gimple_code_name[gc]);
 	for (unsigned int i = 0; i < gimple_num_ops(gs); i++) {
 		if (ops[i]) {
 			enum tree_code tc = TREE_CODE(ops[i]);
-			si_log(NULL, "\tOp: %s %p\n",
-					tree_code_name[tc], ops[i]);
+			si_log("\tOp: %s %p\n", tree_code_name[tc], ops[i]);
 		} else {
-			si_log(NULL, "\tOp: null\n");
+			si_log("\tOp: null\n");
 		}
 	}
 }
 
+/* TODO: gcc/tree-cfg.c dump_function_to_file() */
 static inline void get_attributes(struct list_head *head, tree attr_node)
 {
 	if (!attr_node)
@@ -473,8 +484,8 @@ static inline void get_attributes(struct list_head *head, tree attr_node)
 		tl2 = TREE_VALUE(tl);
 		while (tl2) {
 			tree valnode = TREE_VALUE(tl2);
-			struct attr_value_list *newavl;
-			newavl = attr_value_list_new();
+			struct attrval_list *newavl;
+			newavl = attrval_list_new();
 			newavl->node = (void *)valnode;
 
 			list_add_tail(&newavl->sibling, &newal->values);
@@ -488,8 +499,300 @@ static inline void get_attributes(struct list_head *head, tree attr_node)
 	}
 }
 
-#endif
+/*
+ * some functions in gcc header files
+ */
+static inline int si_is_global_var(tree node, expanded_location *xloc)
+{
+	int ret = 0;
+	tree ctx = DECL_CONTEXT(node);
+	if (is_global_var(node) &&
+		((!ctx) || (TREE_CODE(ctx) == TRANSLATION_UNIT_DECL)))
+		ret = 1;
+
+	if (xloc)
+		ret = (ret && (xloc->file));
+
+	return !!ret;
+}
+
+static inline int si_gimple_has_body_p(tree fndecl)
+{
+	struct function *f;
+	f = DECL_STRUCT_FUNCTION(fndecl);
+	return (gimple_body(fndecl) ||
+		(f && f->cfg && !(f->curr_properties & PROP_rtl)));
+}
+
+static inline int si_function_lowered(tree node)
+{
+	struct function *f;
+	f = DECL_STRUCT_FUNCTION(node);
+	return (f && (f->decl == node) &&
+			(f->curr_properties & PROP_gimple_lcf));
+}
+
+static inline int si_gimple_in_ssa_p(struct function *f)
+{
+	return (f && f->gimple_df && f->gimple_df->in_ssa_p);
+}
+
+static inline tree si_gimple_vop(struct function *f)
+{
+	BUG_ON((!f) || (!f->gimple_df));
+	return f->gimple_df->vop;
+}
+
+static inline int si_function_bb(tree fndecl)
+{
+	struct function *f;
+	f = DECL_STRUCT_FUNCTION(fndecl);
+
+	return (f && (f->decl == fndecl) && f->cfg &&
+			f->cfg->x_basic_block_info);
+}
+
+static inline int si_n_basic_blocks_for_fn(struct function *f)
+{
+	BUG_ON((!f) || (!f->cfg));
+	return f->cfg->x_n_basic_blocks;
+}
+
+static inline gphi_iterator si_gsi_start_phis(basic_block bb)
+{
+	gimple_seq *pseq = phi_nodes_ptr(bb);
+
+	gphi_iterator i;
+
+	i.ptr = gimple_seq_first(*pseq);
+	i.seq = pseq;
+	i.bb = i.ptr ? gimple_bb(i.ptr) : NULL;
+
+	return i;
+}
+
+static inline void si_extract_true_false_edges_from_block(basic_block bb,
+							  edge *true_edge,
+							  edge *false_edge)
+{
+	edge e = EDGE_SUCC(bb, 0);
+
+	if (e->flags & EDGE_TRUE_VALUE) {
+		*true_edge = e;
+		*false_edge = EDGE_SUCC(bb, 1);
+	} else {
+		*false_edge = e;
+		*true_edge = EDGE_SUCC(bb, 1);
+	}
+}
+
+static inline gimple *si_last_stmt(basic_block bb)
+{
+	gimple_stmt_iterator i;
+	gimple *stmt = NULL;
+
+	i = gsi_last_bb(bb);
+	while ((!gsi_end_p(i)) &&
+		is_gimple_debug((stmt = gsi_stmt(i)))) {
+		gsi_prev(&i);
+		stmt = NULL;
+	}
+
+	return stmt;
+}
+
+/*
+ * check tree_code gimple_code is not out-of-bound
+ */
+static inline int check_tree_code(tree n)
+{
+	if (!n)
+		return 0;
+
+	size_t len = sizeof(tree_code_name) / sizeof(tree_code_name[0]);
+	enum tree_code tc = TREE_CODE(n);
+	if (tc >= len)
+		return 1;
+	else
+		return 0;
+}
+
+static inline int check_gimple_code(gimple_seq gs)
+{
+	if (!gs)
+		return 0;
+
+	enum gimple_code gc = gimple_code(gs);
+	size_t len = sizeof(gimple_code_name) / sizeof(gimple_code_name[0]);
+	if (gc >= len)
+		return 1;
+	else
+		return 0;
+}
+
+static inline unsigned long get_field_offset(tree field)
+{
+	unsigned long ret = 0;
+
+	if (DECL_FIELD_OFFSET(field)) {
+		ret += TREE_INT_CST_LOW(DECL_FIELD_OFFSET(field)) * 8;
+	}
+
+	if (DECL_FIELD_BIT_OFFSET(field)) {
+		ret += TREE_INT_CST_LOW(DECL_FIELD_BIT_OFFSET(field));
+	}
+
+	return ret;
+}
+
+static inline int si_integer_zerop(tree expr)
+{
+	switch (TREE_CODE(expr)) {
+	case INTEGER_CST:
+	{
+		return wi::to_wide(expr) == 0;
+	}
+	case COMPLEX_CST:
+	{
+		return (si_integer_zerop(TREE_REALPART(expr)) &&
+			si_integer_zerop(TREE_IMAGPART(expr)));
+	}
+	case VECTOR_CST:
+	{
+		return ((VECTOR_CST_NPATTERNS(expr) == 1) &&
+			(VECTOR_CST_DUPLICATE_P(expr)) &&
+			(si_integer_zerop(VECTOR_CST_ENCODED_ELT(expr, 0))));
+	}
+	default:
+	{
+		return false;
+	}
+	}
+}
+
+static inline int si_tree_int_cst_equal(const_tree t1, const_tree t2)
+{
+	if (t1 == t2)
+		return 1;
+
+	if ((t1 == 0) || (t2 == 0))
+		return 0;
+
+	if ((TREE_CODE(t1) == INTEGER_CST) &&
+		(TREE_CODE(t2) == INTEGER_CST) &&
+		(wi::to_widest(t1) == wi::to_widest(t2)))
+		return 1;
+
+	return 0;
+}
+
+static inline tree si_get_containing_scope(const_tree t)
+{
+	return (TYPE_P(t) ? TYPE_CONTEXT(t) : DECL_CONTEXT(t));
+}
+
+C_SYM histogram_value si_gimple_histogram_value(struct function *, gimple *);
+
+C_SYM __thread tree si_global_trees[];
+C_SYM __thread tree si_integer_types[];
+C_SYM __thread tree si_sizetype_tab[];
+C_SYM __thread tree si_current_function_decl;
+
+C_SYM tree si_build1(enum tree_code code, tree type, tree node);
+static inline tree si_build1_loc(location_t loc, enum tree_code code,
+				tree type, tree arg1)
+{
+	tree t = si_build1(code, type, arg1);
+	if (CAN_HAVE_LOCATION_P(t))
+		SET_EXPR_LOCATION(t, loc);
+	return t;
+}
+
+C_SYM tree si_size_int_kind(poly_int64 number, enum size_type_kind kind);
+
+#define si_sizetype si_sizetype_tab[(int) stk_sizetype]
+#define si_bitsizetype si_sizetype_tab[(int) stk_bitsizetype]
+#define si_ssizetype si_sizetype_tab[(int) stk_ssizetype]
+#define si_sbitsizetype si_sizetype_tab[(int) stk_sbitsizetype]
+#define si_size_int(L) si_size_int_kind (L, stk_sizetype)
+#define si_ssize_int(L) si_size_int_kind (L, stk_ssizetype)
+#define si_bitsize_int(L) si_size_int_kind (L, stk_bitsizetype)
+#define si_sbitsize_int(L) si_size_int_kind (L, stk_sbitsizetype)
+
+#define si_error_mark_node		si_global_trees[TI_ERROR_MARK]
+#define si_integer_zero_node		si_global_trees[TI_INTEGER_ZERO]
+
+C_SYM tree si_build0(enum tree_code code, tree tt);
+C_SYM tree si_ss_ph_in_expr(tree, tree);
+
+#define	SI_SS_PH_IN_EXPR(EXP,OBJ) \
+	((EXP) == 0 || TREE_CONSTANT(EXP) ? (EXP) : \
+	 si_ss_ph_in_expr(EXP,OBJ))
+
+C_SYM tree si_fold_build1_loc(location_t loc, enum tree_code code,
+			tree type, tree op0);
+C_SYM tree si_fold_build2_loc(location_t loc, enum tree_code code,
+			tree type, tree op0, tree op1);
+C_SYM tree si_build_fixed(tree type, FIXED_VALUE_TYPE f);
+C_SYM tree si_build_poly_int_cst(tree type, const poly_wide_int_ref &values);
+C_SYM REAL_VALUE_TYPE si_real_value_from_int_cst(const_tree type, const_tree i);
+C_SYM tree si_build_real_from_int_cst(tree type, const_tree i);
+C_SYM tree si_fold_ignored_result(tree t);
+C_SYM tree si_build_vector_from_val(tree vectype, tree sc);
+C_SYM tree si_decl_function_context(const_tree decl);
+C_SYM bool si_decl_address_invariant_p(const_tree op);
+C_SYM bool si_tree_invariant_p(tree t);
+C_SYM tree si_skip_simple_arithmetic(tree expr);
+C_SYM bool si_contains_placeholder_p(const_tree exp);
+C_SYM tree si_save_expr(tree expr);
+C_SYM tree si_fold_convert_loc(location_t loc, tree type, tree arg);
+C_SYM tree si_component_ref_field_offset(tree exp);
 
 DECL_END
+
+template<typename T, typename A>
+inline unsigned gcc_vec_safe_length(const vec<T, A, vl_embed> *v)
+{
+	if (!v)
+		return 0;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct vec_prefix *pfx;
+	pfx = (struct vec_prefix *)&v->vecpfx;
+
+	unsigned length = pfx->m_num;
+	CLIB_DBG_FUNC_EXIT();
+	return length;
+}
+
+template<typename T, typename A>
+inline T *gcc_vec_safe_address(vec<T, A, vl_embed> *v)
+{
+	if (!v)
+		return NULL;
+
+	CLIB_DBG_FUNC_ENTER();
+	T *addr = &v->vecdata[0];
+	CLIB_DBG_FUNC_EXIT();
+	return addr;
+}
+
+template<typename T, typename A>
+inline int gcc_vec_safe_is_empty(const vec<T, A, vl_embed> *v)
+{
+	return gcc_vec_safe_length(v) == 0;
+}
+
+template<typename T, typename A>
+inline void gcc_vec_length_address(vec<T, A, vl_embed> *v,
+				unsigned *length, T **addr)
+{
+	CLIB_DBG_FUNC_ENTER();
+	*length = gcc_vec_safe_length(v);
+	*addr = gcc_vec_safe_address(v);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+#endif
 
 #endif /* end of include guard: SI_GCC_H_LETQ5PZR */

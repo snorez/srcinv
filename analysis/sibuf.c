@@ -25,26 +25,26 @@ struct sibuf *sibuf_new(void)
 
 void sibuf_insert(struct sibuf *b)
 {
-	write_lock(&si->lock);
+	si_lock_w();
 	list_add_tail(&b->sibling, &si->sibuf_head);
-	write_unlock(&si->lock);
+	si_unlock_w();
 }
 
 void sibuf_remove(struct sibuf *b)
 {
-	write_lock(&si->lock);
+	si_lock_w();
 	list_del(&b->sibling);
-	write_unlock(&si->lock);
+	si_unlock_w();
 }
 
-static void sibuf_type_node_insert_same_tc(struct rb_root *root,
-						struct sibuf_type_node *stn)
+static void sibuf_typenode_insert_same_tc(struct rb_root *root,
+						struct sibuf_typenode *stn)
 {
 	struct rb_node **node = &(root->rb_node), *parent = NULL;
 
 	while (*node) {
-		struct sibuf_type_node *data = container_of(*node,
-							struct sibuf_type_node,
+		struct sibuf_typenode *data = container_of(*node,
+							struct sibuf_typenode,
 							same_tc_node);
 		parent = *node;
 		struct type_node *tn = &data->type;
@@ -62,16 +62,16 @@ static void sibuf_type_node_insert_same_tc(struct rb_root *root,
 	return;
 }
 
-int sibuf_type_node_insert(struct sibuf *b, struct sibuf_type_node *stn)
+int sibuf_typenode_insert(struct sibuf *b, struct sibuf_typenode *stn)
 {
-	write_lock(&b->lock);
+	sibuf_lock_w(b);
 
 	struct rb_root *root = &b->file_types;
 	struct rb_node **node = &(root->rb_node), *parent = NULL;
 
 	while (*node) {
-		struct sibuf_type_node *data = container_of(*node,
-							struct sibuf_type_node,
+		struct sibuf_typenode *data = container_of(*node,
+							struct sibuf_typenode,
 							tc_node);
 		parent = *node;
 		struct type_node *tn = &data->type;
@@ -81,8 +81,8 @@ int sibuf_type_node_insert(struct sibuf *b, struct sibuf_type_node *stn)
 			node = &((*node)->rb_right);
 		else {
 			BUG_ON(tn->node == stn->type.node);
-			sibuf_type_node_insert_same_tc(&data->same_tc_root, stn);
-			write_unlock(&b->lock);
+			sibuf_typenode_insert_same_tc(&data->same_tc_root,stn);
+			sibuf_unlock_w(b);
 			return 0;
 		}
 	}
@@ -90,18 +90,18 @@ int sibuf_type_node_insert(struct sibuf *b, struct sibuf_type_node *stn)
 	rb_link_node(&stn->tc_node, parent, node);
 	rb_insert_color(&stn->tc_node, root);
 
-	write_unlock(&b->lock);
+	sibuf_unlock_w(b);
 	return 0;
 }
 
-static struct type_node *sibuf_type_node_search_same_tc(struct rb_root *root,
+static struct type_node *sibuf_typenode_search_same_tc(struct rb_root *root,
 							void *addr)
 {
 	struct rb_node **node = &(root->rb_node);
 
 	while (*node) {
-		struct sibuf_type_node *data = container_of(*node,
-							struct sibuf_type_node,
+		struct sibuf_typenode *data = container_of(*node,
+							struct sibuf_typenode,
 							same_tc_node);
 		struct type_node *tn = &data->type;
 
@@ -116,17 +116,17 @@ static struct type_node *sibuf_type_node_search_same_tc(struct rb_root *root,
 	return NULL;
 }
 
-struct type_node *sibuf_type_node_search(struct sibuf *b, int tc, void *addr)
+struct type_node *sibuf_typenode_search(struct sibuf *b, int tc, void *addr)
 {
 	struct type_node *ret = NULL;
-	read_lock(&b->lock);
+	sibuf_lock_r(b);
 
 	struct rb_root *root = &b->file_types;
 	struct rb_node **node = &(root->rb_node);
 
 	while (*node) {
-		struct sibuf_type_node *data = container_of(*node,
-							struct sibuf_type_node,
+		struct sibuf_typenode *data = container_of(*node,
+							struct sibuf_typenode,
 							tc_node);
 		struct type_node *tn = &data->type;
 		if (tn->type_code > tc)
@@ -139,12 +139,12 @@ struct type_node *sibuf_type_node_search(struct sibuf *b, int tc, void *addr)
 				break;
 			}
 
-			ret = sibuf_type_node_search_same_tc(&data->same_tc_root,
+			ret = sibuf_typenode_search_same_tc(&data->same_tc_root,
 								addr);
 			break;
 		}
 	}
 
-	read_unlock(&b->lock);
+	sibuf_unlock_r(b);
 	return ret;
 }

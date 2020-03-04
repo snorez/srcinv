@@ -18,7 +18,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "si_gcc.h"
-#include "si_gcc_extra.h"
 #include "./hacking.h"
 
 CLIB_MODULE_NAME(kern_copyuser);
@@ -50,7 +49,7 @@ static int check_address_space(struct list_head *head)
 	list_for_each_entry(tmp0, head, sibling) {
 		if (strcmp(tmp0->attr_name, "address_space"))
 			continue;
-		struct attr_value_list *tmp1;
+		struct attrval_list *tmp1;
 		list_for_each_entry(tmp1, &tmp0->values, sibling) {
 			tree attr_val = (tree)tmp1->node;
 			/* this tree should be a INTEGER_CST */
@@ -71,9 +70,9 @@ static int check_address_space(struct list_head *head)
 }
 
 static struct sinode *cur_sn;
-static void do_check(struct call_func_list *cf, int flag)
+static void do_check(struct callf_list *cf, int flag)
 {
-	struct call_func_gimple_stmt_list *tmp;
+	struct callf_gs_list *tmp;
 	list_for_each_entry(tmp, &cf->gimple_stmts, sibling) {
 		gimple_seq gs = (gimple_seq)tmp->gimple_stmt;
 		tree *ops = gimple_ops(gs);
@@ -164,7 +163,7 @@ static void do_check(struct call_func_list *cf, int flag)
 
 /*
  * the function might not have a body yet, we should traverse all sinode, check
- * call_func_list, and do the check
+ * callf_list, and do the check
  */
 static void kern_copyuser_cb(void)
 {
@@ -189,7 +188,7 @@ static void kern_copyuser_cb(void)
 	tid->id0.id_type = TYPE_FUNC_GLOBAL;
 	for (; func_id < si->id_idx[TYPE_FUNC_GLOBAL].id1; func_id++) {
 		struct sinode *fsn;
-		fsn = analysis__sinode_search(siid_get_type(tid), SEARCH_BY_ID, tid);
+		fsn = analysis__sinode_search(siid_type(tid), SEARCH_BY_ID, tid);
 		if (!fsn)
 			continue;
 
@@ -199,14 +198,14 @@ static void kern_copyuser_cb(void)
 
 		analysis__resfile_load(fsn->buf);
 		cur_sn = fsn;
-		struct call_func_list *tmp;
+		struct callf_list *tmp;
 		list_for_each_entry(tmp, &fn->callees, sibling) {
 			if (!tmp->value_flag) {
 				struct sinode *sn;
 				union siid *id_tmp = (union siid *)&tmp->value;
-				if (siid_get_type(id_tmp) == TYPE_FILE)
+				if (siid_type(id_tmp) == TYPE_FILE)
 					continue;
-				sn = analysis__sinode_search(siid_get_type(id_tmp),
+				sn = analysis__sinode_search(siid_type(id_tmp),
 								SEARCH_BY_ID,
 								id_tmp);
 				if (!sn)

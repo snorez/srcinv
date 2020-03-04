@@ -4,12 +4,14 @@ all: pre_header
 
 GCC_ORIG_HFILE=gcc_treecodes_orig.h
 GCC_OUT_HFILE=gcc_treecodes.h
+GPP_OUT_HFILE=g++_treecodes.h
 DEF_DEFINEFILE=defdefine.h
 pre_header: $(GCC_OUT_HFILE) $(DEF_DEFINEFILE)
 
 $(GCC_OUT_HFILE): $(GCC_ORIG_HFILE)
 	@echo generate $(GCC_OUT_HFILE)
 	@gcc -I$(GCC_PLUGIN_INC) $(GCC_ORIG_HFILE) -E -P > $(GCC_OUT_HFILE)
+	@gcc -I$(GCC_PLUGIN_INC) -DFOR_CPP $(GCC_ORIG_HFILE) -E -P > $(GPP_OUT_HFILE)
 
 $(DEF_DEFINEFILE):
 	@echo generate $(DEF_DEFINEFILE)
@@ -24,4 +26,5 @@ clean:
 
 distclean: clean
 	@rm -vf $(GCC_OUT_HFILE)
+	@rm -vf $(GPP_OUT_HFILE)
 	@rm -vf $(DEF_DEFINEFILE)

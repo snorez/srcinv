@@ -1,14 +1,28 @@
 /*
  * this should match with collect/c.cc
  * NOTE: this should be able to used in multiple thread
- * handle the information collected in lower gimple at ALL_IPA_PASSES_START
+ * handle the information collected in lower gimple at ALL_IPA_PASSES_END
  * We assume that a static inline function has the same body in separate source
  *	files.
  *
+ * the version of the code used in phase4 of gcc is 8.3.0
+ * phase 4 may also be used in c++/... that compiled by gcc
+ *
+ * FIXME:
+ *	PHASE3: is there any race condition?
+ *
  * TODO:
- *	SSA_NAME handler
- *	why still contain GIMPLE_LABEL
- *	do_bit_field_ref() TODOs
+ *	SSA_NAMEs
+ *	do_phase4_mem_ref
+ *	get_array_ref_tn
+ *	get_component_ref_vnl
+ *	do_phase4_mark_component_ref
+ *	do_phase4_mark_bit_field_ref
+ *	do_gop_mark
+ *	what exactly does histogram_values do?
+ *
+ * dump_function_to_file() in gcc/tree-cfg.c
+ *	Dump function_decl fn to file using flags
  *
  * Copyright (C) 2018  zerons
  *
@@ -25,12 +39,22 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+#ifndef vecpfx
 #define	vecpfx m_vecpfx
+#endif
+
+#ifndef vecdata
 #define	vecdata m_vecdata
+#endif
+
 #include "si_gcc.h"
-#include "si_gcc_extra.h"
 #include "../analysis.h"
 
+/*
+ * ************************************************************************
+ * main
+ * ************************************************************************
+ */
 static int c_callback(struct sibuf *, int);
 static struct lang_ops c_ops;
 
@@ -56,23 +80,37 @@ CLIB_MODULE_EXIT()
 
 static __thread int mode = MODE_TEST;
 static __thread struct file_obj *objs;
-static __thread size_t obj_cnt, obj_idx, obj_adjusted;
+static __thread size_t obj_cnt, obj_idx, obj_adjusted, real_obj_cnt;
 static __thread void *addr_base = NULL;
 static __thread struct sibuf *cur_sibuf;
-
-static __thread tree cur_func = NULL;
-static __thread gimple_seq cur_gimple = NULL;
-static __thread unsigned long cur_gimple_op_idx = 0;
-static __thread struct sinode *cur_fn = NULL;
-static __thread struct func_node *cur_func_node = NULL;
-static __thread void **xrefs_obj_checked;
-static __thread size_t xrefs_obj_idx = 0;
 
 /* these two are for optimization purpose */
 static __thread void **real_addrs;
 static __thread void **fake_addrs;
 
-static inline void get_real_addr(void **fake_addr, int *do_next)
+/* for phase 4 5 6 */
+/* cur_fndecl is replaced by current_function_decl */
+static __thread gimple_seq cur_gimple = NULL;
+static __thread unsigned long cur_gimple_op_idx = 0;
+static __thread struct sinode *cur_fsn = NULL;
+static __thread struct func_node *cur_fn = NULL;
+static __thread void **phase4_obj_checked;
+static __thread size_t phase4_obj_idx = 0;
+
+/* get obj_cnt without gcc global vars */
+static inline void get_real_obj_cnt(void)
+{
+	for (size_t i = 0; i < obj_cnt; i++) {
+		if (!objs[i].gcc_global_varidx)
+			continue;
+		real_obj_cnt = i;
+		return;
+	}
+	real_obj_cnt = obj_cnt;
+	return;
+}
+
+static inline void __get_real_addr(void **fake_addr, int *do_next, int reverse)
 {
 	/*
 	 * this function should only return the real addr once,
@@ -85,12 +123,12 @@ static inline void get_real_addr(void **fake_addr, int *do_next)
 		return;
 
 	size_t loop_limit = obj_cnt;
-	if (unlikely(loop_limit > (MAX_OBJS_PER_FILE / 8))) {
+	if (unlikely(reverse && (loop_limit > (MAX_OBJS_PER_FILE / 8)))) {
 		loop_limit = MAX_OBJS_PER_FILE / 8;
 		for (i = loop_limit; i < obj_cnt; i++) {
 			if (unlikely(fake_addrs[i] == *fake_addr)) {
 				*fake_addr = (void *)(unsigned long)
-							objs[i].real_addr;
+						objs[i].real_addr;
 				if (!objs[i].is_adjusted)
 					*do_next = 1;
 				return;
@@ -99,7 +137,8 @@ static inline void get_real_addr(void **fake_addr, int *do_next)
 	}
 	for (i = 0; i < loop_limit; i++) {
 		if (unlikely(fake_addrs[i] == *fake_addr)) {
-			*fake_addr = (void *)(unsigned long)objs[i].real_addr;
+			*fake_addr = (void *)(unsigned long)
+					objs[i].real_addr;
 			if (!objs[i].is_adjusted)
 				*do_next = 1;
 			return;
@@ -109,6 +148,17 @@ static inline void get_real_addr(void **fake_addr, int *do_next)
 	*fake_addr = NULL;
 	return;
 }
+
+static inline void get_real_addr(void **fake_addr, int *do_next)
+{
+	__get_real_addr(fake_addr, do_next, 1);
+}
+
+static inline void get_real_addr_1(void **fake_addr, int *do_next)
+{
+	__get_real_addr(fake_addr, do_next, 0);
+}
+
 #define	do_nothing() \
 	({ do {;}while(0); })
 #define	do_real_addr(addr,next) \
@@ -120,14 +170,15 @@ static inline void get_real_addr(void **fake_addr, int *do_next)
 		next; \
 	 })
 
-static inline int is_obj_checked(void *real_addr)
+static inline int __is_obj_checked(void *real_addr, int reverse)
 {
 	switch (mode) {
 	case MODE_ADJUST:
 	{
 		size_t i = 0;
 		size_t loop_limit = obj_cnt;
-		if (unlikely(loop_limit > (MAX_OBJS_PER_FILE / 8))) {
+		if (unlikely(reverse &&
+				(loop_limit > (MAX_OBJS_PER_FILE / 8)))) {
 			loop_limit = MAX_OBJS_PER_FILE / 8;
 			for (i = loop_limit; i < obj_cnt; i++) {
 				if (unlikely(real_addr == real_addrs[i])) {
@@ -153,35 +204,46 @@ static inline int is_obj_checked(void *real_addr)
 		}
 		BUG();
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
 		size_t i = 0;
-		size_t loop_limit = xrefs_obj_idx;
-		if (unlikely(loop_limit > (MAX_OBJS_PER_FILE / 8))) {
+		size_t loop_limit = phase4_obj_idx;
+		if (unlikely(reverse &&
+				(loop_limit > (MAX_OBJS_PER_FILE / 8)))) {
 			loop_limit = MAX_OBJS_PER_FILE / 8;
-			for (i = loop_limit; i < xrefs_obj_idx; i++) {
+			for (i = loop_limit; i < phase4_obj_idx; i++) {
 				if (unlikely(real_addr ==
-						xrefs_obj_checked[i])) {
+						phase4_obj_checked[i])) {
 					return 1;
 				}
 			}
 		}
 
 		for (i = 0; i < loop_limit; i++) {
-			if (unlikely(real_addr == xrefs_obj_checked[i])) {
+			if (unlikely(real_addr == phase4_obj_checked[i])) {
 				return 1;
 			}
 		}
 
-		xrefs_obj_checked[xrefs_obj_idx] = real_addr;
-		xrefs_obj_idx++;
-		BUG_ON(xrefs_obj_idx >= obj_cnt);
+		phase4_obj_checked[phase4_obj_idx] = real_addr;
+		phase4_obj_idx++;
+		BUG_ON(phase4_obj_idx >= obj_cnt);
 
 		return 0;
 	}
 	default:
 		BUG();
 	}
+}
+
+static inline int is_obj_checked(void *real_addr)
+{
+	return __is_obj_checked(real_addr, 1);
+}
+
+static inline int is_obj_checked_1(void *real_addr)
+{
+	return __is_obj_checked(real_addr, 0);
 }
 
 static void do_tree(tree node);
@@ -247,7 +309,7 @@ static expanded_location *my_expand_location(location_t *loc)
 		BUG_ON(i == obj_cnt);
 #else
 		/*
-		 * TODO: there might be an issue here:
+		 * FIXME: there might be an issue here:
 		 *	the obj_idx may not be the right location we save
 		 */
 		size_t __maybe_unused saved_idx = obj_idx;
@@ -275,8 +337,10 @@ static void do_location(location_t *loc)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		expanded_location *xloc = my_expand_location(loc);
 		do_real_addr(&xloc->file, is_obj_checked((void *)xloc->file));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
@@ -294,6 +358,7 @@ static void do_vec_tree(void *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		vec<tree, va_gc, vl_embed> *node0;
 		node0 = (vec<tree, va_gc, vl_embed> *)node;
 
@@ -303,19 +368,11 @@ static void do_vec_tree(void *node, int flag)
 		for (unsigned long i = 0; i < length; i++) {
 			do_real_addr(&addr[i], do_tree(addr[i]));
 		}
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-		vec<tree, va_gc, vl_embed> *node0 =
-			(vec<tree, va_gc, vl_embed> *)node;
-
-		struct vec_prefix *pfx = (struct vec_prefix *)&node0->vecpfx;
-		unsigned long length = pfx->m_num;
-		tree *addr = &node0->vecdata[0];
-		for (unsigned long i = 0; i < length; i++) {
-			do_tree(addr[i]);
-		}
 		return;
 	}
 	default:
@@ -333,6 +390,7 @@ static void do_vec_constructor(void *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		vec<constructor_elt, va_gc> *node0 =
 			(vec<constructor_elt, va_gc> *)node;
 		unsigned long length = node0->vecpfx.m_num;
@@ -341,10 +399,12 @@ static void do_vec_constructor(void *node, int flag)
 			do_real_addr(&addr[i].index,do_tree(addr[i].index));
 			do_real_addr(&addr[i].value,do_tree(addr[i].value));
 		}
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		vec<constructor_elt, va_gc> *node0 =
 			(vec<constructor_elt, va_gc> *)node;
 		unsigned long length = node0->vecpfx.m_num;
@@ -353,6 +413,7 @@ static void do_vec_constructor(void *node, int flag)
 			do_tree(addr[i].index);
 			do_tree(addr[i].value);
 		}
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
@@ -387,23 +448,18 @@ static void do_c_scope(struct c_scope *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		do_real_addr(&node->outer, do_c_scope(node->outer, 1));
 		do_real_addr(&node->outer_function,
 				do_c_scope(node->outer_function, 1));
 		do_real_addr(&node->bindings, do_c_binding(node->bindings, 1));
 		do_real_addr(&node->blocks, do_tree(node->blocks));
 		do_real_addr(&node->blocks_last, do_tree(node->blocks_last));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		do_c_scope(node->outer, 1);
-		do_c_scope(node->outer_function, 1);
-		do_c_binding(node->bindings, 1);
-		do_tree(node->blocks);
-		do_tree(node->blocks_last);
-#endif
 		return;
 	}
 	default:
@@ -428,17 +484,15 @@ static void do_c_spot_bindings(struct c_spot_bindings *node,
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		do_real_addr(&node->scope, do_c_scope(node->scope, 1));
 		do_real_addr(&node->bindings_in_scope,
 				do_c_binding(node->bindings_in_scope, 1));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		do_c_scope(node->scope, 1);
-		do_c_binding(node->bindings_in_scope, 1);
-#endif
 		return;
 	}
 	default:
@@ -462,15 +516,14 @@ static void do_c_goto_bindings(struct c_goto_bindings *node,
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		do_location(&node->loc);
 		do_c_spot_bindings(&node->goto_bindings, 0);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		do_c_spot_bindings(&node->goto_bindings, 0);
-#endif
 		return;
 	}
 	default:
@@ -487,6 +540,7 @@ static void do_vec_c_goto_bindings(void *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		vec<c_goto_bindings_p, va_gc> *node0 =
 					(vec<c_goto_bindings_p, va_gc> *)node;
 		unsigned long len = node0->vecpfx.m_num;
@@ -494,19 +548,11 @@ static void do_vec_c_goto_bindings(void *node, int flag)
 		for (unsigned long i = 0; i < len; i++) {
 			do_real_addr(&addr[i], do_c_goto_bindings(addr[i], 1));
 		}
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		vec<c_goto_bindings_p, va_gc> *node0 =
-					(vec<c_goto_bindings_p, va_gc> *)node;
-		unsigned long len = node0->vecpfx.m_num;
-		c_goto_bindings_p *addr = node0->vecdata;
-		for (unsigned long i = 0; i < len; i++) {
-			do_c_goto_bindings(addr[i], 1);
-		}
-#endif
 		return;
 	}
 	default:
@@ -530,6 +576,7 @@ static void do_c_label_vars(struct c_label_vars *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		do_real_addr(&node->shadowed,
 				do_c_label_vars(node->shadowed, 1));
 		do_c_spot_bindings(&node->label_bindings, 0);
@@ -537,16 +584,11 @@ static void do_c_label_vars(struct c_label_vars *node, int flag)
 				do_vec_tree((void *)node->decls_in_scope, 1));
 		do_real_addr(&node->gotos,
 				do_vec_c_goto_bindings((void *)node->gotos,1));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		do_c_label_vars(node->shadowed, 1);
-		do_c_spot_bindings(&node->label_bindings, 0);
-		do_vec_tree((void *)node->decls_in_scope, 1);
-		do_vec_c_goto_bindings((void *)node->gotos, 1);
-#endif
 		return;
 	}
 	default:
@@ -580,6 +622,7 @@ static void do_c_binding(struct c_binding *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		do_location(&node->locus);
 		do_real_addr(&node->decl, do_tree(node->decl));
 		if (TREE_CODE(node->decl) != LABEL_DECL)
@@ -590,20 +633,11 @@ static void do_c_binding(struct c_binding *node, int flag)
 		do_real_addr(&node->id, do_tree(node->id));
 		do_real_addr(&node->prev, do_c_binding(node->prev, 1));
 		do_real_addr(&node->shadowed, do_c_binding(node->shadowed, 1));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		do_tree(node->decl);
-		if (TREE_CODE(node->decl) != LABEL_DECL)
-			do_tree(node->u.type);
-		else
-			do_c_label_vars(node->u.label, 1);
-		do_tree(node->id);
-		do_c_binding(node->prev, 1);
-		do_c_binding(node->shadowed, 1);
-#endif
 		return;
 	}
 	default:
@@ -622,10 +656,12 @@ static void do_ht_identifier(struct ht_identifier *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		do_real_addr(&node->str, is_obj_checked((void *)node->str));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
 		return;
 	}
@@ -645,6 +681,7 @@ static void do_cpp_hashnode(struct cpp_hashnode *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		do_ht_identifier(&node->ident, 0);
 #ifdef COLLECT_MORE
 		struct cpp_hashnode node0 = *node;
@@ -665,30 +702,11 @@ static void do_cpp_hashnode(struct cpp_hashnode *node, int flag)
 			BUG();
 		}
 #endif
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		do_ht_identifier(&node->ident, 0);
-#ifdef COLLECT_MORE
-		struct cpp_hashnode node0 = *node;
-		switch (CPP_HASHNODE_VALUE_IDX(node0)) {
-		case NTV_MACRO:
-			do_cpp_macro(node->value.macro, 1);
-			break;
-		case NTV_ANSWER:
-			do_answer(node->value.answers, 1);
-			break;
-		case NTV_BUILTIN:
-		case NTV_ARGUMENT:
-		case NTV_NONE:
-			break;
-		default:
-			BUG();
-		}
-#endif
-#endif
 		return;
 	}
 	default:
@@ -706,15 +724,14 @@ static void do_cpp_marco_arg(struct cpp_macro_arg *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		do_real_addr(&node->spelling,
 				do_cpp_hashnode(node->spelling, 1));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		do_cpp_hashnode(node->spelling, 1);
-#endif
 		return;
 	}
 	default:
@@ -732,10 +749,12 @@ static void do_cpp_string(struct cpp_string *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		do_real_addr(&node->text, is_obj_checked((void *)node->text));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
 		return;
 	}
@@ -754,17 +773,15 @@ static void do_cpp_identifier(struct cpp_identifier *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		do_real_addr(&node->node, do_cpp_hashnode(node->node, 1));
 		do_real_addr(&node->spelling,
 				do_cpp_hashnode(node->spelling, 1));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		do_cpp_hashnode(node->node, 1);
-		do_cpp_hashnode(node->spelling, 1);
-#endif
 		return;
 	}
 	default:
@@ -782,6 +799,7 @@ static void do_cpp_token(struct cpp_token *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		do_location(&node->src_loc);
 		switch (*((char *)node + sizeof(*node))) {
 		case CPP_TOKEN_FLD_NODE:
@@ -803,31 +821,11 @@ static void do_cpp_token(struct cpp_token *node, int flag)
 		default:
 			BUG();
 		}
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		switch (*((char *)node + sizeof(*node))) {
-		case CPP_TOKEN_FLD_NODE:
-			do_cpp_identifier(&node->val.node, 0);
-			break;
-		case CPP_TOKEN_FLD_SOURCE:
-			do_cpp_token(node->val.source, 1);
-			break;
-		case CPP_TOKEN_FLD_STR:
-			do_cpp_string(&node->val.str, 0);
-			break;
-		case CPP_TOKEN_FLD_ARG_NO:
-			do_cpp_marco_arg(&node->val.macro_arg, 0);
-			break;
-		case CPP_TOKEN_FLD_TOKEN_NO:
-		case CPP_TOKEN_FLD_PRAGMA:
-			break;
-		default:
-			BUG();
-		}
-#endif
 		return;
 	}
 	default:
@@ -863,6 +861,7 @@ static void __maybe_unused do_cpp_macro(struct cpp_macro *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		do_location(&node->line);
 		if (node->params) {
 			do_real_addr(&node->params,
@@ -896,36 +895,11 @@ static void __maybe_unused do_cpp_macro(struct cpp_macro *node, int flag)
 		default:
 			BUG();
 		}
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		if (node->params) {
-			cpp_hashnode **addr = node->params;
-			for (unsigned short i = 0; i < node->paramc; i++) {
-				do_cpp_hashnode(addr[i], 1);
-			}
-		}
-		switch (node->traditional) {
-		case 0:
-		{
-			if (node->exp.tokens) {
-				struct cpp_token *addr = node->exp.tokens;
-				for (unsigned i = 0; i < node->count; i++) {
-					do_cpp_token(&addr[i], 0);
-				}
-			}
-			break;
-		}
-		case 1:
-		{
-			break;
-		}
-		default:
-			BUG();
-		}
-#endif
 		return;
 	}
 	default:
@@ -948,22 +922,17 @@ static void do_answer(struct answer *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		unsigned int len = node->count;
 		do_real_addr(&node->next, do_answer(node->next, 1));
 		for (unsigned int i = 0; i < len; i++) {
 			do_cpp_token(&node->first[i], 0);
 		}
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		unsigned int len = node->count;
-		do_answer(node->next, 1);
-		for (unsigned int i = 0; i < len; i++) {
-			do_cpp_token(&node->first[i], 0);
-		}
-#endif
 		return;
 	}
 	default:
@@ -983,16 +952,14 @@ static void do_c_common_identifier(struct c_common_identifier *node,
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		do_common((tree)&node->common, 0);
 		do_cpp_hashnode(&node->node, 0);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		do_common((tree)&node->common, 0);
-		do_cpp_hashnode(&node->node, 0);
-#endif
 		return;
 	}
 	default:
@@ -1021,18 +988,15 @@ static void do_sorted_fields_type(struct sorted_fields_type *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		for (int i = 0; i < cnt; i++) {
 			do_real_addr(&node->elts[i], do_tree(node->elts[i]));
 		}
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		for (int i = 0; i < cnt; i++) {
-			do_tree(node->elts[i]);
-		}
-#endif
 		return;
 	}
 	default:
@@ -1056,22 +1020,17 @@ static void do_c_lang_type(void *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct c_lang_type *node0 = (struct c_lang_type *)node;
 		do_real_addr(&node0->s, do_sorted_fields_type(node0->s, 1));
 		do_real_addr(&node0->enum_min, do_tree(node0->enum_min));
 		do_real_addr(&node0->enum_max, do_tree(node0->enum_max));
 		do_real_addr(&node0->objc_info, do_tree(node0->objc_info));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		struct c_lang_type *node0 = (struct c_lang_type *)node;
-		do_sorted_fields_type(node0->s, 1);
-		do_tree(node0->enum_min);
-		do_tree(node0->enum_max);
-		do_tree(node0->objc_info);
-#endif
 		return;
 	}
 	default:
@@ -1101,6 +1060,7 @@ static void do_symtab_node(void *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct symtab_node *node0 = (struct symtab_node *)node;
 		do_real_addr(&node0->decl, do_tree(node0->decl));
 		do_real_addr(&node0->next, do_symtab_node(node0->next, 1));
@@ -1116,28 +1076,16 @@ static void do_symtab_node(void *node, int flag)
 				do_tree(node0->alias_target));
 		do_real_addr(&node0->x_comdat_group,
 				do_tree(node0->x_comdat_group));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		struct symtab_node *node0 = (struct symtab_node *)node;
-		do_tree(node0->decl);
-		do_symtab_node(node0->next, 1);
-		do_symtab_node(node0->previous, 1);
-		do_symtab_node(node0->next_sharing_asm_name, 1);
-		do_symtab_node(node0->previous_sharing_asm_name, 1);
-		do_symtab_node(node0->same_comdat_group, 1);
-		do_tree(node0->alias_target);
-		do_tree(node0->x_comdat_group);
-#endif
-
 		return;
 	}
 	default:
 		BUG();
 	}
-	/* TODO */
 #if 0
 	BUG_ON(node0->ref_list.references);
 	vec<ipa_ref_ptr> tmp_referring = node0->ref_list.referring;
@@ -1167,15 +1115,14 @@ static void do_stmt_tree_s(struct stmt_tree_s *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		do_real_addr(&node->x_cur_stmt_list,
 				do_vec_tree((void *)node->x_cur_stmt_list, 1));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		do_vec_tree((void *)node->x_cur_stmt_list, 1);
-#endif
 		return;
 	}
 	default:
@@ -1200,17 +1147,15 @@ static void do_c_language_function(struct c_language_function *node,
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		do_stmt_tree_s(&node->x_stmt_tree, 0);
 		do_real_addr(&node->local_typedefs,
 				do_vec_tree((void *)node->local_typedefs, 1));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		do_stmt_tree_s(&node->x_stmt_tree, 0);
-		do_vec_tree((void *)node->local_typedefs, 1);
-#endif
 		return;
 	}
 	default:
@@ -1240,18 +1185,16 @@ static void do_splay_tree_node_s(struct splay_tree_node_s *node,
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		do_real_addr(&node->left,
 				do_splay_tree_node_s(node->left, 1));
 		do_real_addr(&node->right,
 				do_splay_tree_node_s(node->right, 1));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		do_splay_tree_node_s(node->left, 1);
-		do_splay_tree_node_s(node->right, 1);
-#endif
 		return;
 	}
 	default:
@@ -1280,14 +1223,13 @@ static void do_splay_tree_s(struct splay_tree_s *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		do_real_addr(&node->root, do_splay_tree_node_s(node->root, 1));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		do_splay_tree_node_s(node->root, 1);
-#endif
 		return;
 	}
 	default:
@@ -1315,23 +1257,18 @@ static void do_c_switch(struct c_switch *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		do_real_addr(&node->switch_expr, do_tree(node->switch_expr));
 		do_real_addr(&node->orig_type, do_tree(node->orig_type));
 		do_real_addr(&node->cases, do_splay_tree_s(node->cases, 1));
 		do_real_addr(&node->bindings,
 				do_c_spot_bindings(node->bindings, 1));
 		do_real_addr(&node->next, do_c_switch(node->next, 1));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		do_tree(node->switch_expr);
-		do_tree(node->orig_type);
-		do_splay_tree_s(node->cases, 1);
-		do_c_spot_bindings(node->bindings, 1);
-		do_c_switch(node->next, 1);
-#endif
 		return;
 	}
 	default:
@@ -1355,16 +1292,14 @@ static void do_c_arg_tag(c_arg_tag *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		do_real_addr(&node->id, do_tree(node->id));
 		do_real_addr(&node->type, do_tree(node->type));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		do_tree(node->id);
-		do_tree(node->type);
-#endif
 		return;
 	}
 	default:
@@ -1378,24 +1313,21 @@ static void do_vec_c_arg_tag(vec<c_arg_tag, va_gc> *node, int flag)
 	if (flag && is_obj_checked(node))
 		return;
 
-	unsigned long len = node->vecpfx.m_num;
-	BUG_ON(len==0);
-	c_arg_tag *addr = node->vecdata;
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
+		unsigned long len = node->vecpfx.m_num;
+		BUG_ON(len==0);
+		c_arg_tag *addr = node->vecdata;
 		for (unsigned long i = 0; i < len; i++) {
 			do_c_arg_tag(&addr[i], 0);
 		}
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		for (unsigned long i = 0; i < len; i++) {
-			do_c_arg_tag(&addr[i], 0);
-		}
-#endif
 		return;
 	}
 	default:
@@ -1423,23 +1355,18 @@ static void do_c_arg_info(struct c_arg_info *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		do_real_addr(&node->parms, do_tree(node->parms));
 		do_real_addr(&node->tags, do_vec_c_arg_tag(node->tags, 1));
 		do_real_addr(&node->types, do_tree(node->types));
 		do_real_addr(&node->others, do_tree(node->others));
 		do_real_addr(&node->pending_sizes,
 				do_tree(node->pending_sizes));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		do_tree(node->parms);
-		do_vec_c_arg_tag(node->tags, 1);
-		do_tree(node->types);
-		do_tree(node->others);
-		do_tree(node->pending_sizes);
-#endif
 		return;
 	}
 	default:
@@ -1469,6 +1396,7 @@ static void do_language_function(struct language_function *node,
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		do_c_language_function(&node->base, 0);
 		do_real_addr(&node->x_break_label,
 				do_tree(node->x_break_label));
@@ -1477,17 +1405,11 @@ static void do_language_function(struct language_function *node,
 				do_c_switch(node->x_switch_stack, 1));
 		do_real_addr(&node->arg_info,
 				do_c_arg_info(node->arg_info, 1));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		do_c_language_function(&node->base, 0);
-		do_tree(node->x_break_label);
-		do_tree(node->x_cont_label);
-		do_c_switch(node->x_switch_stack, 1);
-		do_c_arg_info(node->arg_info, 1);
-#endif
 		return;
 	}
 	default:
@@ -1496,33 +1418,1054 @@ static void do_language_function(struct language_function *node,
 }
 
 static void do_basic_block(void *node, int flag);
-static void do_gimple_seq(gimple_seq gs, int flag)
+static void do_gimple_seq(gimple_seq gs);
+/*
+ * following functions are for gsstruct
+ * we do NOT check mode in these functions
+ */
+static __maybe_unused size_t gsstruct_size(gimple_seq gs)
+{
+	return gsstruct_code_size[gss_for_code(gimple_code(gs))];
+}
+
+static __maybe_unused size_t gimple_total_size(gimple_seq gs)
+{
+	size_t base_size = gsstruct_size(gs);
+
+	/* there is an exception: gphi */
+	if (gimple_code(gs) == GIMPLE_PHI) {
+		struct gphi *node;
+		node = (struct gphi *)gs;
+
+		base_size -= sizeof(*node);
+		base_size += sizeof(*node) * node->nargs;
+		return base_size;
+	}
+
+	if (!gimple_has_ops(gs) || (!gimple_num_ops(gs)))
+		return base_size;
+	return base_size + (gimple_num_ops(gs)-1) * sizeof(tree);
+}
+
+static void do_gimple_base(gimple *gs, int flag)
 {
 	if (!gs)
 		return;
 	if (flag && is_obj_checked((void *)gs))
 		return;
 
+	CLIB_DBG_FUNC_ENTER();
+	do_location(&gs->location);
+	do_real_addr(&gs->bb, do_basic_block(gs->bb, 1));
+	do_real_addr(&gs->next, do_gimple_seq(gs->next));
+	do_real_addr(&gs->prev, do_gimple_seq(gs->prev));
+	CLIB_DBG_FUNC_EXIT();
+
+	return;
+}
+
+static void do_ssa_use_operand(void *node, int flag);
+static void do_use_optype_d(struct use_optype_d *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked((void *)node))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	do_real_addr(&node->next, do_use_optype_d(node->next, 1));
+	do_ssa_use_operand(&node->use_ptr, 0);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gs_with_ops_base(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gimple_statement_with_ops_base *node0;
+	node0 = (struct gimple_statement_with_ops_base *)gs;
+
+	do_gimple_base(gs, 0);
+	do_real_addr(&node0->use_ops, do_use_optype_d(node0->use_ops, 1));
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static inline void do_gs_ops(gimple *gs)
+{
+	CLIB_DBG_FUNC_ENTER();
+	tree *ops;
+	ops = gimple_ops(gs);
+	for (unsigned int i = 0; i < gimple_num_ops(gs); i++) {
+		do_real_addr(&ops[i], do_tree(ops[i]));
+	}
+	CLIB_DBG_FUNC_EXIT();
+}
+static void do_gs_with_ops(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gimple_statement_with_ops __maybe_unused *node0;
+	node0 = (struct gimple_statement_with_ops *)gs;
+
+	do_gs_with_ops_base(gs, 0);
+	do_gs_ops(gs);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gs_with_mem_ops_base(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gimple_statement_with_memory_ops_base *node0;
+	node0 = (struct gimple_statement_with_memory_ops_base *)gs;
+
+	do_gs_with_ops_base(gs, 0);
+	do_real_addr(&node0->vdef, do_tree(node0->vdef));
+	do_real_addr(&node0->vuse, do_tree(node0->vuse));
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gs_with_mem_ops(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gimple_statement_with_memory_ops __maybe_unused *node0;
+	node0 = (struct gimple_statement_with_memory_ops *)gs;
+
+	do_gs_with_mem_ops_base(gs, 0);
+	do_gs_ops(gs);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gcall(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gcall __maybe_unused *node0;
+	node0 = (struct gcall *)gs;
+
+	do_gs_with_mem_ops_base(gs, 0);
+
+	if (!(gs->subcode & GF_CALL_INTERNAL)) {
+		do_real_addr(&node0->u.fntype, do_tree(node0->u.fntype));
+	}
+	do_gs_ops(gs);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gs_omp(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gimple_statement_omp *node0;
+	node0 = (struct gimple_statement_omp *)gs;
+
+	do_gimple_base(gs, 0);
+	do_real_addr(&node0->body, do_gimple_seq(node0->body));
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gbind(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gbind *node0;
+	node0 = (struct gbind *)gs;
+
+	do_gimple_base(gs, 0);
+
+	do_real_addr(&node0->vars, do_tree(node0->vars));
+	do_real_addr(&node0->block, do_tree(node0->block));
+	do_real_addr(&node0->body, do_gimple_seq(node0->body));
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gcatch(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gcatch *node0;
+	node0 = (struct gcatch *)gs;
+
+	do_gimple_base(gs, 0);
+
+	do_real_addr(&node0->types, do_tree(node0->types));
+	do_real_addr(&node0->handler, do_gimple_seq(node0->handler));
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_geh_filter(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct geh_filter *node0;
+	node0 = (struct geh_filter *)gs;
+
+	do_gimple_base(gs, 0);
+
+	do_real_addr(&node0->types, do_tree(node0->types));
+	do_real_addr(&node0->failure, do_gimple_seq(node0->failure));
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_geh_else(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct geh_else *node0;
+	node0 = (struct geh_else *)gs;
+
+	do_gimple_base(gs, 0);
+
+	do_real_addr(&node0->n_body, do_gimple_seq(node0->n_body));
+	do_real_addr(&node0->e_body, do_gimple_seq(node0->e_body));
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_geh_mnt(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct geh_mnt *node0;
+	node0 = (struct geh_mnt *)gs;
+
+	do_gimple_base(gs, 0);
+
+	do_real_addr(&node0->fndecl, do_tree(node0->fndecl));
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_phi_arg_d(struct phi_arg_d *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked((void *)node))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	/* ignore: do_location(&node->locus); */
+	do_ssa_use_operand(&node->imm_use, 0);
+
+	do_real_addr(&node->def, do_tree(node->def));
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gphi(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gphi *node0;
+	node0 = (struct gphi *)gs;
+
+	do_gimple_base(gs, 0);
+
+	do_real_addr(&node0->result, do_tree(node0->result));
+
+	for (unsigned i = 0; i < node0->nargs; i++) {
+		do_phi_arg_d(&node0->args[i], 0);
+	}
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gs_eh_ctrl(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gimple_statement_eh_ctrl __maybe_unused *node0;
+	node0 = (struct gimple_statement_eh_ctrl *)gs;
+
+	do_gimple_base(gs, 0);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gresx(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gresx __maybe_unused *node0;
+	node0 = (struct gresx *)gs;
+
+	do_gs_eh_ctrl(gs, 0);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_geh_dispatch(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct geh_dispatch __maybe_unused *node0;
+	node0 = (struct geh_dispatch *)gs;
+
+	do_gs_eh_ctrl(gs, 0);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gtry(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gtry *node0;
+	node0 = (struct gtry *)gs;
+
+	do_gimple_base(gs, 0);
+
+	do_real_addr(&node0->eval, do_gimple_seq(node0->eval));
+	do_real_addr(&node0->cleanup, do_gimple_seq(node0->cleanup));
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static __maybe_unused void do_gs_wce(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gimple_statement_wce *node0;
+	node0 = (struct gimple_statement_wce *)gs;
+
+	do_gimple_base(gs, 0);
+
+	do_real_addr(&node0->cleanup, do_gimple_seq(node0->cleanup));
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gasm(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gasm *node0;
+	node0 = (struct gasm *)gs;
+	do_gs_with_mem_ops_base(gs, 0);
+
+	do_real_addr(&node0->string, is_obj_checked((void *)node0->string));
+
+	do_gs_ops(gs);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gomp_critical(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gomp_critical *node0;
+	node0 = (struct gomp_critical *)gs;
+
+	do_gs_omp(gs, 0);
+
+	do_real_addr(&node0->clauses, do_tree(node0->clauses));
+	do_real_addr(&node0->name, do_tree(node0->name));
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gomp_for_iter(struct gimple_omp_for_iter *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked((void *)node))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	do_real_addr(&node->index, do_tree(node->index));
+	do_real_addr(&node->initial, do_tree(node->initial));
+	do_real_addr(&node->final, do_tree(node->final));
+	do_real_addr(&node->incr, do_tree(node->incr));
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gomp_for(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gomp_for *node0;
+	node0 = (struct gomp_for *)gs;
+
+	do_gs_omp(gs, 0);
+
+	do_real_addr(&node0->clauses, do_tree(node0->clauses));
+	do_real_addr(&node0->iter, do_gomp_for_iter(node0->iter, 1));
+	do_real_addr(&node0->pre_body, do_gimple_seq(node0->pre_body));
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gs_omp_parallel_layout(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gimple_statement_omp_parallel_layout *node0;
+	node0 = (struct gimple_statement_omp_parallel_layout *)gs;
+
+	do_gs_omp(gs, 0);
+
+	do_real_addr(&node0->clauses, do_tree(node0->clauses));
+	do_real_addr(&node0->child_fn, do_tree(node0->child_fn));
+	do_real_addr(&node0->data_arg, do_tree(node0->data_arg));
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gs_omp_taskreg(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gimple_statement_omp_taskreg __maybe_unused *node0;
+	node0 = (struct gimple_statement_omp_taskreg *)gs;
+
+	do_gs_omp_parallel_layout(gs, 0);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gomp_parallel(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gomp_parallel __maybe_unused *node0;
+	node0 = (struct gomp_parallel *)gs;
+
+	do_gs_omp_taskreg(gs, 0);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gomp_target(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gomp_target __maybe_unused *node0;
+	node0 = (struct gomp_target *)gs;
+
+	do_gs_omp_parallel_layout(gs, 0);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gomp_task(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gomp_task *node0;
+	node0 = (struct gomp_task *)gs;
+
+	do_gs_omp_taskreg(gs, 0);
+
+	do_real_addr(&node0->copy_fn, do_tree(node0->copy_fn));
+	do_real_addr(&node0->arg_size, do_tree(node0->arg_size));
+	do_real_addr(&node0->arg_align, do_tree(node0->arg_align));
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gomp_sections(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gomp_sections *node0;
+	node0 = (struct gomp_sections *)gs;
+
+	do_gs_omp(gs, 0);
+
+	do_real_addr(&node0->clauses, do_tree(node0->clauses));
+	do_real_addr(&node0->control, do_tree(node0->control));
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gomp_continue(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gomp_continue *node0;
+	node0 = (struct gomp_continue *)gs;
+
+	do_gimple_base(gs, 0);
+
+	do_real_addr(&node0->control_def, do_tree(node0->control_def));
+	do_real_addr(&node0->control_use, do_tree(node0->control_use));
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gs_omp_single_layout(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gimple_statement_omp_single_layout *node0;
+	node0 = (struct gimple_statement_omp_single_layout *)gs;
+
+	do_gs_omp(gs, 0);
+
+	do_real_addr(&node0->clauses, do_tree(node0->clauses));
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gomp_single(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gomp_single __maybe_unused *node0;
+	node0 = (struct gomp_single *)gs;
+
+	do_gs_omp_single_layout(gs, 0);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gomp_teams(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gomp_teams __maybe_unused *node0;
+	node0 = (struct gomp_teams *)gs;
+
+	do_gs_omp_single_layout(gs, 0);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gomp_ordered(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gomp_ordered __maybe_unused *node0;
+	node0 = (struct gomp_ordered *)gs;
+
+	do_gs_omp_single_layout(gs, 0);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gomp_atomic_load(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gomp_atomic_load *node0;
+	node0 = (struct gomp_atomic_load *)gs;
+
+	do_gimple_base(gs, 0);
+
+	do_real_addr(&node0->rhs, do_tree(node0->rhs));
+	do_real_addr(&node0->lhs, do_tree(node0->lhs));
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gs_omp_atomic_store_layout(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gimple_statement_omp_atomic_store_layout *node0;
+	node0 = (struct gimple_statement_omp_atomic_store_layout *)gs;
+
+	do_gimple_base(gs, 0);
+
+	do_real_addr(&node0->val, do_tree(node0->val));
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gomp_atomic_store(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gomp_atomic_store __maybe_unused *node0;
+	node0 = (struct gomp_atomic_store *)gs;
+
+	do_gs_omp_atomic_store_layout(gs, 0);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gs_omp_return(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gimple_statement_omp_return __maybe_unused *node0;
+	node0 = (struct gimple_statement_omp_return *)gs;
+
+	do_gs_omp_atomic_store_layout(gs, 0);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gtransaction(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gtransaction *node0;
+	node0 = (struct gtransaction *)gs;
+
+	do_gs_with_mem_ops_base(gs, 0);
+
+	do_real_addr(&node0->body, do_gimple_seq(node0->body));
+	do_real_addr(&node0->label_norm, do_tree(node0->label_norm));
+	do_real_addr(&node0->label_uninst, do_tree(node0->label_uninst));
+	do_real_addr(&node0->label_over, do_tree(node0->label_over));
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gcond(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gcond __maybe_unused *node0;
+	node0 = (struct gcond *)gs;
+
+	do_gs_with_ops(gs, 0);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gdebug(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gdebug __maybe_unused *node0;
+	node0 = (struct gdebug *)gs;
+
+	do_gs_with_ops(gs, 0);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_ggoto(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct ggoto __maybe_unused *node0;
+	node0 = (struct ggoto *)gs;
+
+	do_gs_with_ops(gs, 0);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_glabel(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct glabel __maybe_unused *node0;
+	node0 = (struct glabel *)gs;
+
+	do_gs_with_ops(gs, 0);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gswitch(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gswitch __maybe_unused *node0;
+	node0 = (struct gswitch *)gs;
+
+	do_gs_with_ops(gs, 0);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gassign(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct gassign __maybe_unused *node0;
+	node0 = (struct gassign *)gs;
+
+	do_gs_with_mem_ops(gs, 0);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_greturn(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+	struct greturn __maybe_unused *node0;
+	node0 = (struct greturn *)gs;
+
+	do_gs_with_mem_ops(gs, 0);
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_gimple_seq(gimple_seq gs)
+{
+	if (!gs)
+		return;
+
 	switch (mode) {
 	case MODE_ADJUST:
 	{
-		do_location(&gs->location);
-		tree *ops = gimple_ops(gs);
-		for (unsigned int i = 0; i < gimple_num_ops(gs); i++) {
-			do_real_addr(&ops[i], do_tree(ops[i]));
+		CLIB_DBG_FUNC_ENTER();
+
+		BUG_ON(check_gimple_code(gs));
+
+		switch (gimple_code(gs)) {
+		case GIMPLE_ASM:
+		{
+			do_gasm(gs, 1);
+			break;
 		}
-		do_real_addr(&gs->bb, do_basic_block(gs->bb, 1));
-		do_real_addr(&gs->next, do_gimple_seq(gs->next, 1));
-		do_real_addr(&gs->prev, do_gimple_seq(gs->prev, 1));
+		case GIMPLE_ASSIGN:
+		{
+			do_gassign(gs, 1);
+			break;
+		}
+		case GIMPLE_CALL:
+		{
+			do_gcall(gs, 1);
+			break;
+		}
+		case GIMPLE_COND:
+		{
+			do_gcond(gs, 1);
+			break;
+		}
+		case GIMPLE_LABEL:
+		{
+			do_glabel(gs, 1);
+			break;
+		}
+		case GIMPLE_GOTO:
+		{
+			do_ggoto(gs, 1);
+			break;
+		}
+		case GIMPLE_NOP:
+		{
+			do_gimple_base(gs, 1);
+			break;
+		}
+		case GIMPLE_RETURN:
+		{
+			do_greturn(gs, 1);
+			break;
+		}
+		case GIMPLE_SWITCH:
+		{
+			do_gswitch(gs, 1);
+			break;
+		}
+		case GIMPLE_PHI:
+		{
+			do_gphi(gs, 1);
+			break;
+		}
+		case GIMPLE_OMP_PARALLEL:
+		{
+			do_gomp_parallel(gs, 1);
+			break;
+		}
+		case GIMPLE_OMP_TASK:
+		{
+			do_gomp_task(gs, 1);
+			break;
+		}
+		case GIMPLE_OMP_ATOMIC_LOAD:
+		{
+			do_gomp_atomic_load(gs, 1);
+			break;
+		}
+		case GIMPLE_OMP_ATOMIC_STORE:
+		{
+			do_gomp_atomic_store(gs, 1);
+			break;
+		}
+		case GIMPLE_OMP_FOR:
+		{
+			do_gomp_for(gs, 1);
+			break;
+		}
+		case GIMPLE_OMP_CONTINUE:
+		{
+			do_gomp_continue(gs, 1);
+			break;
+		}
+		case GIMPLE_OMP_SINGLE:
+		{
+			do_gomp_single(gs, 1);
+			break;
+		}
+		case GIMPLE_OMP_TARGET:
+		{
+			do_gomp_target(gs, 1);
+			break;
+		}
+		case GIMPLE_OMP_TEAMS:
+		{
+			do_gomp_teams(gs, 1);
+			break;
+		}
+		case GIMPLE_OMP_RETURN:
+		{
+			do_gs_omp_return(gs, 1);
+			break;
+		}
+		case GIMPLE_OMP_SECTIONS:
+		{
+			do_gomp_sections(gs, 1);
+			break;
+		}
+		case GIMPLE_OMP_SECTIONS_SWITCH:
+		{
+			/* FIXME: is do_gimple_base() right? */
+			do_gimple_base(gs, 1);
+			break;
+		}
+		case GIMPLE_OMP_MASTER:
+		case GIMPLE_OMP_TASKGROUP:
+		case GIMPLE_OMP_SECTION:
+		case GIMPLE_OMP_GRID_BODY:
+		{
+			do_gs_omp(gs, 1);
+			break;
+		}
+		case GIMPLE_OMP_ORDERED:
+		{
+			do_gomp_ordered(gs, 1);
+			break;
+		}
+		case GIMPLE_OMP_CRITICAL:
+		{
+			do_gomp_critical(gs, 1);
+			break;
+		}
+		case GIMPLE_BIND:
+		{
+			do_gbind(gs, 1);
+			break;
+		}
+		case GIMPLE_TRY:
+		{
+			do_gtry(gs, 1);
+			break;
+		}
+		case GIMPLE_CATCH:
+		{
+			do_gcatch(gs, 1);
+			break;
+		}
+		case GIMPLE_EH_FILTER:
+		{
+			do_geh_filter(gs, 1);
+			break;
+		}
+		case GIMPLE_EH_MUST_NOT_THROW:
+		{
+			do_geh_mnt(gs, 1);
+			break;
+		}
+		case GIMPLE_EH_ELSE:
+		{
+			do_geh_else(gs, 1);
+			break;
+		}
+		case GIMPLE_RESX:
+		{
+			do_gresx(gs, 1);
+			break;
+		}
+		case GIMPLE_EH_DISPATCH:
+		{
+			do_geh_dispatch(gs, 1);
+			break;
+		}
+		case GIMPLE_DEBUG:
+		{
+			do_gdebug(gs, 1);
+			break;
+		}
+		case GIMPLE_PREDICT:
+		{
+			/* FIXME: is do_gimple_base() right? */
+			do_gimple_base(gs, 1);
+			break;
+		}
+		case GIMPLE_TRANSACTION:
+		{
+			do_gtransaction(gs, 1);
+			break;
+		}
+		default:
+		{
+			BUG();
+		}
+		}
+
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
+#if 0
+		if (is_obj_checked((void *)gs))
+			return;
+
+		CLIB_DBG_FUNC_ENTER();
+		/* FIXME: traverse the ops */
+		tree *ops = gimple_ops(gs);
+		for (unsigned int i = 0; i < gimple_num_ops(gs); i++) {
+			do_tree(ops[i]);
+		}
+		do_basic_block(gs->bb, 1);
+		do_gimple_seq(gs->next);
+		do_gimple_seq(gs->prev);
+		CLIB_DBG_FUNC_EXIT();
+#endif
 		return;
 	}
 	default:
 		BUG();
 	}
+	return;
 }
 
 static void do_edge(void *node, int flag)
@@ -1535,13 +2478,26 @@ static void do_edge(void *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct edge_def *node0;
 		node0 = (struct edge_def *)node;
 		do_location(&node0->goto_locus);
 		do_real_addr(&node0->src, do_basic_block(node0->src, 1));
 		do_real_addr(&node0->dest, do_basic_block(node0->dest, 1));
 		do_real_addr(&node0->insns.g,
-				do_gimple_seq(node0->insns.g, 1));
+				do_gimple_seq(node0->insns.g));
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct edge_def *node0;
+		node0 = (struct edge_def *)node;
+		do_basic_block(node0->src, 1);
+		do_basic_block(node0->dest, 1);
+		do_gimple_seq(node0->insns.g);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
@@ -1559,6 +2515,7 @@ static void do_vec_edge(void *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		vec<edge, va_gc> *node0;
 		node0 = (vec<edge, va_gc> *)node;
 
@@ -1569,6 +2526,23 @@ static void do_vec_edge(void *node, int flag)
 		for (unsigned long i = 0; i < length; i++) {
 			do_real_addr(&addr[i], do_edge(addr[i], 1));
 		}
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		vec<edge, va_gc> *node0;
+		node0 = (vec<edge, va_gc> *)node;
+
+		struct vec_prefix *pfx;
+		pfx = &node0->vecpfx;
+		unsigned long length = pfx->m_num;
+		edge *addr = &node0->vecdata[0];
+		for (unsigned long i = 0; i < length; i++) {
+			do_edge(addr[i], 1);
+		}
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
@@ -1586,10 +2560,22 @@ static void do_nb_iter_bound(void *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct nb_iter_bound *node0;
 		node0 = (struct nb_iter_bound *)node;
-		do_real_addr(&node0->stmt, do_gimple_seq(node0->stmt, 1));
+		do_real_addr(&node0->stmt, do_gimple_seq(node0->stmt));
 		do_real_addr(&node0->next, do_nb_iter_bound(node0->next, 1));
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct nb_iter_bound *node0;
+		node0 = (struct nb_iter_bound *)node;
+		do_gimple_seq(node0->stmt);
+		do_nb_iter_bound(node0->next, 1);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
@@ -1607,12 +2593,25 @@ static void do_control_iv(void *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct control_iv *node0;
 		node0 = (struct control_iv *)node;
 		do_real_addr(&node0->base, do_tree(node0->base));
 		do_real_addr(&node0->step, do_tree(node0->step));
 		do_real_addr(&node0->next,
 				do_control_iv(node0->next, 1));
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct control_iv *node0;
+		node0 = (struct control_iv *)node;
+		do_tree(node0->base);
+		do_tree(node0->step);
+		do_control_iv(node0->next, 1);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
@@ -1630,12 +2629,26 @@ static void do_loop_exit(void *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct loop_exit *node0;
 		node0 = (struct loop_exit *)node;
 		do_real_addr(&node0->e, do_edge(node0->e, 1));
 		do_real_addr(&node0->prev, do_loop_exit(node0->prev, 1));
 		do_real_addr(&node0->next, do_loop_exit(node0->next, 1));
 		do_real_addr(&node0->next_e, do_loop_exit(node0->next_e, 1));
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct loop_exit *node0;
+		node0 = (struct loop_exit *)node;
+		do_edge(node0->e, 1);
+		do_loop_exit(node0->prev, 1);
+		do_loop_exit(node0->next, 1);
+		do_loop_exit(node0->next_e, 1);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
@@ -1653,10 +2666,22 @@ static void do_niter_desc(void *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct niter_desc *node0;
 		node0 = (struct niter_desc *)node;
 		do_real_addr(&node0->out_edge, do_edge(node0->out_edge, 1));
 		do_real_addr(&node0->in_edge, do_edge(node0->in_edge, 1));
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct niter_desc *node0;
+		node0 = (struct niter_desc *)node;
+		do_edge(node0->out_edge, 1);
+		do_edge(node0->in_edge, 1);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
@@ -1675,6 +2700,7 @@ static void do_loop(void *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct loop *node0;
 		node0 = (struct loop *)node;
 		do_real_addr(&node0->header,
@@ -1701,6 +2727,27 @@ static void do_loop(void *node, int flag)
 				do_niter_desc(node0->simple_loop_desc, 1));
 		do_real_addr(&node0->former_header,
 				do_basic_block(node0->former_header, 1));
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct loop *node0;
+		node0 = (struct loop *)node;
+		do_basic_block(node0->header, 1);
+		do_basic_block(node0->latch, 1);
+		do_vec_loop(node0->superloops, 1);
+		do_loop(node0->inner, 1);
+		do_loop(node0->next, 1);
+		do_tree(node0->nb_iterations);
+		do_tree(node0->simduid);
+		do_nb_iter_bound(node0->bounds, 1);
+		do_control_iv(node0->control_ivs, 1);
+		do_loop_exit(node0->exits, 1);
+		do_niter_desc(node0->simple_loop_desc, 1);
+		do_basic_block(node0->former_header, 1);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
@@ -1718,6 +2765,7 @@ static void do_vec_loop(void *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		vec<loop_p,va_gc> *node0;
 		node0 = (vec<loop_p,va_gc> *)node;
 
@@ -1730,6 +2778,24 @@ static void do_vec_loop(void *node, int flag)
 			do_real_addr(&addr[i],
 					do_loop(addr[i], 1));
 		}
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		vec<loop_p,va_gc> *node0;
+		node0 = (vec<loop_p,va_gc> *)node;
+
+		struct vec_prefix *pfx;
+		pfx = &node0->vecpfx;
+		unsigned long length = pfx->m_num;
+		loop_p *addr;
+		addr = &node0->vecdata[0];
+		for (unsigned long i = 0; i < length; i++) {
+			do_loop(addr[i], 1);
+		}
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
@@ -1747,6 +2813,7 @@ static void do_basic_block(void *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct basic_block_def *node0;
 		node0 = (struct basic_block_def *)node;
 
@@ -1761,9 +2828,26 @@ static void do_basic_block(void *node, int flag)
 		do_real_addr(&node0->next_bb,
 				do_basic_block(node0->next_bb, 1));
 		do_real_addr(&node0->il.gimple.seq,
-				do_gimple_seq(node0->il.gimple.seq, 1));
+				do_gimple_seq(node0->il.gimple.seq));
 		do_real_addr(&node0->il.gimple.phi_nodes,
-				do_gimple_seq(node0->il.gimple.phi_nodes, 1));
+				do_gimple_seq(node0->il.gimple.phi_nodes));
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct basic_block_def *node0;
+		node0 = (struct basic_block_def *)node;
+
+		do_vec_edge(node0->preds, 1);
+		do_vec_edge(node0->succs, 1);
+		do_loop(node0->loop_father, 1);
+		do_basic_block(node0->prev_bb, 1);
+		do_basic_block(node0->next_bb, 1);
+		do_gimple_seq(node0->il.gimple.seq);
+		do_gimple_seq(node0->il.gimple.phi_nodes);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
@@ -1781,6 +2865,7 @@ static void do_vec_basic_block(void *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		vec<basic_block, va_gc> *node0;
 		node0 = (vec<basic_block, va_gc> *)node;
 
@@ -1795,6 +2880,26 @@ static void do_vec_basic_block(void *node, int flag)
 			do_real_addr(&addr[i],
 					do_basic_block(addr[i], 1));
 		}
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		vec<basic_block, va_gc> *node0;
+		node0 = (vec<basic_block, va_gc> *)node;
+
+		struct vec_prefix *pfx;
+		pfx = &node0->vecpfx;
+		unsigned long length;
+		length = pfx->m_num;
+
+		basic_block *addr;
+		addr = &node0->vecdata[0];
+		for (unsigned long i = 0; i < length; i++) {
+			do_basic_block(addr[i], 1);
+		}
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
@@ -1812,6 +2917,7 @@ static void do_cfg(void *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct control_flow_graph *node0;
 		node0 = (struct control_flow_graph *)node;
 
@@ -1823,6 +2929,20 @@ static void do_cfg(void *node, int flag)
 			     do_vec_basic_block(node0->x_basic_block_info, 1));
 		do_real_addr(&node0->x_label_to_block_map,
 			   do_vec_basic_block(node0->x_label_to_block_map, 1));
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct control_flow_graph *node0;
+		node0 = (struct control_flow_graph *)node;
+
+		do_basic_block(node0->x_entry_block_ptr, 1);
+		do_basic_block(node0->x_exit_block_ptr, 1);
+		do_vec_basic_block(node0->x_basic_block_info, 1);
+		do_vec_basic_block(node0->x_label_to_block_map, 1);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
@@ -1840,8 +2960,14 @@ static void do_ssa_operands(void *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct ssa_operands __maybe_unused *node0;
 		node0 = (struct ssa_operands *)node;
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
 		return;
 	}
 	default:
@@ -1859,6 +2985,7 @@ static void do_gimple_df(void *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct gimple_df *node0;
 		node0 = (struct gimple_df *)node;
 
@@ -1866,11 +2993,38 @@ static void do_gimple_df(void *node, int flag)
 				do_vec_tree(node0->ssa_names, 1));
 		do_real_addr(&node0->vop,
 				do_tree(node0->vop));
+		/* TODO: do_hash_map(node0->decls_to_pointers) */
+
+#ifdef GCC_CONTAIN_FREE_SSANAMES
 		do_real_addr(&node0->free_ssanames,
 				do_vec_tree(node0->free_ssanames, 1));
 		do_real_addr(&node0->free_ssanames_queue,
 				do_vec_tree(node0->free_ssanames_queue, 1));
+#endif
+
+		/* TODO: do_hash_table(node0->default_defs) */
 		do_ssa_operands(&node0->ssa_operands, 0);
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct gimple_df *node0;
+		node0 = (struct gimple_df *)node;
+
+		do_vec_tree(node0->ssa_names, 1);
+		do_tree(node0->vop);
+		/* TODO: do_hash_map(node0->decls_to_pointers) */
+
+#ifdef GCC_CONTAIN_FREE_SSANAMES
+		do_vec_tree(node0->free_ssanames, 1);
+		do_vec_tree(node0->free_ssanames_queue, 1);
+#endif
+
+		/* TODO: do_hash_table(node0->default_defs) */
+		do_ssa_operands(&node0->ssa_operands, 0);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
@@ -1888,17 +3042,126 @@ static void do_loops(void *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct loops *node0;
 		node0 = (struct loops *)node;
 
 		do_real_addr(&node0->larray,
 				do_vec_loop(node0->larray, 1));
+		/* TODO: do_hash_table(node0->exits) */
 		do_real_addr(&node0->tree_root,
 				do_loop(node0->tree_root, 1));
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct loops *node0;
+		node0 = (struct loops *)node;
+
+		do_vec_loop(node0->larray, 1);
+		/* TODO: do_hash_table(node0->exits) */
+		do_loop(node0->tree_root, 1);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
 		BUG();
+	}
+}
+
+static void do_function(struct function *node, int flag);
+static void do_histogram_value(void *node)
+{
+	if (!node)
+		return;
+	if (is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct histogram_value_t *node0;
+		node0 = (struct histogram_value_t *)node;
+
+		do_real_addr(&node0->hvalue.counters,
+			     is_obj_checked((void *)node0->hvalue.counters));
+
+		do_real_addr(&node0->fun, do_function(node0->fun, 1));
+		do_real_addr(&node0->hvalue.value,
+				do_tree(node0->hvalue.value));
+		do_real_addr(&node0->hvalue.stmt,
+				do_gimple_seq(node0->hvalue.stmt));
+		do_real_addr(&node0->hvalue.next,
+				do_histogram_value(node0->hvalue.next));
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct histogram_value_t *node0;
+		node0 = (struct histogram_value_t *)node;
+
+		do_function(node0->fun, 1);
+		do_tree(node0->hvalue.value);
+		do_gimple_seq(node0->hvalue.stmt);
+		do_histogram_value(node0->hvalue.next);
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	default:
+	{
+		BUG();
+	}
+	}
+}
+
+static void do_histogram_values(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct htab *node0;
+		node0 = (struct htab *)node;
+		do_real_addr(&node0->entries,
+				is_obj_checked((void *)node0->entries));
+		for (size_t i = 0; i < node0->size; i++) {
+			if ((node0->entries[i] == HTAB_EMPTY_ENTRY) ||
+				(node0->entries[i] == HTAB_DELETED_ENTRY))
+				continue;
+			do_real_addr(&node0->entries[i],
+				     do_histogram_value(node0->entries[i]));
+		}
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct htab *node0;
+		node0 = (struct htab *)node;
+		for (size_t i = 0; i < node0->size; i++) {
+			if ((node0->entries[i] == HTAB_EMPTY_ENTRY) ||
+				(node0->entries[i] == HTAB_DELETED_ENTRY))
+				continue;
+			do_histogram_value(node0->entries[i]);
+		}
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	default:
+	{
+		BUG();
+	}
 	}
 }
 
@@ -1912,6 +3175,7 @@ static void do_function(struct function *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		do_location(&node->function_start_locus);
 		do_location(&node->function_end_locus);
 		do_real_addr(&node->language,
@@ -1928,39 +3192,47 @@ static void do_function(struct function *node, int flag)
 				do_tree(node->cilk_frame_decl));
 #endif
 		do_real_addr(&node->gimple_body,
-				do_gimple_seq(node->gimple_body, 1));
+				do_gimple_seq(node->gimple_body));
 		do_real_addr(&node->cfg,
 				do_cfg(node->cfg, 1));
 		do_real_addr(&node->gimple_df,
 				do_gimple_df(node->gimple_df, 1));
 		do_real_addr(&node->x_current_loops,
 				do_loops(node->x_current_loops, 1));
+		do_real_addr(&node->value_histograms,
+			     do_histogram_values(node->value_histograms, 1));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
+		CLIB_DBG_FUNC_ENTER();
 		do_language_function(node->language, 1);
 		do_tree(node->decl);
 		do_tree(node->static_chain_decl);
 		do_tree(node->nonlocal_goto_save_area);
 		do_vec_tree(node->local_decls, 1);
+#if __GNUC__ < 8
 		do_tree(node->cilk_frame_decl);
-		do_gimple_seq(node->gimple_body, 1);
 #endif
+		do_gimple_seq(node->gimple_body);
+		do_cfg(node->cfg, 1);
+		do_gimple_df(node->gimple_df, 1);
+		do_loops(node->x_current_loops, 1);
+		do_histogram_values(node->value_histograms, 1);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
 		BUG();
 	}
 #if 0
-	/* TODO, node0->eh, except.h, ignore it */
-	/* TODO, node0->su */
-	/* TODO, node0->value_histograms */
-	/* TODO, node0->used_types_hash */
-	/* TODO, node0->fde */
-	/* TODO, node0->cannot_be_copied_reason */
-	/* TODO, node0->machine, config/i386/i386.h, ignore */
+	/* node0->eh, except.h, ignore it */
+	/* node0->su */
+	/* node0->used_types_hash */
+	/* node0->fde */
+	/* node0->cannot_be_copied_reason */
+	/* node0->machine, config/i386/i386.h, ignore */
 #endif
 }
 
@@ -1974,6 +3246,7 @@ static void do_statement_list_node(void *node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_statement_list_node *node0 =
 				(struct tree_statement_list_node *)node;
 		do_real_addr(&node0->prev,
@@ -1981,17 +3254,11 @@ static void do_statement_list_node(void *node, int flag)
 		do_real_addr(&node0->next,
 			     do_statement_list_node((void *)node0->next, 1));
 		do_real_addr(&node0->stmt, do_tree(node0->stmt));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		struct tree_statement_list_node *node0 =
-				(struct tree_statement_list_node *)node;
-		do_statement_list_node((void *)node0->prev, 1);
-		do_statement_list_node((void *)node0->next, 1);
-		do_tree(node0->stmt);
-#endif
 		return;
 	}
 	default:
@@ -1999,29 +3266,42 @@ static void do_statement_list_node(void *node, int flag)
 	}
 }
 
+/* like tree_code_size() in gcc/tree.c */
 static void do_tree(tree node)
 {
 	if (!node)
 		return;
 
+	CLIB_DBG_FUNC_ENTER();
+
+	BUG_ON(check_tree_code(node));
+
 	enum tree_code code = TREE_CODE(node);
 	enum tree_code_class tc = TREE_CODE_CLASS(code);
 	switch (code) {
 	case INTEGER_CST:
-		return do_int_cst(node, 1);
+		do_int_cst(node, 1);
+		goto out;
 	case TREE_BINFO:
-		return do_binfo(node, 1);
+		do_binfo(node, 1);
+		goto out;
 	case TREE_VEC:
-		return do_vec(node, 1);
+		do_vec(node, 1);
+		goto out;
 	case VECTOR_CST:
-		return do_vector(node, 1);
+		do_vector(node, 1);
+		goto out;
 	case STRING_CST:
-		return do_string(node, 1);
+		do_string(node, 1);
+		goto out;
 	case OMP_CLAUSE:
-		return do_omp_clause(node, 1);
+		do_omp_clause(node, 1);
+		goto out;
 	default:
-		if (tc == tcc_vl_exp)
-			return do_exp(node, 1);
+		if (tc == tcc_vl_exp) {
+			do_exp(node, 1);
+			goto out;
+		}
 	}
 
 	switch (tc) {
@@ -2029,57 +3309,75 @@ static void do_tree(tree node)
 	{
 		switch (code) {
 		case FIELD_DECL:
-			return do_field_decl(node, 1);
+			do_field_decl(node, 1);
+			goto out;
 		case PARM_DECL:
-			return do_parm_decl(node, 1);
+			do_parm_decl(node, 1);
+			goto out;
 		case VAR_DECL:
-			return do_var_decl(node, 1);
+			do_var_decl(node, 1);
+			goto out;
 		case LABEL_DECL:
-			return do_label_decl(node, 1);
+			do_label_decl(node, 1);
+			goto out;
 		case RESULT_DECL:
-			return do_result_decl(node, 1);
+			do_result_decl(node, 1);
+			goto out;
 		case CONST_DECL:
-			return do_const_decl(node, 1);
+			do_const_decl(node, 1);
+			goto out;
 		case TYPE_DECL:
-			return do_type_decl(node, 1);
+			do_type_decl(node, 1);
+			goto out;
 		case FUNCTION_DECL:
-			return do_function_decl(node, 1);
+			do_function_decl(node, 1);
+			goto out;
 		case DEBUG_EXPR_DECL:
-			return do_decl_with_rtl(node, 1);
+			do_decl_with_rtl(node, 1);
+			goto out;
 		case TRANSLATION_UNIT_DECL:
-			return do_translation_unit_decl(node, 1);
+			do_translation_unit_decl(node, 1);
+			goto out;
 		case NAMESPACE_DECL:
 		case IMPORTED_DECL:
 		case NAMELIST_DECL:
-			return do_decl_non_common(node, 1);
+			do_decl_non_common(node, 1);
+			goto out;
 		default:
 			BUG();
 		}
 	}
 	case tcc_type:
-		return do_type_non_common(node, 1);
+		do_type_non_common(node, 1);
+		goto out;
 	case tcc_reference:
 	case tcc_expression:
 	case tcc_statement:
 	case tcc_comparison:
 	case tcc_unary:
 	case tcc_binary:
-		return do_exp(node, 1);
+		do_exp(node, 1);
+		goto out;
 	case tcc_constant:
 	{
 		switch (code) {
 		case VOID_CST:
-			return do_typed(node, 1);
+			do_typed(node, 1);
+			goto out;
 		case INTEGER_CST:
 			BUG();
 		case REAL_CST:
-			return do_real_cst(node, 1);
+			do_real_cst(node, 1);
+			goto out;
 		case FIXED_CST:
-			return do_fixed_cst(node, 1);
+			do_fixed_cst(node, 1);
+			goto out;
 		case COMPLEX_CST:
-			return do_complex(node, 1);
+			do_complex(node, 1);
+			goto out;
 		case VECTOR_CST:
-			return do_vector(node, 1);
+			do_vector(node, 1);
+			goto out;
 		case STRING_CST:
 			BUG();
 		default:
@@ -2090,30 +3388,40 @@ static void do_tree(tree node)
 	{
 		switch (code) {
 		case IDENTIFIER_NODE:
-			return do_c_lang_identifier(node, 1);
+			do_c_lang_identifier(node, 1);
+			goto out;
 #if 0
-			return do_identifier(node, 1);
+			do_identifier(node, 1);
+			goto out;
 #endif
 		case TREE_LIST:
-			return do_list(node, 1);
+			do_list(node, 1);
+			goto out;
 		case ERROR_MARK:
 		case PLACEHOLDER_EXPR:
-			return do_common(node, 1);
+			do_common(node, 1);
+			goto out;
 		case TREE_VEC:
 		case OMP_CLAUSE:
 			BUG();
 		case SSA_NAME:
-			return do_ssa_name(node, 1);
+			do_ssa_name(node, 1);
+			goto out;
 		case STATEMENT_LIST:
-			return do_statement_list(node, 1);
+			do_statement_list(node, 1);
+			goto out;
 		case BLOCK:
-			return do_block(node, 1);
+			do_block(node, 1);
+			goto out;
 		case CONSTRUCTOR:
-			return do_constructor(node, 1);
+			do_constructor(node, 1);
+			goto out;
 		case OPTIMIZATION_NODE:
-			return do_optimization_option(node, 1);
+			do_optimization_option(node, 1);
+			goto out;
 		case TARGET_OPTION_NODE:
-			return do_target_option(node, 1);
+			do_target_option(node, 1);
+			goto out;
 		default:
 			BUG();
 		}
@@ -2121,6 +3429,10 @@ static void do_tree(tree node)
 	default:
 		BUG();
 	}
+
+out:
+	CLIB_DBG_FUNC_EXIT();
+	return;
 }
 
 static void do_base(tree node, int flag)
@@ -2137,7 +3449,7 @@ static void do_base(tree node, int flag)
 	{
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
 		return;
 	}
@@ -2156,18 +3468,15 @@ static void do_typed(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_typed *node0 = (struct tree_typed *)node;
 		do_base((tree)&node0->base, 0);
 		do_real_addr(&node0->type, do_tree(node0->type));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		struct tree_typed *node0 = (struct tree_typed *)node;
-		do_base((tree)&node0->base, 0);
-		do_tree(node0->type);
-#endif
 		return;
 	}
 	default:
@@ -2185,16 +3494,14 @@ static void do_string(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_string *node0 = (struct tree_string *)node;
 		do_typed((tree)&node0->typed, 0);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		struct tree_string *node0 = (struct tree_string *)node;
-		do_typed((tree)&node0->typed, 0);
-#endif
 		return;
 	}
 	default:
@@ -2212,19 +3519,16 @@ static void do_real_cst(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_real_cst *node0 = (struct tree_real_cst *)node;
 		do_typed((tree)&node0->typed, 0);
 		do_real_addr(&node0->real_cst_ptr,
 				do_real_value(node0->real_cst_ptr, 1));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		struct tree_real_cst *node0 = (struct tree_real_cst *)node;
-		do_typed((tree)&node0->typed, 0);
-		do_real_value(node0->real_cst_ptr, 1);
-#endif
 		return;
 	}
 	default:
@@ -2242,16 +3546,14 @@ static void do_int_cst(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_int_cst *node0 = (struct tree_int_cst *)node;
 		do_typed((tree)&node0->typed, 0);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		struct tree_int_cst *node0 = (struct tree_int_cst *)node;
-		do_typed((tree)&node0->typed, 0);
-#endif
 		return;
 	}
 	default:
@@ -2269,17 +3571,15 @@ static void do_common(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_common *node0 = (struct tree_common *)node;
 		do_typed((tree)&node0->typed, 0);
 		do_real_addr(&node0->chain, do_tree(node0->chain));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		struct tree_common *node0 = (struct tree_common *)node;
-		do_typed((tree)&node0->typed, 0);
-#endif
 		return;
 	}
 	default:
@@ -2297,18 +3597,15 @@ static void __maybe_unused do_identifier(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_identifier *node0 = (struct tree_identifier *)node;
 		do_common((tree)&node0->common, 0);
 		do_ht_identifier(&node0->id, 0);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		struct tree_identifier *node0 = (struct tree_identifier *)node;
-		do_common((tree)&node0->common, 0);
-		do_ht_identifier(&node0->id, 0);
-#endif
 		return;
 	}
 	default:
@@ -2331,6 +3628,7 @@ static void do_c_lang_identifier(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct c_lang_identifier *node0;
 		node0 = (struct c_lang_identifier *)node;
 		do_c_common_identifier(&node0->common_id, 0);
@@ -2342,20 +3640,11 @@ static void do_c_lang_identifier(tree node, int flag)
 		do_real_addr(&node0->label_binding,
 				do_c_binding(node0->label_binding, 1));
 #endif
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		struct c_lang_identifier *node0;
-		node0 = (struct c_lang_identifier *)node;
-		do_c_common_identifier(&node0->common_id, 0);
-#ifdef COLLECT_MORE
-		do_c_binding(node0->symbol_binding, 1);
-		do_c_binding(node0->tag_binding, 1);
-		do_c_binding(node0->label_binding, 1);
-#endif
-#endif
 		return;
 	}
 	default:
@@ -2373,19 +3662,23 @@ static void do_constructor(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
-		struct tree_constructor *node0 =
-			(struct tree_constructor *)node;
+		CLIB_DBG_FUNC_ENTER();
+		struct tree_constructor *node0;
+		node0 = (struct tree_constructor *)node;
 		do_typed((tree)&node0->typed, 0);
 		do_real_addr(&node0->elts,
 				do_vec_constructor((void *)node0->elts, 1));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-		struct tree_constructor *node0 =
-			(struct tree_constructor *)node;
+		CLIB_DBG_FUNC_ENTER();
+		struct tree_constructor *node0;
+		node0 = (struct tree_constructor *)node;
 		do_typed((tree)&node0->typed, 0);
 		do_vec_constructor((void *)node0->elts, 1);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
@@ -2403,6 +3696,7 @@ static void do_statement_list(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_statement_list *node0 =
 			(struct tree_statement_list *)node;
 		do_typed((tree)&node0->typed, 0);
@@ -2411,18 +3705,11 @@ static void do_statement_list(tree node, int flag)
 			     do_statement_list_node((void *)node0->head, 1));
 		do_real_addr(&node0->tail,
 			     do_statement_list_node((void *)node0->tail, 1));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		struct tree_statement_list *node0 =
-			(struct tree_statement_list *)node;
-		do_typed((tree)&node0->typed, 0);
-
-		do_statement_list_node((void *)node0->head, 1);
-		do_statement_list_node((void *)node0->tail, 1);
-#endif
 		return;
 	}
 	default:
@@ -2440,6 +3727,7 @@ static void do_block(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_block *node0 = (struct tree_block *)node;
 		do_location(&node0->locus);
 		do_location(&node0->end_locus);
@@ -2458,23 +3746,11 @@ static void do_block(tree node, int flag)
 				do_tree(node0->fragment_origin));
 		do_real_addr(&node0->fragment_chain,
 				do_tree(node0->fragment_chain));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		struct tree_block *node0 = (struct tree_block *)node;
-		do_base((tree)&node0->base, 0);
-
-		do_tree(node0->chain);
-		do_tree(node0->vars);
-		do_vec_tree(node0->nonlocalized_vars, 1);
-		do_tree(node0->subblocks);
-		do_tree(node0->supercontext);
-		do_tree(node0->abstract_origin);
-		do_tree(node0->fragment_origin);
-		do_tree(node0->fragment_chain);
-#endif
 		return;
 	}
 	default:
@@ -2492,6 +3768,7 @@ static void do_exp(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_exp *node0 = (struct tree_exp *)node;
 		do_location(&node0->locus);
 		do_typed((tree)&node0->typed, 0);
@@ -2511,16 +3788,19 @@ static void do_exp(tree node, int flag)
 						do_tree(node0->operands[i]));
 			}
 		}
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_exp *node0 = (struct tree_exp *)node;
 		do_typed((tree)&node0->typed, 0);
 
 		int i = 0;
 		if (TREE_CODE_CLASS(TREE_CODE(node)) == tcc_vl_exp) {
 			do_tree(node0->operands[0]);
+			BUG_ON(!VL_EXP_OPERAND_LENGTH(node));
 			for (i = 1; i < VL_EXP_OPERAND_LENGTH(node); i++) {
 				do_tree(node0->operands[i]);
 			}
@@ -2529,6 +3809,7 @@ static void do_exp(tree node, int flag)
 				do_tree(node0->operands[i]);
 			}
 		}
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
@@ -2546,20 +3827,24 @@ static void do_list(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_list *node0 = (struct tree_list *)node;
 		do_common((tree)&node0->common, 0);
 
 		do_real_addr(&node0->purpose, do_tree(node0->purpose));
 		do_real_addr(&node0->value, do_tree(node0->value));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_list *node0 = (struct tree_list *)node;
 		do_common((tree)&node0->common, 0);
 
 		do_tree(node0->purpose);
 		do_tree(node0->value);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
@@ -2577,21 +3862,17 @@ static void do_type_with_lang_specific(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_type_with_lang_specific *node0 =
 				(struct tree_type_with_lang_specific *)node;
 		do_type_common((tree)&node0->common, 0);
 		do_real_addr(&node0->lang_specific,
 			     do_c_lang_type((void *)node0->lang_specific, 1));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		struct tree_type_with_lang_specific *node0 =
-				(struct tree_type_with_lang_specific *)node;
-		do_type_common((tree)&node0->common, 0);
-		do_c_lang_type((void *)node0->lang_specific, 1);
-#endif
 		return;
 	}
 	default:
@@ -2608,6 +3889,7 @@ static void do_type_common(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_type_common *node0;
 		node0 = (struct tree_type_common *)node;
 		do_common((tree)&node0->common, 0);
@@ -2625,26 +3907,11 @@ static void do_type_common(tree node, int flag)
 				do_tree(node0->main_variant));
 		do_real_addr(&node0->context, do_tree(node0->context));
 		do_real_addr(&node0->name, do_tree(node0->name));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		struct tree_type_common *node0;
-		node0 = (struct tree_type_common *)node;
-		do_common((tree)&node0->common, 0);
-
-		do_tree(node0->size);
-		do_tree(node0->size_unit);
-		do_tree(node0->attributes);
-		do_tree(node0->pointer_to);
-		do_tree(node0->reference_to);
-		do_tree(node0->canonical);
-		do_tree(node0->next_variant);
-		do_tree(node0->main_variant);
-		do_tree(node0->context);
-		do_tree(node0->name);
-#endif
 		return;
 	}
 	default:
@@ -2662,6 +3929,7 @@ static void do_type_non_common(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_type_non_common *node0 =
 			(struct tree_type_non_common *)node;
 
@@ -2675,21 +3943,11 @@ static void do_type_non_common(tree node, int flag)
 		do_real_addr(&node0->lang_1, do_tree(node0->lang_1));
 #endif
 
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		struct tree_type_non_common *node0 =
-			(struct tree_type_non_common *)node;
-
-		do_type_with_lang_specific((tree)&node0->with_lang_specific,0);
-		do_tree(node0->values);
-		do_tree(node0->minval);
-		do_tree(node0->maxval);
-		do_tree(node0->binfo);
-#endif
-
 		return;
 	}
 	default:
@@ -2707,6 +3965,7 @@ static void do_decl_minimal(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_decl_minimal *node0 =
 			(struct tree_decl_minimal *)node;
 		do_location(&node0->locus);
@@ -2714,18 +3973,11 @@ static void do_decl_minimal(tree node, int flag)
 
 		do_real_addr(&node0->name, do_tree(node0->name));
 		do_real_addr(&node0->context, do_tree(node0->context));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		struct tree_decl_minimal *node0 =
-			(struct tree_decl_minimal *)node;
-		do_common((tree)&node0->common, 0);
-
-		do_tree(node0->name);
-		do_tree(node0->context);
-#endif
 		return;
 	}
 	default:
@@ -2743,7 +3995,7 @@ static void __maybe_unused do_lang_decl(void *node, int flag)
 	{
 		BUG();
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
 		BUG();
 	}
@@ -2761,6 +4013,7 @@ static void do_decl_common(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_decl_common *node0;
 		node0 = (struct tree_decl_common *)node;
 		do_decl_minimal((tree)&node0->common, 0);
@@ -2774,22 +4027,11 @@ static void do_decl_common(tree node, int flag)
 		do_real_addr(&node0->lang_specific,
 				do_c_lang_decl((struct c_lang_decl*)
 						node0->lang_specific,1));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		struct tree_decl_common *node0;
-		node0 = (struct tree_decl_common *)node;
-		do_decl_minimal((tree)&node0->common, 0);
-
-		do_tree(node0->size);
-		do_tree(node0->size_unit);
-		do_tree(node0->initial);
-		do_tree(node0->attributes);
-		do_tree(node0->abstract_origin);
-		do_c_lang_decl((struct c_lang_decl*)node0->lang_specific,1);
-#endif
 		return;
 	}
 	default:
@@ -2807,6 +4049,7 @@ static void do_field_decl(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_field_decl *node0 = (struct tree_field_decl *)node;
 		do_decl_common((tree)&node0->common, 0);
 
@@ -2816,20 +4059,11 @@ static void do_field_decl(tree node, int flag)
 		do_real_addr(&node0->qualifier, do_tree(node0->qualifier));
 		do_real_addr(&node0->bit_offset, do_tree(node0->bit_offset));
 		do_real_addr(&node0->fcontext, do_tree(node0->fcontext));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		struct tree_field_decl *node0 = (struct tree_field_decl *)node;
-		do_decl_common((tree)&node0->common, 0);
-
-		do_tree(node0->offset);
-		do_tree(node0->bit_field_type);
-		do_tree(node0->qualifier);
-		do_tree(node0->bit_offset);
-		do_tree(node0->fcontext);
-#endif
 		return;
 	}
 	default:
@@ -2847,18 +4081,15 @@ static void do_decl_with_rtl(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_decl_with_rtl *node0 =
 			(struct tree_decl_with_rtl *)node;
 		do_decl_common((tree)&node0->common, 0);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		struct tree_decl_with_rtl *node0 =
-			(struct tree_decl_with_rtl *)node;
-		do_decl_common((tree)&node0->common, 0);
-#endif
 		return;
 	}
 	default:
@@ -2876,16 +4107,14 @@ static void do_label_decl(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_label_decl *node0 = (struct tree_label_decl *)node;
 		do_decl_with_rtl((tree)&node0->common, 0);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		struct tree_label_decl *node0 = (struct tree_label_decl *)node;
-		do_decl_with_rtl((tree)&node0->common, 0);
-#endif
 		return;
 	}
 	default:
@@ -2905,65 +4134,81 @@ static void do_result_decl(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_result_decl *node0;
 		node0 = (struct tree_result_decl *)node;
 		do_decl_with_rtl((tree)&node0->common, 0);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
+		tree n = node;
+		CLIB_DBG_FUNC_ENTER();
+
 		char name[NAME_MAX];
-		struct var_node_list *vnl;
+		struct var_list *vnl;
 		struct use_at_list *newua_type;
 		struct use_at_list *newua_var;
-		if (unlikely(is_global_var(node) &&
-			((!DECL_CONTEXT(node)) ||
-			 (TREE_CODE(DECL_CONTEXT(node))==
-				TRANSLATION_UNIT_DECL)))) {
-			si_log1("in func: %s\n", cur_fn->name);
-			BUG();
+		if (unlikely(si_is_global_var(n, NULL))) {
+			si_log1("in func: %s\n", cur_fsn->name);
+			CLIB_DBG_FUNC_EXIT();
+			return;
 		}
-		vnl = var_node_list_find(&cur_func_node->local_vars, node);
+
+		vnl = var_list_find(&cur_fn->local_vars, n);
 		if (!vnl) {
-			vnl = var_node_list_new(node);
-			if (DECL_NAME(node)) {
+			vnl = var_list_new(n);
+			if (DECL_NAME(n)) {
 				memset(name, 0, NAME_MAX);
-				get_node_name(DECL_NAME(node), name);
+				get_node_name(DECL_NAME(n), name);
 				vnl->var.name = (char *)src_buf_get(
-							strlen(name)+1);
-				memcpy(vnl->var.name, name, strlen(name)+1);
+						strlen(name) + 1);
+				memcpy(vnl->var.name, name, strlen(name) + 1);
 			}
-			list_add_tail(&vnl->sibling,
-					&cur_func_node->local_vars);
+			list_add_tail(&vnl->sibling, &cur_fn->local_vars);
 		}
+
 		if (!vnl->var.type)
 			__get_type_detail(&vnl->var.type, NULL, NULL,
-						TREE_TYPE(node));
+						TREE_TYPE(n));
 
 		if (vnl->var.type) {
+			node_lock_r(vnl->var.type);
 			newua_type = use_at_list_find(&vnl->var.type->used_at,
 							cur_gimple,
 							cur_gimple_op_idx);
+			node_unlock_r(vnl->var.type);
 			if (!newua_type) {
 				newua_type = use_at_list_new();
-				newua_type->func_id = cur_fn->node_id.id;
+				newua_type->func_id = cur_fsn->node_id.id;
 				newua_type->gimple_stmt = (void *)cur_gimple;
 				newua_type->op_idx = cur_gimple_op_idx;
+				node_lock_w(vnl->var.type);
 				list_add_tail(&newua_type->sibling,
 						&vnl->var.type->used_at);
+				node_unlock_w(vnl->var.type);
 			}
 		}
 
-		newua_var = use_at_list_find(&vnl->var.used_at, cur_gimple,
+		node_lock_r(&vnl->var);
+		newua_var = use_at_list_find(&vnl->var.used_at,
+						cur_gimple,
 						cur_gimple_op_idx);
+		node_unlock_r(&vnl->var);
 		if (!newua_var) {
 			newua_var = use_at_list_new();
-			newua_var->func_id = cur_fn->node_id.id;
+			newua_var->func_id = cur_fsn->node_id.id;
 			newua_var->gimple_stmt = (void *)cur_gimple;
 			newua_var->op_idx = cur_gimple_op_idx;
+			node_lock_w(&vnl->var);
 			list_add_tail(&newua_var->sibling, &vnl->var.used_at);
+			node_unlock_w(&vnl->var);
 		}
+
+		CLIB_DBG_FUNC_EXIT();
 		return;
+
 	}
 	default:
 		BUG();
@@ -2980,41 +4225,62 @@ static void do_parm_decl(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_parm_decl *node0 = (struct tree_parm_decl *)node;
 		do_decl_with_rtl((tree)&node0->common, 0);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-		struct var_node_list *vnl;
+		tree n = node;
+		CLIB_DBG_FUNC_ENTER();
+
+		struct var_list *vnl;
 		struct use_at_list *newua_type;
 		struct use_at_list *newua_var;
-		vnl = var_node_list_find(&cur_func_node->args, node);
-		if (!vnl)
+
+		vnl = var_list_find(&cur_fn->args, n);
+		if (!vnl) {
+			CLIB_DBG_FUNC_EXIT();
 			return;
+		}
+
 		if (vnl->var.type) {
+			node_lock_r(vnl->var.type);
 			newua_type = use_at_list_find(&vnl->var.type->used_at,
 							cur_gimple,
 							cur_gimple_op_idx);
+			node_unlock_r(vnl->var.type);
+
 			if (!newua_type) {
 				newua_type = use_at_list_new();
-				newua_type->func_id = cur_fn->node_id.id;
+				newua_type->func_id = cur_fsn->node_id.id;
 				newua_type->gimple_stmt = (void *)cur_gimple;
 				newua_type->op_idx = cur_gimple_op_idx;
+				node_lock_w(vnl->var.type);
 				list_add_tail(&newua_type->sibling,
 						&vnl->var.type->used_at);
+				node_unlock_w(vnl->var.type);
 			}
 		}
 
-		newua_var = use_at_list_find(&vnl->var.used_at, cur_gimple,
+		node_lock_r(&vnl->var);
+		newua_var = use_at_list_find(&vnl->var.used_at,
+						cur_gimple,
 						cur_gimple_op_idx);
+		node_unlock_r(&vnl->var);
 		if (!newua_var) {
 			newua_var = use_at_list_new();
-			newua_var->func_id = cur_fn->node_id.id;
+			newua_var->func_id = cur_fsn->node_id.id;
 			newua_var->gimple_stmt = (void *)cur_gimple;
 			newua_var->op_idx = cur_gimple_op_idx;
+			node_lock_w(&vnl->var);
 			list_add_tail(&newua_var->sibling, &vnl->var.used_at);
+			node_unlock_w(&vnl->var);
 		}
+
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
@@ -3032,6 +4298,7 @@ static void do_decl_with_vis(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_decl_with_vis *node0 =
 			(struct tree_decl_with_vis *)node;
 		do_decl_with_rtl((tree)&node0->common, 0);
@@ -3040,18 +4307,11 @@ static void do_decl_with_vis(tree node, int flag)
 				do_tree(node0->assembler_name));
 		do_real_addr(&node0->symtab_node,
 				do_symtab_node((void *)node0->symtab_node, 1));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		struct tree_decl_with_vis *node0 =
-			(struct tree_decl_with_vis *)node;
-		do_decl_with_rtl((tree)&node0->common, 0);
-
-		do_tree(node0->assembler_name);
-		//do_symtab_node((void *)node0->symtab_node, 1);
-#endif
 		return;
 	}
 	default:
@@ -3060,6 +4320,163 @@ static void do_decl_with_vis(tree node, int flag)
 }
 
 static void do_init_value(struct var_node *vn, tree init_tree);
+static void do_var_decl_phase4(tree n)
+{
+	CLIB_DBG_FUNC_ENTER();
+
+	tree ctx = DECL_CONTEXT(n);
+
+	expanded_location *xloc;
+	struct sibuf *b;
+
+	b = find_target_sibuf(n);
+	BUG_ON(!b);
+	analysis__resfile_load(b);
+
+	xloc = get_location(GET_LOC_VAR, b->payload, n);
+	if (si_is_global_var(n, xloc)) {
+		/* global vars */
+		struct sinode *global_var_sn;
+		struct var_node *gvn;
+		struct id_list *newgv = NULL;
+		long value;
+		long val_flag;
+		struct use_at_list *newua_type = NULL;
+		struct use_at_list *newua_var = NULL;
+
+		get_var_sinode(n, &global_var_sn, 1);
+		if (!global_var_sn) {
+			value = (long)n;
+			val_flag = 1;
+		} else {
+			value = global_var_sn->node_id.id.id1;
+			val_flag = 0;
+			gvn = (struct var_node *)global_var_sn->data;
+		}
+
+		newgv = id_list_find(&cur_fn->global_vars,
+					value, val_flag);
+		if (!newgv) {
+			newgv = id_list_new();
+			newgv->value = value;
+			newgv->value_flag = val_flag;
+			list_add_tail(&newgv->sibling,
+					&cur_fn->global_vars);
+		}
+		if (val_flag)
+			goto out;
+
+		if (gvn->type) {
+			node_lock_r(gvn->type);
+			newua_type = use_at_list_find(
+					&gvn->type->used_at,
+					cur_gimple,
+					cur_gimple_op_idx);
+			node_unlock_r(gvn->type);
+			if (!newua_type) {
+				newua_type = use_at_list_new();
+				newua_type->func_id =
+						cur_fsn->node_id.id;
+				newua_type->gimple_stmt =
+						(void *)cur_gimple;
+				newua_type->op_idx = cur_gimple_op_idx;
+				node_lock_w(gvn->type);
+				list_add_tail(&newua_type->sibling,
+						&gvn->type->used_at);
+				node_unlock_w(gvn->type);
+			}
+		}
+
+		node_lock_r(gvn);
+		newua_var = use_at_list_find(&gvn->used_at,
+						cur_gimple,
+						cur_gimple_op_idx);
+		node_unlock_r(gvn);
+		if (!newua_var) {
+			newua_var = use_at_list_new();
+			newua_var->func_id = cur_fsn->node_id.id;
+			newua_var->gimple_stmt = (void *)cur_gimple;
+			newua_var->op_idx = cur_gimple_op_idx;
+			node_lock_w(gvn);
+			list_add_tail(&newua_var->sibling,
+					&gvn->used_at);
+			node_unlock_w(gvn);
+		}
+
+		goto out;
+	}
+
+	/* local variable. static variable should be handled */
+	while (ctx && (TREE_CODE(ctx) == BLOCK))
+		ctx = BLOCK_SUPERCONTEXT(ctx);
+
+	if ((ctx == si_current_function_decl) || (!ctx)) {
+		/* current function local vars */
+		char name[NAME_MAX];
+		struct var_list *newlv = NULL;
+		struct use_at_list *newua_type = NULL;
+		struct use_at_list *newua_var = NULL;
+
+		newlv = var_list_find(&cur_fn->local_vars,
+					(void *)n);
+		if (!newlv) {
+			newlv = var_list_new((void *)n);
+			if (DECL_NAME(n)) {
+				memset(name, 0, NAME_MAX);
+				get_node_name(DECL_NAME(n), name);
+				newlv->var.name = (char *)src_buf_get(
+						      strlen(name)+1);
+				memcpy(newlv->var.name,
+					name, strlen(name)+1);
+			}
+			list_add_tail(&newlv->sibling,
+					&cur_fn->local_vars);
+		}
+
+		if (!newlv->var.type)
+			__get_type_detail(&newlv->var.type,
+						NULL, NULL,
+						TREE_TYPE(n));
+
+		if (newlv->var.type) {
+			newua_type = use_at_list_find(
+					&newlv->var.type->used_at,
+					cur_gimple,
+					cur_gimple_op_idx);
+			if (!newua_type) {
+				newua_type = use_at_list_new();
+				newua_type->func_id =
+						cur_fsn->node_id.id;
+				newua_type->gimple_stmt =
+						(void *)cur_gimple;
+				newua_type->op_idx = cur_gimple_op_idx;
+				list_add_tail(&newua_type->sibling,
+					&newlv->var.type->used_at);
+			}
+		}
+
+		newua_var = use_at_list_find(&newlv->var.used_at,
+						cur_gimple,
+						cur_gimple_op_idx);
+		if (!newua_var) {
+			newua_var = use_at_list_new();
+			newua_var->func_id = cur_fsn->node_id.id;
+			newua_var->gimple_stmt = (void *)cur_gimple;
+			newua_var->op_idx = cur_gimple_op_idx;
+			list_add_tail(&newua_var->sibling,
+					&newlv->var.used_at);
+		}
+
+		if (TREE_STATIC(n) || DECL_INITIAL(n)) {
+			do_init_value(&newlv->var, DECL_INITIAL(n));
+		}
+	}
+
+out:
+	CLIB_DBG_FUNC_EXIT();
+	return;
+}
+
 static void do_var_decl(tree node, int flag)
 {
 	if (!node)
@@ -3070,149 +4487,17 @@ static void do_var_decl(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_var_decl *node0 = (struct tree_var_decl *)node;
 
 		do_decl_with_vis((tree)&node0->common, 0);
 
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-		tree ctx = DECL_CONTEXT(node);
-
-		expanded_location *xloc;
-		struct sibuf *b = find_target_sibuf(node);
-		xloc = get_location(GET_LOC_VAR, b->payload, node);
-		if (is_global_var(node) &&
-			((!ctx) ||
-			 (TREE_CODE(ctx) == TRANSLATION_UNIT_DECL)) &&
-			(xloc->file)) {
-			/* global vars */
-			struct sinode *global_var_sn;
-			struct var_node *gvn;
-			struct id_list *newgv = NULL;
-			long value;
-			long val_flag;
-			struct use_at_list *newua_type = NULL;
-			struct use_at_list *newua_var = NULL;
-
-			get_var_sinode(node, &global_var_sn, 1);
-			if (!global_var_sn) {
-				value = (long)node;
-				val_flag = 1;
-			} else {
-				value = global_var_sn->node_id.id.id1;
-				val_flag = 0;
-				gvn = (struct var_node *)global_var_sn->data;
-			}
-
-			newgv = id_list_find(&cur_func_node->global_vars,
-						value, val_flag);
-			if (!newgv) {
-				newgv = id_list_new();
-				newgv->value = value;
-				newgv->value_flag = val_flag;
-				list_add_tail(&newgv->sibling,
-						&cur_func_node->global_vars);
-			}
-			if (val_flag)
-				return;
-
-			if (gvn->type) {
-				newua_type = use_at_list_find(
-							&gvn->type->used_at,
-							cur_gimple,
-							cur_gimple_op_idx);
-				if (!newua_type) {
-					newua_type = use_at_list_new();
-					newua_type->func_id =
-							cur_fn->node_id.id;
-					newua_type->gimple_stmt =
-							(void *)cur_gimple;
-					newua_type->op_idx = cur_gimple_op_idx;
-					list_add_tail(&newua_type->sibling,
-							&gvn->type->used_at);
-				}
-			}
-
-			newua_var = use_at_list_find(&gvn->used_at, cur_gimple,
-							cur_gimple_op_idx);
-			if (!newua_var) {
-				newua_var = use_at_list_new();
-				newua_var->func_id = cur_fn->node_id.id;
-				newua_var->gimple_stmt = (void *)cur_gimple;
-				newua_var->op_idx = cur_gimple_op_idx;
-				list_add_tail(&newua_var->sibling,
-						&gvn->used_at);
-			}
-
-			return;
-		}
-
-		/* local variable. static local variable should be handled */
-		while (ctx && (TREE_CODE(ctx) == BLOCK))
-			ctx = BLOCK_SUPERCONTEXT(ctx);
-		if ((ctx == cur_func) || (!ctx)) {
-			/* current function local vars */
-			char name[NAME_MAX];
-			struct var_node_list *newlv = NULL;
-			struct use_at_list *newua_type = NULL;
-			struct use_at_list *newua_var = NULL;
-			newlv = var_node_list_find(&cur_func_node->local_vars,
-							(void *)node);
-			if (!newlv) {
-				newlv = var_node_list_new((void *)node);
-				if (DECL_NAME(node)) {
-					memset(name, 0, NAME_MAX);
-					get_node_name(DECL_NAME(node), name);
-					newlv->var.name = (char *)src_buf_get(
-							      strlen(name)+1);
-					memcpy(newlv->var.name,
-						name, strlen(name)+1);
-				}
-				list_add_tail(&newlv->sibling,
-						&cur_func_node->local_vars);
-			}
-			if (!newlv->var.type)
-				__get_type_detail(&newlv->var.type, NULL, NULL,
-							TREE_TYPE(node));
-
-			if (newlv->var.type) {
-				newua_type = use_at_list_find(
-						&newlv->var.type->used_at,
-						cur_gimple,
-						cur_gimple_op_idx);
-				if (!newua_type) {
-					newua_type = use_at_list_new();
-					newua_type->func_id =
-							cur_fn->node_id.id;
-					newua_type->gimple_stmt =
-							(void *)cur_gimple;
-					newua_type->op_idx = cur_gimple_op_idx;
-					list_add_tail(&newua_type->sibling,
-						    &newlv->var.type->used_at);
-				}
-			}
-
-			newua_var = use_at_list_find(&newlv->var.used_at,
-							cur_gimple,
-							cur_gimple_op_idx);
-			if (!newua_var) {
-				newua_var = use_at_list_new();
-				newua_var->func_id = cur_fn->node_id.id;
-				newua_var->gimple_stmt = (void *)cur_gimple;
-				newua_var->op_idx = cur_gimple_op_idx;
-				list_add_tail(&newua_var->sibling,
-						&newlv->var.used_at);
-			}
-
-			if (TREE_STATIC(node)) {
-				do_init_value(&newlv->var, DECL_INITIAL(node));
-			}
-
-			return;
-		}
-
+		do_var_decl_phase4(node);
 		return;
 	}
 	default:
@@ -3230,20 +4515,24 @@ static void do_decl_non_common(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_decl_non_common *node0 =
 			(struct tree_decl_non_common *)node;
 		do_decl_with_vis((tree)&node0->common, 0);
 
 		do_real_addr(&node0->result, do_tree(node0->result));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-		struct tree_decl_non_common *node0 =
-			(struct tree_decl_non_common *)node;
+		CLIB_DBG_FUNC_ENTER();
+		struct tree_decl_non_common *node0;
+		node0 = (struct tree_decl_non_common *)node;
 		do_decl_with_vis((tree)&node0->common, 0);
 
 		do_tree(node0->result);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
@@ -3261,14 +4550,14 @@ static void do_type_decl(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_type_decl *node0 = (struct tree_type_decl *)node;
 		do_decl_non_common((tree)&node0->common, 0);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-		struct tree_type_decl *node0 = (struct tree_type_decl *)node;
-		do_decl_non_common((tree)&node0->common, 0);
 		return;
 	}
 	default:
@@ -3286,19 +4575,18 @@ static void do_translation_unit_decl(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_translation_unit_decl *node0 =
 				(struct tree_translation_unit_decl *)node;
 		do_decl_common((tree)&node0->common, 0);
 
 		do_real_addr(&node0->language,
 				is_obj_checked((void *)node0->language));
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-		struct tree_translation_unit_decl *node0 =
-				(struct tree_translation_unit_decl *)node;
-		do_decl_common((tree)&node0->common, 0);
 		return;
 	}
 	default:
@@ -3310,15 +4598,30 @@ static void do_function_decl(tree node, int flag)
 {
 	if (!node)
 		return;
+
 	BUG_ON(!flag);
+
 	if (is_obj_checked((void *)node))
 		return;
 
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
+
 		struct tree_function_decl *node0 =
 			(struct tree_function_decl *)node;
+
+#if 0
+		if (!DECL_STRUCT_FUNCTION(node)) {
+			struct tree_decl_minimal *node1;
+			node1 = (struct tree_decl_minimal *)node0;
+			do_real_addr(&node1->name, do_tree(DECL_NAME(node)));
+			CLIB_DBG_FUNC_EXIT();
+			return;
+		}
+#endif
+
 		do_decl_non_common((tree)&node0->common, 0);
 
 		do_real_addr(&node0->f, do_function(node0->f, 1));
@@ -3327,35 +4630,49 @@ static void do_function_decl(tree node, int flag)
 		do_real_addr(&node0->function_specific_target,
 				do_tree(node0->function_specific_target));
 		do_real_addr(&node0->function_specific_optimization,
-				do_tree(node0->
-					function_specific_optimization));
+			     do_tree(node0->function_specific_optimization));
 		do_real_addr(&node0->saved_tree, do_tree(node0->saved_tree));
 		do_real_addr(&node0->vindex, do_tree(node0->vindex));
+
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
+		tree n = node;
+		CLIB_DBG_FUNC_ENTER();
+
 		struct sinode *fsn;
-		get_func_sinode(node, &fsn, 1);
+		get_func_sinode(n, &fsn, 1);
 		if (!fsn)
-			return;
-		if (fsn == cur_fn)
-			return;
+			goto out;
+		if (fsn == cur_fsn)
+			goto out;
+
 		analysis__resfile_load(fsn->buf);
-		struct func_node *fn = (struct func_node *)fsn->data;
+
+		struct func_node *fn;
+		fn = (struct func_node *)fsn->data;
 		if (!fn)
-			return;
+			goto out;
+
 		struct use_at_list *newua;
+		node_lock_r(fn);
 		newua = use_at_list_find(&fn->used_at, cur_gimple,
-					 cur_gimple_op_idx);
+						cur_gimple_op_idx);
+		node_unlock_r(fn);
 		if (!newua) {
 			newua = use_at_list_new();
-			newua->func_id = cur_fn->node_id.id;
+			newua->func_id = cur_fsn->node_id.id;
 			newua->gimple_stmt = (void *)cur_gimple;
 			newua->op_idx = cur_gimple_op_idx;
+			node_lock_w(fn);
 			list_add_tail(&newua->sibling, &fn->used_at);
+			node_unlock_w(fn);
 		}
 
+out:
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
@@ -3373,14 +4690,14 @@ static void do_const_decl(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_const_decl *node0 = (struct tree_const_decl *)node;
 		do_decl_common((tree)&node0->common, 0);
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-		struct tree_const_decl *node0 = (struct tree_const_decl *)node;
-		do_decl_common((tree)&node0->common, 0);
 		return;
 	}
 	default:
@@ -3398,22 +4715,26 @@ static void do_vec(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_vec *node0 = (struct tree_vec *)node;
 		do_common((tree)&node0->common, 0);
 
 		for (int i = 0; i < TREE_VEC_LENGTH(node); i++) {
 			do_real_addr(&node0->a[i], do_tree(node0->a[i]));
 		}
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_vec *node0 = (struct tree_vec *)node;
 		do_common((tree)&node0->common, 0);
 
 		for (int i = 0; i < TREE_VEC_LENGTH(node); i++) {
 			do_tree(node0->a[i]);
 		}
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 	default:
@@ -3431,11 +4752,11 @@ static void do_fixed_cst(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
-		BUG();
+		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-		BUG();
+		return;
 	}
 	default:
 		BUG();
@@ -3452,11 +4773,11 @@ static void do_vector(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
-		BUG();
+		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-		BUG();
+		return;
 	}
 	default:
 		BUG();
@@ -3473,15 +4794,117 @@ static void do_complex(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
-		BUG();
+		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-		BUG();
+		return;
 	}
 	default:
 		BUG();
 	}
+}
+
+static void do_tree_p(void *node)
+{
+	if (!node)
+		return;
+	if (is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		tree *node0;
+		node0 = (tree *)node;
+		do_real_addr(node0, do_tree(*node0));
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		tree *node0;
+		node0 = (tree *)node;
+		do_tree(*node0);
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	default:
+		BUG();
+	}
+}
+
+static void do_ssa_use_operand(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked((void *)node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct ssa_use_operand_t *node0;
+		node0 = (struct ssa_use_operand_t *)node;
+
+		do_real_addr(&node0->prev, do_ssa_use_operand(node0->prev, 1));
+		do_real_addr(&node0->next, do_ssa_use_operand(node0->next, 1));
+
+		if (node0->use) {
+			do_real_addr(&node0->loc.stmt,
+					do_gimple_seq(node0->loc.stmt));
+			do_real_addr(&node0->use, do_tree_p(node0->use));
+		} else {
+			do_real_addr(&node0->loc.ssa_name,
+					do_tree(node0->loc.ssa_name));
+		}
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct ssa_use_operand_t *node0;
+		node0 = (struct ssa_use_operand_t *)node;
+
+		do_ssa_use_operand(node0->prev, 1);
+		do_ssa_use_operand(node0->next, 1);
+
+		if (node0->use) {
+			do_gimple_seq(node0->loc.stmt);
+			do_tree_p(node0->use);
+		} else {
+			do_tree(node0->loc.ssa_name);
+		}
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	default:
+		BUG();
+	}
+}
+
+static void do_ptr_info_def(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	/* nothing to do here */
+}
+
+static void do_range_info_def(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	/* nothing to do here */
 }
 
 static void do_ssa_name(tree node, int flag)
@@ -3494,17 +4917,48 @@ static void do_ssa_name(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_ssa_name *node0 = (struct tree_ssa_name *)node;
 		do_typed((tree)&node0->typed, 0);
 		do_real_addr(&node0->var, do_tree(node0->var));
 		do_real_addr(&node0->def_stmt,
-				do_gimple_seq(node0->def_stmt, 1));
-		break;
+				do_gimple_seq(node0->def_stmt));
+
+		int testv;
+		testv = node0->typed.type ?
+				(!POINTER_TYPE_P(TREE_TYPE(node))) : 2;
+		if (!testv) {
+			do_real_addr(&node0->info.ptr_info,
+				     do_ptr_info_def(node0->info.ptr_info, 1));
+		} else if (testv == 1) {
+			do_real_addr(&node0->info.range_info,
+				do_range_info_def(node0->info.range_info, 1));
+		}
+
+		do_ssa_use_operand(&node0->imm_uses, 0);
+		CLIB_DBG_FUNC_EXIT();
+		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-		/* TODO? */
-		break;
+		CLIB_DBG_FUNC_ENTER();
+		struct tree_ssa_name *node0 = (struct tree_ssa_name *)node;
+		do_typed((tree)&node0->typed, 0);
+		do_tree(node0->var);
+		do_gimple_seq(node0->def_stmt);
+
+		int testv;
+		testv = node0->typed.type ?
+				(!POINTER_TYPE_P(TREE_TYPE(node))) : 2;
+		if (!testv) {
+			do_ptr_info_def(node0->info.ptr_info, 1);
+		} else if (testv == 1) {
+			do_range_info_def(node0->info.range_info, 1);
+		}
+
+		do_ssa_use_operand(&node0->imm_uses, 0);
+		CLIB_DBG_FUNC_EXIT();
+		return;
 	}
 	default:
 		BUG();
@@ -3521,11 +4975,11 @@ static void do_binfo(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
-		BUG();
+		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-		BUG();
+		return;
 	}
 	default:
 		BUG();
@@ -3542,11 +4996,11 @@ static void do_omp_clause(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
-		BUG();
+		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-		BUG();
+		return;
 	}
 	default:
 		BUG();
@@ -3563,6 +5017,7 @@ static void do_optimization_option(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
+		CLIB_DBG_FUNC_ENTER();
 		struct tree_optimization_option *node0;
 		node0 = (struct tree_optimization_option *)node;
 #if __GNUC__ < 8
@@ -3570,15 +5025,11 @@ static void do_optimization_option(tree node, int flag)
 #else
 		do_base((tree)&node0->base, 0);
 #endif
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-#if 0
-		struct tree_optimization_option *node0;
-		node0 = (struct tree_optimization_option *)node;
-		do_common((tree)&node0->common, 0);
-#endif
 		return;
 	}
 	default:
@@ -3596,11 +5047,11 @@ static void do_target_option(tree node, int flag)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
-		BUG();
+		return;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
-		BUG();
+		return;
 	}
 	default:
 		BUG();
@@ -3728,9 +5179,10 @@ static int check_conflict(enum sinode_type type,
 /*
  * SYMBOL could be exported
  */
-static lock_t _sinode_lock;
+static lock_t __get_base_lock;
 static void do_get_base(struct sibuf *buf)
 {
+	CLIB_DBG_FUNC_ENTER();
 	/*
 	 * XXX, iter the objs, find out types, vars, functions,
 	 * get the locations of them(the file, we sinode_new TYPE_FILE)
@@ -3739,7 +5191,7 @@ static void do_get_base(struct sibuf *buf)
 	struct sinode *sn_new, *sn_tmp, *loc_file;
 
 	/* init global_var func sinode, with data; */
-	for (obj_idx = 0; obj_idx < obj_cnt; obj_idx++) {
+	for (obj_idx = 0; obj_idx < real_obj_cnt; obj_idx++) {
 		char name[NAME_MAX];
 		enum sinode_type type;
 		int behavior = SINODE_INSERT_BH_NONE;
@@ -3768,7 +5220,8 @@ static void do_get_base(struct sibuf *buf)
 				type = TYPE_NONE;
 		} else if (objs[obj_idx].is_function) {
 			flag = check_file_func((tree)obj_addr);
-			if (flag == FUNC_IS_EXTERN) {
+			if ((flag == FUNC_IS_EXTERN) ||
+				(flag == FUNC_IS_NONE)) {
 				objs[obj_idx].is_dropped = 1;
 				continue;
 			} else if (flag == FUNC_IS_STATIC) {
@@ -3803,7 +5256,7 @@ static void do_get_base(struct sibuf *buf)
 		sn_new = NULL;
 		sn_tmp = NULL;
 		loc_file = NULL;
-		mutex_lock(&_sinode_lock);
+		mutex_lock(&__get_base_lock);
 
 		/* handle the location file */
 		if (!xloc)	/* happen only on TYPE_TYPE */
@@ -3846,15 +5299,15 @@ step_1:
 		} else if (type == TYPE_NONE) {
 			struct type_node *tn;
 			enum tree_code tc = TREE_CODE((tree)obj_addr);
-			tn = analysis__sibuf_type_node_search(buf, tc,
-								obj_addr);
+			tn = analysis__sibuf_typenode_search(buf,
+							     tc, obj_addr);
 			if (tn)
 				goto next_loop;
 
-			struct sibuf_type_node *_new;
-			_new = sibuf_type_node_new();
+			struct sibuf_typenode *_new;
+			_new = sibuf_typenode_new();
 			type_node_init(&_new->type, obj_addr, tc);
-			BUG_ON(analysis__sibuf_type_node_insert(buf, _new));
+			BUG_ON(analysis__sibuf_typenode_insert(buf, _new));
 			goto next_loop;
 		} else {
 			BUG();
@@ -3877,10 +5330,15 @@ step_1:
 			BUG_ON(chk_val == TREE_NAME_CONFLICT_FAILED);
 			if (chk_val == TREE_NAME_CONFLICT_DROP) {
 				objs[obj_idx].is_dropped = 1;
-				mutex_unlock(&_sinode_lock);
+				mutex_unlock(&__get_base_lock);
 				continue;
 			} else if (chk_val == TREE_NAME_CONFLICT_REPLACE) {
 				behavior = SINODE_INSERT_BH_REPLACE;
+				/*
+				 * set the obj is_replaced, while do_replace
+				 * finished, the sn_new->obj->is_replaced is
+				 * set
+				 */
 				sn_tmp->obj->is_replaced = 1;
 			} else if (chk_val == TREE_NAME_CONFLICT_SOFT) {
 				BUG();
@@ -3927,12 +5385,15 @@ step_1:
 
 		BUG_ON(analysis__sinode_insert(sn_new, behavior));
 next_loop:
-		mutex_unlock(&_sinode_lock);
+		mutex_unlock(&__get_base_lock);
 	}
+
+	CLIB_DBG_FUNC_EXIT();
 }
 
 static struct type_node *find_type_node(tree type)
 {
+	CLIB_DBG_FUNC_ENTER();
 	struct sinode *sn;
 	struct type_node *tn;
 	get_type_xnode(type, &sn, &tn);
@@ -3940,6 +5401,7 @@ static struct type_node *find_type_node(tree type)
 		tn = (struct type_node *)sn->data;
 	}
 
+	CLIB_DBG_FUNC_EXIT();
 	return tn;
 }
 
@@ -3952,9 +5414,12 @@ static struct type_node *find_type_node(tree type)
 static void __get_type_detail(struct type_node **base, struct list_head *head,
 				struct type_node **next, tree node)
 {
+	CLIB_DBG_FUNC_ENTER();
+
 	int upper_call = 0;
-	if (base)
+	if (base) {
 		upper_call = 1;
+	}
 	struct type_node *new_type = NULL;
 	int code = TREE_CODE(node);
 	BUG_ON(TREE_CODE_CLASS(code) != tcc_type);
@@ -4011,18 +5476,17 @@ static void __get_type_detail(struct type_node **base, struct list_head *head,
 			memset(name, 0, NAME_MAX);
 			get_node_name(TREE_PURPOSE(enum_list), name);
 			BUG_ON(!name[0]);
-			struct var_node_list *_new_var;
-			_new_var = var_node_list_new((void *)enum_list);
+			struct var_list *_new_var;
+			_new_var = var_list_new((void *)enum_list);
 			_new_var->var.name =
 					(char *)src_buf_get(strlen(name)+1);
 			memcpy(_new_var->var.name, name, strlen(name)+1);
 			long value;
 			value = (long)TREE_INT_CST_LOW(TREE_VALUE(enum_list));
-			struct possible_value_list *pv = NULL;
-			if (!possible_value_list_find(
-						&_new_var->var.possible_values,
+			struct possible_list *pv = NULL;
+			if (!possible_list_find(&_new_var->var.possible_values,
 						VALUE_IS_INT_CST, value)) {
-				pv = possible_value_list_new();
+				pv = possible_list_new();
 				pv->value_flag = VALUE_IS_INT_CST;
 				pv->value = value;
 				list_add_tail(&pv->sibling,
@@ -4141,8 +5605,8 @@ static void __get_type_detail(struct type_node **base, struct list_head *head,
 				(TREE_CODE(TREE_TYPE(fields)) == ARRAY_TYPE)))
 				new_type->is_variant = 1;
 
-			struct var_node_list *newf0;
-			newf0 = var_node_list_new((void *)fields);
+			struct var_list *newf0;
+			newf0 = var_list_new((void *)fields);
 			struct var_node *newf1 = &newf0->var;
 			__get_type_detail(&newf1->type, NULL, NULL,
 						TREE_TYPE(fields));
@@ -4198,43 +5662,64 @@ static void __get_type_detail(struct type_node **base, struct list_head *head,
 	}
 	}
 
-	if (upper_call)
-		*base = new_type;
 	if (head && new_type)
 		list_add_tail(&new_type->sibling, head);
 	if (next)
 		*next = new_type;
+	if (upper_call) {
+		*base = new_type;
+	}
+
+	CLIB_DBG_FUNC_EXIT();
 }
 
 /* XXX, check gcc/c/c-decl.c c-typeck.c for more information */
 static void _get_type_detail(struct type_node *tn)
 {
+	CLIB_DBG_FUNC_ENTER();
+
 	tree node = (tree)tn->node;
 	struct type_node *new_type = NULL;
 
 	__get_type_detail(&new_type, NULL, NULL, node);
-	if ((long)tn != (long)new_type)
+	if ((long)tn != (long)new_type) {
 		BUG();
+	}
+
+	CLIB_DBG_FUNC_EXIT();
 	return;
 }
 
 static void get_type_detail(struct sinode *tsn)
 {
+	CLIB_DBG_FUNC_ENTER();
+
 	/* XXX, get attributes here */
 	tree node = (tree)(long)tsn->obj->real_addr;
 	get_attributes(&tsn->attributes, TYPE_ATTRIBUTES(node));
+
+	CLIB_DBG_FUNC_EXIT();
 }
 
 static void get_var_detail(struct sinode *sn)
 {
+	CLIB_DBG_FUNC_ENTER();
+
 	analysis__resfile_load(sn->buf);
 	tree node = (tree)(long)sn->obj->real_addr;
 	struct var_node *new_var;
 	new_var = (struct var_node *)sn->data;
 
+	if (new_var->detailed)
+		goto out;
+
 	__get_type_detail(&new_var->type, NULL, NULL, TREE_TYPE(node));
 
 	get_attributes(&sn->attributes, DECL_ATTRIBUTES(node));
+	new_var->detailed = 1;
+
+out:
+	CLIB_DBG_FUNC_EXIT();
 	return;
 }
 
@@ -4243,29 +5728,39 @@ static void get_var_detail(struct sinode *sn)
  */
 static void get_function_detail(struct sinode *sn)
 {
+	CLIB_DBG_FUNC_ENTER();
+
 	analysis__resfile_load(sn->buf);
 	tree node = (tree)(long)sn->obj->real_addr;
-	get_attributes(&sn->attributes, DECL_ATTRIBUTES(node));
 
 	/* XXX: the function body is now in node->f->cfg */
 	struct function *f;
 	f = DECL_STRUCT_FUNCTION(node);
-	if ((!f) || (!f->cfg))
+	if ((!f) || (!f->cfg)) {
+		CLIB_DBG_FUNC_EXIT();
 		return;
+	}
 
 	/* handle the return type and argument list */
 	char name[NAME_MAX];
 	struct func_node *new_func;
 	new_func = (struct func_node *)sn->data;
 
+	if (new_func->detailed) {
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+
 	__get_type_detail(&new_func->ret_type, NULL, NULL,
 				TREE_TYPE(TREE_TYPE(node)));
+	get_attributes(&sn->attributes, DECL_ATTRIBUTES(node));
 
+	/* parse arguments */
 	tree args;
 	args = DECL_ARGUMENTS(node);
 	while (args) {
-		struct var_node_list *new_arg;
-		new_arg = var_node_list_new((void *)args);
+		struct var_list *new_arg;
+		new_arg = var_list_new((void *)args);
 
 		struct var_node *new_vn;
 		new_vn = &new_arg->var;
@@ -4281,6 +5776,10 @@ static void get_function_detail(struct sinode *sn)
 
 		args = TREE_CHAIN(args);
 	}
+
+	/*
+	 * TODO: use FOR_EACH_BB_FN()
+	 */
 
 	/* XXX: okay, time to parse the control flow graph */
 	basic_block bb, b;
@@ -4370,10 +5869,13 @@ static void get_function_detail(struct sinode *sn)
 		}
 
 		cps[cps_cur] = code_path_new(new_func, brs);
+		cps[cps_cur]->cq = (void *)b;
 		gimple_seq gs;
 		gs = b->il.gimple.seq;
 		while (gs) {
-			/* ignore GIMPLE_DEBUG and GIMPLE_NOP */
+			/*
+			 * ignore GIMPLE_DEBUG and GIMPLE_NOP
+			 */
 			if ((gimple_code(gs) == GIMPLE_DEBUG) ||
 				(gimple_code(gs) == GIMPLE_NOP)) {
 				gs = gs->next;
@@ -4386,13 +5888,7 @@ static void get_function_detail(struct sinode *sn)
 			}
 			BUG_ON(gimple_code(gs) == GIMPLE_COND);
 
-			struct code_sentence *newcs;
-			newcs = (struct code_sentence *)
-					src_buf_get(sizeof(*newcs));
-			memset(newcs, 0, sizeof(*newcs));
-			newcs->head = gs;
-			list_add_tail(&newcs->sibling,
-					&cps[cps_cur]->sentences);
+			/* XXX: nothing to do here */
 
 			gs = gs->next;
 		}
@@ -4465,321 +5961,24 @@ static void get_function_detail(struct sinode *sn)
 	}
 
 	new_func->codes = cps[0];
+	new_func->detailed = 1;
+
+	CLIB_DBG_FUNC_EXIT();
 	return;
 }
-
-#if 0
-/* obsolete, following function is for gimple_body */
-static void get_function_detail(struct sinode *sn)
-{
-	analysis__resfile_load(sn->buf);
-	tree node = (tree)(long)sn->obj->real_addr;
-	get_attributes(&sn->attributes, DECL_ATTRIBUTES(node));
-
-	/* XXX: the function body is in node->f->gimple_body */
-	struct function *func = DECL_STRUCT_FUNCTION(node);
-	if ((!func) || (!func->gimple_body))
-		return;
-	gimple_seq body = func->gimple_body;
-	gimple_seq next = body;
-	char name[NAME_MAX];
-	struct func_node *new_func;
-	new_func = (struct func_node *)sn->data;
-
-	/* the return type */
-	__get_type_detail(&new_func->ret_type, NULL, NULL,
-				TREE_TYPE(TREE_TYPE(node)));
-
-	/* the argument list */
-	tree args = DECL_ARGUMENTS(node);
-	while (args) {
-		struct var_node_list *new_arg;
-		new_arg = var_node_list_new((void *)args);
-		struct var_node *new_vn = &new_arg->var;
-		__get_type_detail(&new_vn->type, NULL, NULL, TREE_TYPE(args));
-
-		memset(name, 0, NAME_MAX);
-		get_node_name(DECL_NAME(args), name);
-		BUG_ON(!name[0]);
-		new_vn->name = (char *)src_buf_get(strlen(name)+1);
-		memcpy(new_vn->name, name, strlen(name)+1);
-
-		list_add_tail(&new_arg->sibling, &new_func->args);
-
-		args = TREE_CHAIN(args);
-	}
-
-	/*
-	 * time to deal with the function body, which now is low gimple
-	 * for each label, we alloc a code_path for it;
-	 */
-	gimple_seq labels[LABEL_MAX] = { 0 };
-	struct code_path *cps[LABEL_MAX] = { 0 };
-	unsigned long brs[LABEL_MAX] = { 0 };
-	int linked[LABEL_MAX] = { 0 };
-	int label_idx = 0;
-	unsigned long total_gimples = 0;
-	unsigned long label_gimples = 0;
-	next = body;
-	if (body->code != GIMPLE_LABEL) {
-		labels[0] = body;
-		linked[label_idx++] = 1;
-	}
-	while (next) {
-		enum gimple_code gc = next->code;
-		if (gc == GIMPLE_LABEL) {
-			labels[label_idx] = next;
-			label_idx++;
-			label_gimples++;
-			if (unlikely(label_idx >= LABEL_MAX)) {
-				si_log1("func: %s, labels exceed\n", sn->name);
-				BUG();
-			}
-		} else if (gc == GIMPLE_SWITCH) {
-			BUG_ON((next->next) &&
-				(next->next->code != GIMPLE_LABEL));
-			int branches = gimple_num_ops(next)-1;
-			if (branches <= 2)
-				branches = 0;
-			else
-				branches = branches - 2;
-			brs[label_idx-1] += branches;
-		} else if (gc == GIMPLE_ASM) {
-			struct gasm *ga;
-			ga = (struct gasm *)next;
-			int branches = ga->nl;
-			if (!branches)
-				goto next_loop0;
-			else if (branches <= 2)
-				branches = 0;
-			else
-				branches = branches - 2;
-
-			if (next->next && (next->next->code != GIMPLE_LABEL)) {
-				total_gimples++;
-				next = next->next;
-				labels[label_idx] = next;
-				label_idx++;
-				branches++;
-			}
-			brs[label_idx-1] += branches;
-		}
-next_loop0:
-		total_gimples++;
-		next = next->next;
-	}
-	gimple_seq reachable[total_gimples] = { 0 };
-	unsigned long reachable_idx = 0;
-	for (int i = 0; i < label_idx; i++) {
-		cps[i] = code_path_new(new_func, brs[i]);
-	}
-	for (int i = 0; i < label_idx; i++) {
-		if ((!i) && (body->code != GIMPLE_LABEL))
-			next = labels[i];
-		else
-			next = labels[i]->next;
-		while (next) {
-			enum gimple_code gc = next->code;
-			if (gc == GIMPLE_SWITCH) {
-				cps[i]->cond_head = (void *)next;
-				reachable[reachable_idx++] = next;
-				tree *ops = gimple_ops(next);
-				unsigned int k = 0;
-				for (k = 1; k < gimple_num_ops(next); k++) {
-					BUG_ON(TREE_CODE(ops[k]) !=
-							CASE_LABEL_EXPR);
-					tree label = CASE_LABEL(ops[k]);
-					int j = 0;
-					if (body->code != GIMPLE_LABEL)
-						j = 1;
-					while (j < label_idx) {
-						struct glabel *gl;
-						gl=(struct glabel *)labels[j];
-						if (label == gl->op[0])
-							break;
-						j++;
-					}
-					BUG_ON(j == label_idx);
-					cps[i]->next[k-1] = cps[j];
-					linked[j] = 1;
-				}
-				break;
-			} else if (gc == GIMPLE_COND) {
-				cps[i]->cond_head = (void *)next;
-				reachable[reachable_idx++] = next;
-				struct gcond *gs = (struct gcond *)next;
-				tree true_label = gs->op[2];
-				tree false_label = gs->op[3];
-				int j = 0;
-				if (body->code != GIMPLE_LABEL)
-					j = 1;
-				while (j < label_idx) {
-					struct glabel *gl;
-					gl = (struct glabel *)labels[j];
-					if (true_label == gl->op[0])
-						break;
-					j++;
-				}
-				BUG_ON(j == label_idx);
-				cps[i]->next[1] = cps[j];
-				linked[j] = 1;
-
-				j = 0;
-				if (body->code != GIMPLE_LABEL)
-					j = 1;
-				while (j < label_idx) {
-					struct glabel *gl;
-					gl = (struct glabel *)labels[j];
-					if (false_label == gl->op[0])
-						break;
-					j++;
-				}
-				BUG_ON(j == label_idx);
-				cps[i]->next[0] = cps[j];
-				linked[j] = 1;
-				break;
-			} else if (gc == GIMPLE_GOTO) {
-				reachable[reachable_idx++] = next;
-				struct ggoto *gs = (struct ggoto *)next;
-				tree label = gs->op[0];
-				int j = 0;
-				if (body->code != GIMPLE_LABEL)
-					j = 1;
-				while (j < label_idx) {
-					struct glabel *gl;
-					gl =(struct glabel *)labels[j];
-					if (label == gl->op[0])
-						break;
-					j++;
-				}
-				BUG_ON(j == label_idx);
-				cps[i]->next[1] = cps[j];
-				linked[j] = 1;
-				break;
-			} else if (gc == GIMPLE_LABEL) {
-				struct glabel *gl0 = (struct glabel *)next;
-				tree label = gl0->op[0];
-				int j = 0;
-				if (body->code != GIMPLE_LABEL)
-					j = 1;
-				while (j < label_idx) {
-					struct glabel *gl1;
-					gl1 = (struct glabel *)labels[j];
-					if (label == gl1->op[0])
-						break;
-					j++;
-				}
-				BUG_ON(j == label_idx);
-				cps[i]->next[1] = cps[j];
-				linked[j] = 1;
-				break;
-			} else if (gc == GIMPLE_ASM) {
-				struct gasm *ga = (struct gasm *)next;
-				int asm_labels = ga->nl;
-				if (!asm_labels)
-					goto regular_stmt;
-				int one_more = 0;
-				if (next->next &&
-					(next->next->code != GIMPLE_LABEL)) {
-					cps[i]->next[0] = cps[i+1];
-					one_more = 1;
-					linked[i+1] = 1;
-				}
-				reachable[reachable_idx++] = next;
-				tree *tls = &ga->op[ga->ni + ga->nc];
-				for (int il = 0; il < asm_labels; il++) {
-					BUG_ON(TREE_CODE(tls[il]) !=
-							TREE_LIST);
-					struct tree_list *tl;
-					tl = (struct tree_list *)tls[il];
-					tree tlbl = tl->value;
-					int j = 0;
-					if (body->code != GIMPLE_LABEL)
-						j = 1;
-					while (j < label_idx) {
-						struct glabel *gl1;
-						gl1=(struct glabel *)labels[j];
-						if (tlbl == gl1->op[0])
-							break;
-						j++;
-					}
-					BUG_ON(j == label_idx);
-					cps[i]->next[il+one_more] = cps[j];
-					linked[j] = 1;
-				}
-				break;
-			}
-regular_stmt:
-			struct code_sentence *newcs;
-			newcs = (struct code_sentence *)
-				src_buf_get(sizeof(*newcs));
-			memset(newcs, 0, sizeof(*newcs));
-			newcs->head = (void *)next;
-			reachable[reachable_idx++] = next;
-			list_add_tail(&newcs->sibling, &cps[i]->sentences);
-
-			next = next->next;
-		}
-	}
-
-	if ((reachable_idx + label_gimples) == total_gimples) {
-		for (int i = 1; i < label_idx; i++) {
-			if (unlikely(!linked[i])) {
-				si_log1("in func: %s\n", sn->name);
-				BUG();
-			}
-		}
-		goto do_insert;
-	}
-
-	for (next = body; next; next = next->next) {
-		/*
-		 * FIXME: some labels are not used, should handle that too
-		 */
-		unsigned long i = 0;
-		struct unr_stmt *_unr;
-		expanded_location *xloc;
-		if (next->code == GIMPLE_LABEL)
-			continue;
-
-		for (i = 0; i < reachable_idx; i++) {
-			if (next == reachable[i])
-				break;
-		}
-		if (i < reachable_idx)
-			continue;
-
-		xloc = get_gimple_loc(sn->buf->payload, &next->location);
-		BUG_ON(!xloc);
-		_unr = unr_stmt_find(&new_func->unreachable_stmts, xloc->line,
-					xloc->column);
-		if (_unr)
-			continue;
-
-		_unr = unr_stmt_new();
-		_unr->unr_gimple_stmt = (void *)next;
-		_unr->line = xloc->line;
-		_unr->col = xloc->column;
-		list_add_tail(&_unr->sibling, &new_func->unreachable_stmts);
-	}
-
-do_insert:
-	new_func->codes = cps[0];
-
-	return;
-}
-#endif
 
 /*
- * For each type, we could know every global_var with this type.
- * For each global var, we could know where it is used.
- * For each codepath/func, we could know what it need and what it does.
+ * For type, we get global_var with this type.
+ * For global var, we know where it is used.
+ * For codepath/func, we know what it need and what it does.
  */
 static void do_get_detail(struct sibuf *b)
 {
+	CLIB_DBG_FUNC_ENTER();
+
 	analysis__resfile_load(b);
 
-	for (obj_idx = 0; obj_idx < obj_cnt; obj_idx++) {
+	for (obj_idx = 0; obj_idx < real_obj_cnt; obj_idx++) {
 		if (!objs[obj_idx].is_type) {
 			continue;
 		}
@@ -4790,6 +5989,7 @@ static void do_get_detail(struct sibuf *b)
 		void *obj_addr = (void *)(long)(objs[obj_idx].real_addr);
 		struct sinode *sn;
 		struct type_node *tn;
+		/* FIXME: do we have a race here? */
 		get_type_xnode((tree)obj_addr, &sn, &tn);
 		if (sn) {
 			analysis__resfile_load(sn->buf);
@@ -4798,12 +5998,13 @@ static void do_get_detail(struct sibuf *b)
 		}
 		BUG_ON(!tn);
 
-		if (tn->is_set)
+		if (tn->is_set) {
 			continue;
+		}
 		_get_type_detail(tn);
 	}
 
-	for (obj_idx = 0; obj_idx < obj_cnt; obj_idx++) {
+	for (obj_idx = 0; obj_idx < real_obj_cnt; obj_idx++) {
 		if (objs[obj_idx].is_dropped || objs[obj_idx].is_replaced)
 			continue;
 
@@ -4824,23 +6025,19 @@ static void do_get_detail(struct sibuf *b)
 		}
 	}
 
+	CLIB_DBG_FUNC_EXIT();
 	return;
 }
 
-static unsigned long get_field_offset(tree field)
-{
-	unsigned long ret = 0;
-	if (DECL_FIELD_OFFSET(field)) {
-		ret += TREE_INT_CST_LOW(DECL_FIELD_OFFSET(field)) * 8;
-	}
-	if (DECL_FIELD_BIT_OFFSET(field)) {
-		ret += TREE_INT_CST_LOW(DECL_FIELD_BIT_OFFSET(field));
-	}
-	return ret;
-}
-
+/*
+ * ************************************************************************
+ * phase 4
+ * ************************************************************************
+ */
 static int is_type_from_expand_macro(struct type_node *tn)
 {
+	CLIB_DBG_FUNC_ENTER();
+
 	BUG_ON((tn->type_code != RECORD_TYPE) &&
 		(tn->type_code != UNION_TYPE));
 
@@ -4848,7 +6045,7 @@ static int is_type_from_expand_macro(struct type_node *tn)
 	expanded_location *xloc_b = NULL, *xloc_e = NULL;
 	tree field_b = NULL, field_e = NULL;
 
-	struct var_node_list *tmp;
+	struct var_list *tmp;
 	list_for_each_entry(tmp, &tn->children, sibling) {
 		if (!field_b) {
 			field_b = (tree)tmp->var.node;
@@ -4871,17 +6068,23 @@ static int is_type_from_expand_macro(struct type_node *tn)
 
 		if ((!strcmp(xloc_b->file, xloc_e->file)) &&
 			(xloc_b->line == xloc_e->line) &&
-			(xloc_b->column == xloc_e->column))
+			(xloc_b->column == xloc_e->column)) {
+			CLIB_DBG_FUNC_EXIT();
 			return 1;
+		}
 
 		field_b = field_e;
 	}
 
+	CLIB_DBG_FUNC_EXIT();
 	return 0;
 }
 
+/* FIXME: check gimple_compare_field_offset() in gcc/gimple.c */
 static int is_same_field(tree field0, tree field1, int macro_expanded)
 {
+	CLIB_DBG_FUNC_ENTER();
+
 	struct sibuf *b1 = find_target_sibuf((void *)field0);
 	struct sibuf *b2 = find_target_sibuf((void *)field1);
 
@@ -4899,10 +6102,13 @@ static int is_same_field(tree field0, tree field1, int macro_expanded)
 
 		if (!((!strcmp(xloc1->file, xloc2->file)) &&
 			(xloc1->line == xloc2->line) &&
-			(xloc1->column == xloc2->column)))
+			(xloc1->column == xloc2->column))) {
+			CLIB_DBG_FUNC_EXIT();
 			return 0;
-		else
+		} else {
+			CLIB_DBG_FUNC_EXIT();
 			return 1;
+		}
 	} else {
 		/* FIXME */
 		char name0[NAME_MAX];
@@ -4911,49 +6117,70 @@ static int is_same_field(tree field0, tree field1, int macro_expanded)
 		memset(name1, 0, NAME_MAX);
 		tree tname0 = DECL_NAME(field0);
 		tree tname1 = DECL_NAME(field1);
-		if ((!tname0) && (tname1))
+		if ((!tname0) && (tname1)) {
+			CLIB_DBG_FUNC_EXIT();
 			return 0;
-		if ((tname0) && (!tname1))
+		}
+		if ((tname0) && (!tname1)) {
+			CLIB_DBG_FUNC_EXIT();
 			return 0;
+		}
 		if ((!tname0) && (!tname1)) {
 			struct type_node *tn0, *tn1;
 			tn0 = find_type_node(TREE_TYPE(field0));
 			tn1 = find_type_node(TREE_TYPE(field1));
-			if (tn0 != tn1)
+			if (tn0 != tn1) {
+				CLIB_DBG_FUNC_EXIT();
 				return 0;
-			else
+			} else {
+				CLIB_DBG_FUNC_EXIT();
 				return 1;
+			}
 		}
 
 		get_node_name(tname0, name0);
 		get_node_name(tname1, name1);
-		if ((!name0[0]) && (name1[0]))
+		if ((!name0[0]) && (name1[0])) {
+			CLIB_DBG_FUNC_EXIT();
 			return 0;
-		if ((name0[0]) && (!name1[0]))
+		}
+		if ((name0[0]) && (!name1[0])) {
+			CLIB_DBG_FUNC_EXIT();
 			return 0;
+		}
 		if ((!name0[0]) && (!name1[0])) {
 			struct type_node *tn0, *tn1;
 			tn0 = find_type_node(TREE_TYPE(field0));
 			tn1 = find_type_node(TREE_TYPE(field1));
-			if (tn0 != tn1)
+			if (tn0 != tn1) {
+				CLIB_DBG_FUNC_EXIT();
 				return 0;
-			else
+			} else {
+				CLIB_DBG_FUNC_EXIT();
 				return 1;
+			}
 		}
-		if (!strcmp(name0, name1))
+		if (!strcmp(name0, name1)) {
+			CLIB_DBG_FUNC_EXIT();
 			return 1;
-		else
+		} else {
+			CLIB_DBG_FUNC_EXIT();
 			return 0;
+		}
 	}
+
+	CLIB_DBG_FUNC_EXIT();
 }
 
-static struct var_node_list *get_target_field0(struct type_node *tn,
+static struct var_list *get_target_field_phase4(struct type_node *tn,
 						tree field)
 {
 	if (!tn)
 		return NULL;
 
-	struct var_node_list *tmp = NULL;
+	CLIB_DBG_FUNC_ENTER();
+
+	struct var_list *tmp = NULL;
 	BUG_ON((tn->type_code != RECORD_TYPE) &&
 			(tn->type_code != UNION_TYPE));
 	BUG_ON(TREE_CODE(field) != FIELD_DECL);
@@ -4963,20 +6190,24 @@ static struct var_node_list *get_target_field0(struct type_node *tn,
 		tree n1 = (tree)tmp->var.node;
 		tree n2 = (tree)field;
 
-		if (is_same_field(n1, n2, macro_expanded))
+		if (is_same_field(n1, n2, macro_expanded)) {
+			CLIB_DBG_FUNC_EXIT();
 			return tmp;
+		}
 	}
 
 	list_for_each_entry(tmp, &tn->children, sibling) {
 		struct type_node *t = tmp->var.type;
 		if (!t)
 			continue;
-		struct var_node_list *ret = NULL;
+		struct var_list *ret = NULL;
 		if ((t != tn) && ((t->type_code == RECORD_TYPE) ||
 					(t->type_code == UNION_TYPE)))
-			ret = get_target_field0(t, field);
-		if (ret)
+			ret = get_target_field_phase4(t, field);
+		if (ret) {
+			CLIB_DBG_FUNC_EXIT();
 			return ret;
+		}
 	}
 
 #if 0
@@ -4987,157 +6218,69 @@ static struct var_node_list *get_target_field0(struct type_node *tn,
 	tn_tmp = find_type_node(main_type);
 	if (tn_tmp == tn)
 		BUG();
-	tmp = get_target_field0(tn_tmp, field);
+	tmp = get_target_field_phase4(tn_tmp, field);
 	BUG_ON(!tmp);
 #endif
+
+	CLIB_DBG_FUNC_EXIT();
 	return NULL;
-}
-
-static struct var_node_list *get_target_field1(struct type_node *tn,
-						unsigned long target_offset)
-{
-	if (!tn)
-		return NULL;
-
-	struct var_node_list *tmp;
-	unsigned long prev_off = 0;
-	struct var_node_list *prev_vnl = NULL;
-	unsigned long base_off = 0;
-	struct type_node *tn1 = tn;
-	unsigned long off = 0;
-	tree field = NULL;
-
-re_search:
-	list_for_each_entry(tmp, &tn1->children, sibling) {
-
-		field = (tree)tmp->var.node;
-		analysis__resfile_load(find_target_sibuf(field));
-		off = get_field_offset(field);
-
-		if ((off + base_off) == target_offset)
-			return tmp;
-
-		if (((prev_off + base_off) < target_offset) &&
-			((off + base_off) > target_offset)) {
-			switch (prev_vnl->var.type->type_code) {
-			case INTEGER_TYPE:
-			case ARRAY_TYPE:
-			case ENUMERAL_TYPE:
-			{
-				return prev_vnl;
-			}
-			case RECORD_TYPE:
-			{
-				tree node = (tree)prev_vnl->var.node;
-				base_off += get_field_offset(node);
-				tn1 = prev_vnl->var.type;
-				prev_off = 0;
-				prev_vnl = NULL;
-				goto re_search;
-			}
-			case UNION_TYPE:
-			{
-				/* TODO, how to get the target field? */
-				return prev_vnl;
-			}
-			default:
-			{
-				si_log1("miss %s\n", tree_code_name[
-					       prev_vnl->var.type->type_code]);
-				break;
-			}
-			}
-		}
-
-		prev_off = off;
-		prev_vnl = tmp;
-	}
-
-	if (list_empty(&tn1->children))
-		BUG();
-
-	/* check the last field */
-	tmp = list_last_entry(&tn1->children, struct var_node_list, sibling);
-	field = (tree)tmp->var.node;
-	off = get_field_offset(field);
-
-	if (((off + base_off) < target_offset) &&
-		(off + base_off + tmp->var.type->ofsize) > target_offset) {
-		switch (tmp->var.type->type_code) {
-		case INTEGER_TYPE:
-		case ARRAY_TYPE:
-		case POINTER_TYPE:
-		case ENUMERAL_TYPE:
-		{
-			return prev_vnl;
-		}
-		case UNION_TYPE:
-		{
-			/* TODO, how to get the target field? */
-			return prev_vnl;
-		}
-		case RECORD_TYPE:
-		{
-			tree node = (tree)tmp->var.node;
-			base_off += get_field_offset(node);
-			tn1 = tmp->var.type;
-			prev_off = 0;
-			prev_vnl = NULL;
-			goto re_search;
-		}
-		default:
-		{
-			si_log1("miss %s\n",
-			     tree_code_name[prev_vnl->var.type->type_code]);
-			return NULL;
-		}
-		}
-	}
-
-	BUG();
 }
 
 static void do_struct_init(struct type_node *tn, tree init_tree)
 {
+	CLIB_DBG_FUNC_ENTER();
+
 	BUG_ON(tn->type_code != RECORD_TYPE);
 
 	vec<constructor_elt, va_gc> *init_elts;
 	init_elts=(vec<constructor_elt, va_gc> *)(CONSTRUCTOR_ELTS(init_tree));
 
-	/* XXX, some structures may init the element NULL */
-	if (!init_elts)
+	/* XXX, some structures may have NULL init elements */
+	if (!init_elts) {
+		CLIB_DBG_FUNC_EXIT();
 		return;
+	}
 
 	unsigned long length = init_elts->vecpfx.m_num;
 	struct constructor_elt *addr = &init_elts->vecdata[0];
 
 	for (unsigned long i = 0; i < length; i++) {
 		BUG_ON(TREE_CODE(addr[i].index) != FIELD_DECL);
-		struct var_node_list *vnl;
-		vnl = get_target_field0(tn, (tree)addr[i].index);
+		struct var_list *vnl;
+		vnl = get_target_field_phase4(tn, (tree)addr[i].index);
 		do_init_value(&vnl->var, addr[i].value);
 	}
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
 }
 
 static void do_union_init(struct type_node *tn, tree init_tree)
 {
+	CLIB_DBG_FUNC_ENTER();
+
 	BUG_ON(tn->type_code != UNION_TYPE);
 
 	vec<constructor_elt, va_gc> *init_elts;
 	init_elts=(vec<constructor_elt, va_gc> *)(CONSTRUCTOR_ELTS(init_tree));
 
-	if (!init_elts)
+	if (!init_elts) {
+		CLIB_DBG_FUNC_EXIT();
 		return;
+	}
 
 	unsigned long length = init_elts->vecpfx.m_num;
 	struct constructor_elt *addr = &init_elts->vecdata[0];
 
 	for (unsigned long i = 0; i < length; i++) {
 		BUG_ON(TREE_CODE(addr[i].index) != FIELD_DECL);
-		struct var_node_list *vnl;
-		vnl = get_target_field0(tn, (tree)addr[i].index);
+		struct var_list *vnl;
+		vnl = get_target_field_phase4(tn, (tree)addr[i].index);
 		do_init_value(&vnl->var, addr[i].value);
 	}
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
 }
 
 static void do_init_value(struct var_node *vn, tree init_tree)
@@ -5146,12 +6289,14 @@ static void do_init_value(struct var_node *vn, tree init_tree)
 	if (!init_tree)
 		return;
 
+	CLIB_DBG_FUNC_ENTER();
+
 	enum tree_code init_tc = TREE_CODE(init_tree);
 	switch (init_tc) {
 	case CONSTRUCTOR:
 	{
 		vec<constructor_elt, va_gc> *init_elts;
-		init_elts=(vec<constructor_elt, va_gc> *)
+		init_elts = (vec<constructor_elt, va_gc> *)
 				(CONSTRUCTOR_ELTS(init_tree));
 
 		if (!init_elts)
@@ -5186,39 +6331,57 @@ static void do_init_value(struct var_node *vn, tree init_tree)
 	case INTEGER_CST:
 	{
 		long value = TREE_INT_CST_LOW(init_tree);
-		struct possible_value_list *pv = NULL;
-		if (!possible_value_list_find(&vn->possible_values,
-						VALUE_IS_INT_CST, value)) {
-			pv = possible_value_list_new();
+		struct possible_list *pv = NULL;
+		node_lock_r(vn);
+		pv = possible_list_find(&vn->possible_values,
+					VALUE_IS_INT_CST,
+					value);
+		node_unlock_r(vn);
+		if (!pv) {
+			pv = possible_list_new();
 			pv->value_flag = VALUE_IS_INT_CST;
 			pv->value = value;
+			node_lock_w(vn);
 			list_add_tail(&pv->sibling, &vn->possible_values);
+			node_unlock_w(vn);
 		}
 		break;
 	}
 	case REAL_CST:
 	{
 		long value = (long)init_tree;
-		struct possible_value_list *pv = NULL;
-		if (!possible_value_list_find(&vn->possible_values,
-						VALUE_IS_REAL_CST, value)) {
-			pv = possible_value_list_new();
+		struct possible_list *pv = NULL;
+		node_lock_r(vn);
+		pv = possible_list_find(&vn->possible_values,
+					VALUE_IS_REAL_CST,
+					value);
+		node_unlock_r(vn);
+		if (!pv) {
+			pv = possible_list_new();
 			pv->value_flag = VALUE_IS_REAL_CST;
 			pv->value = value;
+			node_lock_w(vn);
 			list_add_tail(&pv->sibling, &vn->possible_values);
+			node_unlock_w(vn);
 		}
 		break;
 	}
 	case STRING_CST:
 	{
 		long value = (long)((struct tree_string *)init_tree)->str;
-		struct possible_value_list *pv = NULL;
-		if (!possible_value_list_find(&vn->possible_values,
-						VALUE_IS_STR_CST, value)) {
-			pv = possible_value_list_new();
+		struct possible_list *pv = NULL;
+		node_lock_r(vn);
+		pv = possible_list_find(&vn->possible_values,
+					VALUE_IS_STR_CST,
+					value);
+		node_unlock_r(vn);
+		if (!pv) {
+			pv = possible_list_new();
 			pv->value_flag = VALUE_IS_STR_CST;
 			pv->value = value;
+			node_lock_w(vn);
 			list_add_tail(&pv->sibling, &vn->possible_values);
+			node_unlock_w(vn);
 		}
 		break;
 	}
@@ -5234,68 +6397,93 @@ static void do_init_value(struct var_node *vn, tree init_tree)
 			if (!fsn) {
 				/* FIXME, this function not found yet */
 				long value = (long)addr;
-				struct possible_value_list *pv = NULL;
-				if (!possible_value_list_find(
-							&vn->possible_values,
+				struct possible_list *pv = NULL;
+				node_lock_r(vn);
+				pv = possible_list_find(&vn->possible_values,
 							VALUE_IS_TREE,
-							value)) {
-					pv = possible_value_list_new();
+							value);
+				node_unlock_r(vn);
+				if (!pv) {
+					pv = possible_list_new();
 					pv->value_flag = VALUE_IS_TREE;
 					pv->value = value;
+					node_lock_w(vn);
 					list_add_tail(&pv->sibling,
 							&vn->possible_values);
+					node_unlock_w(vn);
 				}
 			} else {
-				long value = fsn->node_id.id.id1;
-				struct possible_value_list *pv = NULL;
-				if (!possible_value_list_find(
-							&vn->possible_values,
+				/* long value = fsn->node_id.id.id1; */
+				long value;
+				value = sinode_id_all(fsn);
+				struct possible_list *pv = NULL;
+				node_lock_r(vn);
+				pv = possible_list_find(&vn->possible_values,
 							VALUE_IS_FUNC,
-							value)) {
-					pv = possible_value_list_new();
+							value);
+				node_unlock_r(vn);
+				if (!pv) {
+					pv = possible_list_new();
 					pv->value_flag = VALUE_IS_FUNC;
 					pv->value = value;
+					node_lock_w(vn);
 					list_add_tail(&pv->sibling,
 							&vn->possible_values);
+					node_unlock_w(vn);
 				}
 			}
 		} else if (TREE_CODE(addr) == VAR_DECL) {
 			long value = (long)init_tree;
-			struct possible_value_list *pv = NULL;
-			if (!possible_value_list_find(&vn->possible_values,
-							VALUE_IS_VAR_ADDR,
-							value)) {
-				pv = possible_value_list_new();
+			struct possible_list *pv = NULL;
+			node_lock_r(vn);
+			pv = possible_list_find(&vn->possible_values,
+						VALUE_IS_VAR_ADDR,
+						value);
+			node_unlock_r(vn);
+			if (!pv) {
+				pv = possible_list_new();
 				pv->value_flag = VALUE_IS_VAR_ADDR;
 				pv->value = value;
+				node_lock_w(vn);
 				list_add_tail(&pv->sibling,
 						&vn->possible_values);
+				node_unlock_w(vn);
 			}
 		} else if (TREE_CODE(addr) == STRING_CST) {
 			do_init_value(vn, addr);
 		} else if (TREE_CODE(addr) == COMPONENT_REF) {
 			long value = (long)init_tree;
-			struct possible_value_list *pv = NULL;
-			if (!possible_value_list_find(&vn->possible_values,
-							VALUE_IS_VAR_ADDR,
-							value)) {
-				pv = possible_value_list_new();
+			struct possible_list *pv = NULL;
+			node_lock_r(vn);
+			pv = possible_list_find(&vn->possible_values,
+						VALUE_IS_VAR_ADDR,
+						value);
+			node_unlock_r(vn);
+			if (!pv) {
+				pv = possible_list_new();
 				pv->value_flag = VALUE_IS_VAR_ADDR;
 				pv->value = value;
+				node_lock_w(vn);
 				list_add_tail(&pv->sibling,
 						&vn->possible_values);
+				node_unlock_w(vn);
 			}
 		} else if (TREE_CODE(addr) == ARRAY_REF) {
 			long value = (long)init_tree;
-			struct possible_value_list *pv = NULL;
-			if (!possible_value_list_find(&vn->possible_values,
-							VALUE_IS_EXPR,
-							value)) {
-				pv = possible_value_list_new();
+			struct possible_list *pv = NULL;
+			node_lock_r(vn);
+			pv = possible_list_find(&vn->possible_values,
+						VALUE_IS_EXPR,
+						value);
+			node_unlock_r(vn);
+			if (!pv) {
+				pv = possible_list_new();
 				pv->value_flag = VALUE_IS_EXPR;
 				pv->value = value;
+				node_lock_w(vn);
 				list_add_tail(&pv->sibling,
 						&vn->possible_values);
+				node_unlock_w(vn);
 			}
 		} else if (TREE_CODE(addr) == COMPOUND_LITERAL_EXPR) {
 			tree vd = COMPOUND_LITERAL_EXPR_DECL(addr);
@@ -5318,14 +6506,19 @@ static void do_init_value(struct var_node *vn, tree init_tree)
 	case PLUS_EXPR:
 	{
 		long value = (long)init_tree;
-		struct possible_value_list *pv = NULL;
-		if (!possible_value_list_find(&vn->possible_values,
-						VALUE_IS_EXPR,
-						value)) {
-			pv = possible_value_list_new();
+		struct possible_list *pv = NULL;
+		node_lock_r(vn);
+		pv = possible_list_find(&vn->possible_values,
+					VALUE_IS_EXPR,
+					value);
+		node_unlock_r(vn);
+		if (!pv) {
+			pv = possible_list_new();
 			pv->value_flag = VALUE_IS_EXPR;
 			pv->value = value;
+			node_lock_w(vn);
 			list_add_tail(&pv->sibling, &vn->possible_values);
+			node_unlock_w(vn);
 		}
 		break;
 	}
@@ -5335,119 +6528,37 @@ static void do_init_value(struct var_node *vn, tree init_tree)
 		break;
 	}
 	}
+
+	CLIB_DBG_FUNC_EXIT();
 }
 
-static void get_gvar_xref(struct sinode *sn)
+static void do_phase4_gvar(struct sinode *sn)
 {
+	CLIB_DBG_FUNC_ENTER();
+
 	analysis__resfile_load(sn->buf);
-	tree node = (tree)(long)sn->obj->real_addr;
-	struct var_node *new_var = (struct var_node *)sn->data;
+
+	tree node;
+	struct var_node *new_var;
+
+	node = (tree)(long)sn->obj->real_addr;
+	new_var = (struct var_node *)sn->data;
 
 	do_init_value(new_var, DECL_INITIAL(node));
 
+	CLIB_DBG_FUNC_EXIT();
 	return;
 }
 
-static void get_xrefs(struct sinode *func_sn);
-static void do_xrefs(struct sibuf *b)
+static __maybe_unused struct type_node *do_phase4_mem_ref(struct tree_exp *op)
 {
-	for (obj_idx = 0; obj_idx < obj_cnt; obj_idx++) {
-		if (objs[obj_idx].is_dropped || objs[obj_idx].is_replaced)
-			continue;
+	CLIB_DBG_FUNC_ENTER();
 
-		void *obj_addr = (void *)(long)(objs[obj_idx].real_addr);
-		struct sinode *n;
-		if (objs[obj_idx].is_global_var) {
-			get_var_sinode((tree)obj_addr, &n, 0);
-			if (!n)
-				continue;
-
-			get_gvar_xref(n);
-		} else if (objs[obj_idx].is_function) {
-			get_func_sinode((tree)obj_addr, &n, 0);
-			if (!n)
-				continue;
-
-			if (!n->data)
-				continue;
-
-			get_xrefs(n);
-		} else {
-			continue;
-		}
-	}
-
-	return;
-}
-
-static void handle_marked_func(struct sinode *n);
-static void do_indcfg1(struct sibuf *b)
-{
-	/* handle the marked func */
-	for (obj_idx = 0; obj_idx < obj_cnt; obj_idx++) {
-		if (objs[obj_idx].is_dropped || objs[obj_idx].is_replaced)
-			continue;
-
-		void *obj_addr = (void *)(long)(objs[obj_idx].real_addr);
-		if (!objs[obj_idx].is_function) {
-			continue;
-		}
-
-		struct sinode *n;
-		get_func_sinode((tree)obj_addr, &n, 0);
-		if (!n)
-			continue;
-
-		if (!n->data)
-			continue;
-
-		handle_marked_func(n);
-	}
-
-	return;
-}
-
-static void get_indirect_cfg(struct sinode *func_sn);
-static void do_indcfg2(struct sibuf *buf)
-{
-	for (obj_idx = 0; obj_idx < obj_cnt; obj_idx++) {
-		if (objs[obj_idx].is_dropped || objs[obj_idx].is_replaced)
-			continue;
-
-		void *obj_addr = (void *)(long)(objs[obj_idx].real_addr);
-		if (!objs[obj_idx].is_function) {
-			continue;
-		}
-
-		struct sinode *n;
-		get_func_sinode((tree)obj_addr, &n, 0);
-		if (!n)
-			continue;
-
-		if (!n->data)
-			continue;
-
-		get_indirect_cfg(n);
-	}
-	return;
-}
-
-/*
- * ************************************************************************
- * the following functions are for cross references for functions/types/vars
- * handle gimple statements
- * ************************************************************************
- */
-static struct type_node *do_mem_ref(struct tree_exp *op)
-{
 	struct type_node *tn = NULL;
 	struct tree_exp *exp = (struct tree_exp *)op;
 	tree t0 = exp->operands[0];
 	tree __maybe_unused t1 = exp->operands[1];
-#if 0
-	BUG_ON(((struct tree_int_cst *)t1)->val[0]);
-	BUG_ON((TREE_CODE(t0) != PARM_DECL) && (TREE_CODE(t0) != VAR_DECL));
-#endif
+
 	if ((TREE_CODE(t0) == PARM_DECL) || (TREE_CODE(t0) == VAR_DECL)) {
 		struct type_node *tn0 = find_type_node(TREE_TYPE(t0));
 		struct type_node *tn1 = find_type_node(TREE_TYPE(op));
@@ -5462,16 +6573,19 @@ static struct type_node *do_mem_ref(struct tree_exp *op)
 		struct type_node *tn0 = find_type_node(TREE_TYPE(tvar));
 		tn = tn0;
 	} else if (TREE_CODE(t0) == SSA_NAME) {
-		/* TODO */
+		tn = find_type_node(TREE_TYPE(t0));
 	} else {
 		si_log1("miss %s\n", tree_code_name[TREE_CODE(t0)]);
 	}
 
+	CLIB_DBG_FUNC_EXIT();
 	return tn;
 }
 
 static struct type_node *get_array_ref_tn(struct tree_exp *exp)
 {
+	CLIB_DBG_FUNC_ENTER();
+
 	tree op0 = exp->operands[0];
 	tree __maybe_unused op1 = exp->operands[1];
 	tree __maybe_unused op2 = exp->operands[2];
@@ -5484,15 +6598,212 @@ static struct type_node *get_array_ref_tn(struct tree_exp *exp)
 		type = TREE_TYPE(type);
 	struct type_node *tn = NULL;
 	tn = find_type_node(type);
+
+	CLIB_DBG_FUNC_EXIT();
 	return tn;
 }
 
+static struct var_list *get_target_field0(struct type_node *tn, tree field)
+{
+	if (!tn)
+		return NULL;
+
+	CLIB_DBG_FUNC_ENTER();
+
+	struct var_list *tmp = NULL;
+	while (tn->type_code == POINTER_TYPE) {
+		tn = tn->next;
+	}
+	if ((tn->type_code != RECORD_TYPE) && (tn->type_code != UNION_TYPE)) {
+		si_log1_todo("miss %s\n", tree_code_name[tn->type_code]);
+		CLIB_DBG_FUNC_EXIT();
+		return NULL;
+	}
+	BUG_ON(TREE_CODE(field) != FIELD_DECL);
+	int macro_expanded = is_type_from_expand_macro(tn);
+
+	list_for_each_entry(tmp, &tn->children, sibling) {
+		tree n1 = (tree)tmp->var.node;
+		tree n2 = (tree)field;
+
+		if (is_same_field(n1, n2, macro_expanded)) {
+			CLIB_DBG_FUNC_EXIT();
+			return tmp;
+		}
+	}
+
+	list_for_each_entry(tmp, &tn->children, sibling) {
+		struct type_node *t = tmp->var.type;
+		if (!t)
+			continue;
+		struct var_list *ret = NULL;
+		if ((t != tn) && ((t->type_code == RECORD_TYPE) ||
+					(t->type_code == UNION_TYPE)))
+			ret = get_target_field0(t, field);
+		if (ret) {
+			CLIB_DBG_FUNC_EXIT();
+			return ret;
+		}
+	}
+
+#if 0
+	/* typedef struct xxx_s xxx */
+	tree type_tree = (tree)tn->node;
+	tree main_type = TYPE_CANONICAL(type_tree);
+	struct type_node *tn_tmp;
+	tn_tmp = find_type_node(main_type);
+	if (tn_tmp == tn)
+		BUG();
+	tmp = get_target_field0(tn_tmp, field);
+	BUG_ON(!tmp);
+#endif
+
+	CLIB_DBG_FUNC_EXIT();
+	return NULL;
+}
+
+static struct var_list *get_target_field1(struct type_node *tn,
+					  unsigned long target_offset)
+{
+	if (!tn)
+		return NULL;
+
+	struct var_list *tmp;
+	unsigned long prev_off = 0;
+	struct var_list *prev_vnl = NULL;
+	unsigned long base_off = 0;
+	struct type_node *tn1 = tn;
+	unsigned long off = 0;
+	tree field = NULL;
+
+	CLIB_DBG_FUNC_ENTER();
+
+re_search:
+	list_for_each_entry(tmp, &tn1->children, sibling) {
+		field = (tree)tmp->var.node;
+		analysis__resfile_load(find_target_sibuf(field));
+		off = get_field_offset(field);
+
+		if ((off + base_off) == target_offset) {
+			CLIB_DBG_FUNC_EXIT();
+			return tmp;
+		}
+
+		if (((prev_off + base_off) < target_offset) &&
+			((off + base_off) > target_offset)) {
+			switch (prev_vnl->var.type->type_code) {
+			case INTEGER_TYPE:
+			case ARRAY_TYPE:
+			case ENUMERAL_TYPE:
+			{
+				CLIB_DBG_FUNC_EXIT();
+				return prev_vnl;
+			}
+			case RECORD_TYPE:
+			{
+				tree node = (tree)prev_vnl->var.node;
+				base_off += get_field_offset(node);
+				tn1 = prev_vnl->var.type;
+				prev_off = 0;
+				prev_vnl = NULL;
+				goto re_search;
+			}
+			case UNION_TYPE:
+			{
+				/* TODO, how to get the target field? */
+				tree node = (tree)prev_vnl->var.node;
+				struct sibuf *b;
+				b = find_target_sibuf(node);
+				expanded_location *xloc;
+				xloc = get_location(GET_LOC_TYPE,
+							b->payload,
+							node);
+				si_log1_todo("UNION_TYPE at %s %d %d\n",
+						xloc->file,
+						xloc->line,
+						xloc->column);
+				CLIB_DBG_FUNC_EXIT();
+				return prev_vnl;
+			}
+			default:
+			{
+				si_log1("miss %s\n", tree_code_name[
+					       prev_vnl->var.type->type_code]);
+				break;
+			}
+			}
+		}
+
+		prev_off = off;
+		prev_vnl = tmp;
+	}
+
+	if (list_empty(&tn1->children))
+		BUG();
+
+	/* check the last field */
+	tmp = list_last_entry(&tn1->children, struct var_list, sibling);
+	field = (tree)tmp->var.node;
+	off = get_field_offset(field);
+
+	if (((off + base_off) < target_offset) &&
+		(off + base_off + tmp->var.type->ofsize) > target_offset) {
+		switch (tmp->var.type->type_code) {
+		case INTEGER_TYPE:
+		case ARRAY_TYPE:
+		case POINTER_TYPE:
+		case ENUMERAL_TYPE:
+		{
+			CLIB_DBG_FUNC_EXIT();
+			return prev_vnl;
+		}
+		case UNION_TYPE:
+		{
+			/* TODO, how to get the target field? */
+			tree node = (tree)prev_vnl->var.node;
+			struct sibuf *b;
+			b = find_target_sibuf(node);
+			expanded_location *xloc;
+			xloc = get_location(GET_LOC_TYPE,
+						b->payload,
+						node);
+			si_log1_todo("UNION_TYPE at %s %d %d\n",
+					xloc->file,
+					xloc->line,
+					xloc->column);
+			CLIB_DBG_FUNC_EXIT();
+			return prev_vnl;
+		}
+		case RECORD_TYPE:
+		{
+			tree node = (tree)tmp->var.node;
+			base_off += get_field_offset(node);
+			tn1 = tmp->var.type;
+			prev_off = 0;
+			prev_vnl = NULL;
+			goto re_search;
+		}
+		default:
+		{
+			si_log1("miss %s\n",
+			     tree_code_name[prev_vnl->var.type->type_code]);
+			CLIB_DBG_FUNC_EXIT();
+			return NULL;
+		}
+		}
+	}
+
+	BUG();
+}
+
 /*
- * this is a RECORD/UNION, we just get the field's var_node_list,
+ * this is a RECORD/UNION, we just get the field's var_list,
  * and add use_at
  */
-static struct var_node_list *component_ref_get_vnl(struct tree_exp *op)
+static struct var_list *get_component_ref_vnl(struct tree_exp *op)
 {
+	CLIB_DBG_FUNC_ENTER();
+
 	tree t0 = op->operands[0];
 	tree t1 = op->operands[1];
 	tree t2 = op->operands[2];
@@ -5517,14 +6828,14 @@ static struct var_node_list *component_ref_get_vnl(struct tree_exp *op)
 	}
 	case MEM_REF:
 	{
-		tn = do_mem_ref((struct tree_exp *)t0);
+		tn = find_type_node(TREE_TYPE(t0));
 		break;
 	}
 	default:
 	{
 		enum gimple_code gc = gimple_code(cur_gimple);
 		expanded_location *xloc;
-		xloc = get_gimple_loc(cur_fn->buf->payload,
+		xloc = get_gimple_loc(cur_fsn->buf->payload,
 					&cur_gimple->location);
 		si_log1("%s in %s, loc: %s %d %d\n",
 				tree_code_name[tc], gimple_code_name[gc],
@@ -5533,19 +6844,27 @@ static struct var_node_list *component_ref_get_vnl(struct tree_exp *op)
 	}
 	}
 
-	if (!tn)
+	if (!tn) {
+		CLIB_DBG_FUNC_EXIT();
 		return NULL;
+	}
 
-	struct var_node_list *target_vn;
+	struct var_list *target_vn;
 	target_vn = get_target_field0(tn, t1);
+
+	CLIB_DBG_FUNC_EXIT();
 	return target_vn;
 }
 
-static void do_component_ref(struct tree_exp *op)
+static void do_phase4_mark_component_ref(struct tree_exp *op)
 {
-	struct var_node_list *target_vn = component_ref_get_vnl(op);
-	if (!target_vn)
+	CLIB_DBG_FUNC_ENTER();
+
+	struct var_list *target_vn = get_component_ref_vnl(op);
+	if (!target_vn) {
+		CLIB_DBG_FUNC_EXIT();
 		return;
+	}
 
 	struct use_at_list *newua_type = NULL, *newua_var = NULL;
 	if (target_vn->var.type) {
@@ -5554,7 +6873,7 @@ static void do_component_ref(struct tree_exp *op)
 						cur_gimple_op_idx);
 		if (!newua_type) {
 			newua_type = use_at_list_new();
-			newua_type->func_id = cur_fn->node_id.id;
+			newua_type->func_id = cur_fsn->node_id.id;
 			newua_type->gimple_stmt = (void *)cur_gimple;
 			newua_type->op_idx = cur_gimple_op_idx;
 			list_add_tail(&newua_type->sibling,
@@ -5566,26 +6885,34 @@ static void do_component_ref(struct tree_exp *op)
 					cur_gimple_op_idx);
 	if (!newua_var) {
 		newua_var = use_at_list_new();
-		newua_var->func_id = cur_fn->node_id.id;
+		newua_var->func_id = cur_fsn->node_id.id;
 		newua_var->gimple_stmt = (void *)cur_gimple;
 		newua_var->op_idx = cur_gimple_op_idx;
 		list_add_tail(&newua_var->sibling, &target_vn->var.used_at);
 	}
+
+	CLIB_DBG_FUNC_EXIT();
 	return;
 }
 
-static void do_bit_field_ref(struct tree_exp *op)
+static void do_phase4_mark_bit_field_ref(struct tree_exp *op)
 {
+	CLIB_DBG_FUNC_ENTER();
+
 	tree t0 = op->operands[0];
 	tree __maybe_unused t1 = op->operands[1]; /* how many bits to read */
 	tree t2 = op->operands[2];		/* where to read */
 	struct type_node *tn = NULL;
-	struct var_node_list __maybe_unused *vnl = NULL;
+	struct var_list __maybe_unused *vnl = NULL;
+	struct var_list *target_vn = NULL;
+	gimple_seq next_gs;
+	unsigned long target_offset = 0;
+	struct use_at_list *newua_type = NULL, *newua_var = NULL;
 
 	switch (TREE_CODE(t0)) {
 	case MEM_REF:
 	{
-		tn = do_mem_ref((struct tree_exp *)t0);
+		tn = find_type_node(TREE_TYPE(t0));
 		break;
 	}
 	case VAR_DECL:
@@ -5606,15 +6933,13 @@ static void do_bit_field_ref(struct tree_exp *op)
 	case ARRAY_REF:
 	{
 		tn = get_array_ref_tn((struct tree_exp *)t0);
-		if (!tn)
-			return;
 		break;
 	}
 	default:
 	{
 		enum gimple_code gc = gimple_code(cur_gimple);
 		expanded_location *xloc;
-		xloc = get_gimple_loc(cur_fn->buf->payload,
+		xloc = get_gimple_loc(cur_fsn->buf->payload,
 					&cur_gimple->location);
 		si_log1("%s in %s, loc: %s %d %d\n",
 				tree_code_name[TREE_CODE(t0)],
@@ -5624,13 +6949,14 @@ static void do_bit_field_ref(struct tree_exp *op)
 	}
 	}
 
+	if (!tn)
+		goto out;
+
 	/*
 	 * XXX, cur_gimple not enough to get the field
 	 * peek next gimple
 	 */
-	struct var_node_list *target_vn = NULL;
-	gimple_seq next_gs = cur_gimple->next;
-	unsigned long target_offset = 0;
+	next_gs = cur_gimple->next;
 	target_offset = TREE_INT_CST_LOW(t2);
 	if (gimple_code(next_gs) == GIMPLE_ASSIGN) {
 		tree *ops0 = gimple_ops(cur_gimple);
@@ -5650,7 +6976,8 @@ static void do_bit_field_ref(struct tree_exp *op)
 			 * TODO, bit_field_0 == bit_field_1,
 			 * four GIMPLE_ASSIGNs
 			 */
-			return;
+			si_log1_todo("lhs not found\n");
+			goto out;
 		}
 
 		enum tree_code next_gs_tc;
@@ -5692,13 +7019,13 @@ static void do_bit_field_ref(struct tree_exp *op)
 			case BIT_XOR_EXPR:
 			{
 				/* TODO, not found */
-				si_log1("TODO: ops[2] and ops[1] are not "
-						"VAR_DECL\n");
+				si_log1_todo(
+					"ops[2] & ops[1] are not VAR_DECL\n");
 				break;
 			}
 			case RSHIFT_EXPR:
 			{
-				si_log1("TODO: recheck RSHIFT_EXPR");
+				si_log1("recheck RSHIFT_EXPR");
 				break;
 			}
 			default:
@@ -5716,41 +7043,50 @@ static void do_bit_field_ref(struct tree_exp *op)
 	}
 
 	if (unlikely(!target_vn)) {
-		si_log1("TODO: recheck target_vn == NULL\n");
-		return;
+		si_log1("recheck target_vn == NULL\n");
+		goto out;
 	}
 
-	struct use_at_list *newua_type = NULL, *newua_var = NULL;
 	if (target_vn->var.type) {
+		node_lock_r(target_vn->var.type);
 		newua_type = use_at_list_find(&target_vn->var.type->used_at,
 						cur_gimple,
 						cur_gimple_op_idx);
+		node_unlock_r(target_vn->var.type);
 		if (!newua_type) {
 			newua_type = use_at_list_new();
-			newua_type->func_id = cur_fn->node_id.id;
+			newua_type->func_id = cur_fsn->node_id.id;
 			newua_type->gimple_stmt = (void *)cur_gimple;
 			newua_type->op_idx = cur_gimple_op_idx;
+			node_lock_w(target_vn->var.type);
 			list_add_tail(&newua_type->sibling,
 					&target_vn->var.type->used_at);
+			node_unlock_w(target_vn->var.type);
 		}
 	}
 
+	node_lock_r(&target_vn->var);
 	newua_var = use_at_list_find(&target_vn->var.used_at, cur_gimple,
 					cur_gimple_op_idx);
+	node_unlock_r(&target_vn->var);
 	if (!newua_var) {
 		newua_var = use_at_list_new();
-		newua_var->func_id = cur_fn->node_id.id;
+		newua_var->func_id = cur_fsn->node_id.id;
 		newua_var->gimple_stmt = (void *)cur_gimple;
 		newua_var->op_idx = cur_gimple_op_idx;
+		node_lock_w(&target_vn->var);
 		list_add_tail(&newua_var->sibling, &target_vn->var.used_at);
+		node_unlock_w(&target_vn->var);
 	}
 
+out:
+	CLIB_DBG_FUNC_EXIT();
 	return;
 }
 
-static void do_gimple_op_xref(tree op)
+static void do_gop_mark(tree op)
 {
-	struct sinode *fsn = cur_fn;
+	struct sinode *fsn = cur_fsn;
 	gimple_seq gs = cur_gimple;
 	enum gimple_code gc = gimple_code(gs);
 	enum tree_code tc = TREE_CODE(op);
@@ -5758,26 +7094,19 @@ static void do_gimple_op_xref(tree op)
 	if (tcc == tcc_constant)
 		return;
 
+	CLIB_DBG_FUNC_ENTER();
+
 	switch (tc) {
-	case LABEL_DECL:
-	{
-		/* nothing to do here */
-		break;
-	}
-	case CASE_LABEL_EXPR:
-	{
-		break;
-	}
 	case COMPONENT_REF:
 	{
 		struct tree_exp *exp = (struct tree_exp *)op;
-		do_component_ref(exp);
+		do_phase4_mark_component_ref(exp);
 		break;
 	}
 	case BIT_FIELD_REF:
 	{
 		struct tree_exp *exp = (struct tree_exp *)op;
-		do_bit_field_ref(exp);
+		do_phase4_mark_bit_field_ref(exp);
 		break;
 	}
 	case ADDR_EXPR:
@@ -5787,8 +7116,9 @@ static void do_gimple_op_xref(tree op)
 		if ((TREE_CODE(op0) == VAR_DECL) ||
 			(TREE_CODE(op0) == PARM_DECL) ||
 			(TREE_CODE(op0) == COMPONENT_REF) ||
-			(TREE_CODE(op0) == ARRAY_REF)) {
-			do_gimple_op_xref(op0);
+			(TREE_CODE(op0) == ARRAY_REF) ||
+			(TREE_CODE(op0) == MEM_REF)) {
+			do_gop_mark(op0);
 		} else if ((TREE_CODE(op0) == FUNCTION_DECL) ||
 				(TREE_CODE(op0) == STRING_CST)) {
 			break;
@@ -5815,9 +7145,10 @@ static void do_gimple_op_xref(tree op)
 				(TREE_CODE(t0) == VAR_DECL))) {
 			break;
 		} else if (TREE_CODE(t0) == ADDR_EXPR) {
-			do_gimple_op_xref(t0);
+			do_gop_mark(t0);
 		} else if (TREE_CODE(t0) == SSA_NAME) {
-			/* TODO */
+			/* FIXME: is it right to do nothing here? */
+			break;
 		} else {
 			si_log1("miss %s\n", tree_code_name[TREE_CODE(t0)]);
 		}
@@ -5832,13 +7163,19 @@ static void do_gimple_op_xref(tree op)
 			break;
 
 		struct use_at_list *ua = NULL;
-		if (!use_at_list_find(&tn->used_at, cur_gimple,
-					cur_gimple_op_idx)) {
+		node_lock_r(tn);
+		ua = use_at_list_find(&tn->used_at,
+					cur_gimple,
+					cur_gimple_op_idx);
+		node_unlock_r(tn);
+		if (!ua) {
 			ua = use_at_list_new();
-			ua->func_id = cur_fn->node_id.id;
+			ua->func_id = cur_fsn->node_id.id;
 			ua->gimple_stmt = (void *)cur_gimple;
 			ua->op_idx = cur_gimple_op_idx;
+			node_lock_w(tn);
 			list_add_tail(&ua->sibling, &tn->used_at);
+			node_unlock_w(tn);
 		}
 		break;
 	}
@@ -5846,32 +7183,18 @@ static void do_gimple_op_xref(tree op)
 	case PARM_DECL:
 	case RESULT_DECL:
 	{
+		/* XXX: Nothing to do here */
 		break;
 	}
+	case LABEL_DECL:
+	case CASE_LABEL_EXPR:
 	case CONSTRUCTOR:
-	{
-		struct tree_constructor __maybe_unused *exp;
-		exp = (struct tree_constructor *)op;
-		/* TODO */
-		break;
-	}
 	case TREE_LIST:
-	{
-		break;
-	}
 	case SSA_NAME:
-	{
-		/* TODO */
-		break;
-	}
 	case IMAGPART_EXPR:
-	{
-		/* TODO */
-		break;
-	}
 	case REALPART_EXPR:
 	{
-		/* TODO */
+		/* FIXME: is it right to ignore these here? */
 		break;
 	}
 	default:
@@ -5884,69 +7207,83 @@ static void do_gimple_op_xref(tree op)
 		break;
 	}
 	}
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
 }
 
-static void get_var_func_marked(struct sinode *func_sn)
+static void do_phase4_gimple(gimple_seq gs)
 {
-	struct func_node *fn = (struct func_node *)func_sn->data;
+	enum gimple_code gc = gimple_code(gs);
+	if ((gc == GIMPLE_DEBUG) || (gc == GIMPLE_NOP)) {
+		return;
+	} else if (gc == GIMPLE_LABEL) {
+#if 0
+		expanded_location *xloc;
+		xloc = get_gimple_loc(cur_fsn->buf->payload, &gs->location);
+		si_log1("GIMPLE_LABEL at %s %d %d\n",
+				xloc->file, xloc->line, xloc->column);
+#endif
+		return;
+	}
 
-	cur_func = (tree)(long)func_sn->obj->real_addr;
-	cur_fn = func_sn;
-	cur_func_node = fn;
+	CLIB_DBG_FUNC_ENTER();
 
-	struct code_path *next;
-	analysis__get_func_code_paths_start(fn->codes);
-	while ((next = analysis__get_func_next_code_path())) {
-		struct code_sentence *cs;
-		list_for_each_entry(cs, &next->sentences, sibling) {
-			gimple_seq gs = (gimple_seq)cs->head;
-			cur_gimple = gs;
-			enum gimple_code gc = gimple_code(gs);
-			if (gc == GIMPLE_LABEL) {
-				/* TODO */
-				continue;
-			}
-			tree *ops = gimple_ops(gs);
-			for (unsigned int i = 0; i < gimple_num_ops(gs); i++) {
-				if ((gc == GIMPLE_CALL) && (i == 1))
-					continue;
-				cur_gimple_op_idx = i;
-				if (ops[i]) {
-					xrefs_obj_idx = 0;
-					for (size_t i = 0; i < obj_cnt; i++) {
-						xrefs_obj_checked[i] = NULL;
-					}
-					do_tree(ops[i]);
-					do_gimple_op_xref(ops[i]);
-				}
-			}
-		}
-		if (next->cond_head) {
-			gimple_seq gs = (gimple_seq)next->cond_head;
-			cur_gimple = gs;
-			enum gimple_code gc = gimple_code(gs);
-			BUG_ON(gc == GIMPLE_LABEL);
-			tree *ops = gimple_ops(gs);
-			for (unsigned int i = 0; i < gimple_num_ops(gs); i++) {
-				if ((gc == GIMPLE_CALL) && (i == 1))
-					continue;
-				cur_gimple_op_idx = i;
-				if (ops[i]) {
-					xrefs_obj_idx = 0;
-					for (size_t i = 0; i < obj_cnt; i++) {
-						xrefs_obj_checked[i] = NULL;
-					}
-					do_tree(ops[i]);
-					do_gimple_op_xref(ops[i]);
-				}
-			}
+	cur_gimple = gs;
+	tree *ops = gimple_ops(gs);
+	for (unsigned i = 0; i < gimple_num_ops(gs); i++) {
+		/* handle this in do_phase4_direct_call() */
+		if ((gc == GIMPLE_CALL) && (i == 1))
+			continue;
+
+		if (!ops[i])
+			continue;
+
+		cur_gimple_op_idx = i;
+		phase4_obj_idx = 0;
+		for (size_t i = 0; i < obj_cnt; i++)
+			phase4_obj_checked[i] = NULL;
+
+		do_tree(ops[i]);
+		do_gop_mark(ops[i]);
+	}
+
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_phase4_mark_var_func(struct sinode *sn)
+{
+	CLIB_DBG_FUNC_ENTER();
+
+	struct func_node *fn;
+	fn = (struct func_node *)sn->data;
+
+	cur_fsn = sn;
+	cur_fn = fn;
+	si_current_function_decl = (tree)(long)sn->obj->real_addr;
+
+	BUG_ON(!si_function_bb(si_current_function_decl));
+
+	basic_block bb;
+	FOR_EACH_BB_FN(bb, DECL_STRUCT_FUNCTION(si_current_function_decl)) {
+		gimple_seq gs;
+		gs = bb->il.gimple.seq;
+		while (gs) {
+			do_phase4_gimple(gs);
+			gs = gs->next;
 		}
 	}
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
 }
 
 static void add_caller(struct sinode *callee, struct sinode *caller)
 {
-	struct func_node *callee_func_node = (struct func_node *)callee->data;
+	CLIB_DBG_FUNC_ENTER();
+
+	struct func_node *callee_func_node;
+	callee_func_node = (struct func_node *)callee->data;
 	if (unlikely(!callee_func_node)) {
 		/* XXX, check if this function has an alias attribute */
 		struct attr_list *tmp;
@@ -5963,13 +7300,14 @@ static void add_caller(struct sinode *callee, struct sinode *caller)
 		}
 
 		if (!found) {
+			CLIB_DBG_FUNC_EXIT();
 			if (no_ins)
 				return;
 			return;
 		}
 
 		char name[NAME_MAX];
-		struct attr_value_list *tmp2;
+		struct attrval_list *tmp2;
 		list_for_each_entry(tmp2, &tmp->values, sibling) {
 			memset(name, 0, NAME_MAX);
 			tree node = (tree)tmp2->node;
@@ -6001,157 +7339,404 @@ static void add_caller(struct sinode *callee, struct sinode *caller)
 			add_caller(new_callee, caller);
 		}
 
+		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 
-	if (call_func_list_find(&callee_func_node->callers,
-				caller->node_id.id.id1, 0))
+	if (callf_list_find(&callee_func_node->callers,
+				caller->node_id.id.id1, 0)) {
+		CLIB_DBG_FUNC_EXIT();
 		return;
-	struct call_func_list *_newc;
-	_newc = call_func_list_new();
+	}
+
+	struct callf_list *_newc;
+	_newc = callf_list_new();
 	_newc->value = caller->node_id.id.id1;
 	_newc->value_flag = 0;
 	/* XXX, no need to add gimple here */
 
 	list_add_tail(&_newc->sibling, &callee_func_node->callers);
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
+}
+
+static void add_callee(struct sinode *caller_fsn, gimple_seq gs,
+			struct sinode *called_fsn);
+static void call_ssaname_gassign_component_ref(struct sinode *sn,
+				struct func_node *fn,
+				gimple_seq orig_gs,
+				struct gassign *ga)
+{
+	CLIB_DBG_FUNC_ENTER();
+
+	struct var_list *vnl;
+	tree ref_op;
+	struct possible_list *pl;
+
+	ref_op = gimple_assign_rhs1(ga);
+	BUG_ON(TREE_CODE(ref_op) != COMPONENT_REF);
+
+	if (gimple_assign_rhs2(ga)) {
+		si_log1_todo("GIMPLE_ASSIGN COMPONENT_REF >1 rhs: %d %s %s\n",
+				ga->num_ops,
+				tree_code_name[TREE_CODE(
+						gimple_assign_rhs2(ga))],
+				tree_code_name[TREE_CODE(
+						gimple_assign_rhs3(ga))]);
+		goto out;
+	}
+
+	vnl = get_component_ref_vnl((struct tree_exp *)ref_op);
+	if (!vnl) {
+		si_log1_todo("target vnl not found\n");
+		goto out;
+	}
+
+	list_for_each_entry(pl, &vnl->var.possible_values, sibling) {
+		switch (mode) {
+		case MODE_GETSTEP4:
+		{
+			if (pl->value_flag != VALUE_IS_FUNC)
+				continue;
+
+			union siid *id;
+			struct sinode *called_fsn;
+
+			id = (union siid *)&pl->value;
+			called_fsn = analysis__sinode_search(siid_type(id),
+							SEARCH_BY_ID, id);
+			BUG_ON(!called_fsn);
+			add_callee(sn, orig_gs, called_fsn);
+			break;
+		}
+		case MODE_GETINDCFG2:
+		{
+			if (pl->value_flag == VALUE_IS_FUNC)
+				continue;
+			si_log1_todo("miss %d\n", pl->value_flag);
+			break;
+		}
+		default:
+		{
+			BUG();
+		}
+		}
+	}
+
+out:
+	CLIB_DBG_FUNC_EXIT();
+	return;
+}
+
+static void call_ssaname_gassign(struct sinode *sn,
+				struct func_node *fn,
+				gimple_seq orig_gs,
+				gimple_seq def_stmt)
+{
+	struct gassign *ga;
+	enum tree_code tc;
+
+	ga = (struct gassign *)def_stmt;
+	tc = gimple_assign_rhs_code(ga);
+
+	CLIB_DBG_FUNC_ENTER();
+
+	/* ignore the lhs, which is op[0] */
+	switch (tc) {
+	case COMPONENT_REF:
+	{
+		call_ssaname_gassign_component_ref(sn, fn, orig_gs, ga);
+		break;
+	}
+	case NOP_EXPR:
+	{
+		break;
+	}
+	default:
+	{
+		si_log1_todo("miss subcode %s\n", tree_code_name[tc]);
+		break;
+	}
+	}
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
+}
+
+static void call_parm_decl(struct sinode *fsn, struct func_node *fn,
+				gimple_seq gs, tree parm);
+static void call_var_decl(struct sinode *fsn, struct func_node *fn,
+				gimple_seq gs, tree var);
+static void call_ssaname(struct sinode *sn,
+				struct func_node *fn,
+				gimple_seq gs,
+				tree call_op)
+{
+	CLIB_DBG_FUNC_ENTER();
+
+	gimple_seq def_gs;
+	tree var;
+
+	def_gs = SSA_NAME_DEF_STMT(call_op);
+	if ((!def_gs) || (gimple_code(def_gs) == GIMPLE_NOP))
+		goto ssa_var;
+
+	switch (gimple_code(def_gs)) {
+	case GIMPLE_ASSIGN:
+	{
+		call_ssaname_gassign(sn, fn, gs, def_gs);
+		break;
+	}
+	default:
+	{
+		si_log1_todo("miss %s\n",
+			     gimple_code_name[gimple_code(def_gs)]);
+		break;
+	}
+	}
+
+ssa_var:
+	var = SSA_NAME_VAR(call_op);
+	if (!var)
+		goto out;
+
+	switch (TREE_CODE(var)) {
+	case PARM_DECL:
+	{
+		if (mode == MODE_GETINDCFG2)
+			call_parm_decl(sn, fn, gs, var);
+		break;
+	}
+	case VAR_DECL:
+	{
+		if (mode == MODE_ADJUST)
+			call_var_decl(sn, fn, gs, var);
+		break;
+	}
+	default:
+	{
+		si_log1_todo("miss %s\n", tree_code_name[TREE_CODE(var)]);
+		break;
+	}
+	}
+
+out:
+	CLIB_DBG_FUNC_EXIT();
+	return;
+}
+
+static void call_addr_expr(struct sinode *sn, struct func_node *fn,
+			gimple_seq gs, tree call_op)
+{
+	CLIB_DBG_FUNC_ENTER();
+
+	struct tree_exp *cfn = NULL;
+	struct sinode *call_fn_sn = NULL;
+	long value;
+	long val_flag;
+
+	cfn = (struct tree_exp *)call_op;
+	if (!cfn->operands[0])
+		goto out;
+
+	BUG_ON(TREE_CODE(cfn->operands[0]) != FUNCTION_DECL);
+	get_func_sinode(cfn->operands[0], &call_fn_sn, 1);
+	if (!call_fn_sn) {
+		value = (long)cfn->operands[0];
+		val_flag = 1;
+	} else {
+		value = call_fn_sn->node_id.id.id1;
+		val_flag = 0;
+	}
+
+	struct callf_list *_newc;
+	_newc = callf_list_find(&fn->callees,
+				    value, val_flag);
+	if (!_newc) {
+		_newc = callf_list_new();
+		_newc->value = value;
+		_newc->value_flag = val_flag;
+		if (val_flag)
+			_newc->body_missing = 1;
+		list_add_tail(&_newc->sibling,
+				&fn->callees);
+	}
+	callf_gs_list_add(&_newc->gimple_stmts,
+				(void *)gs);
+
+	/* FIXME, what if call_fn_sn has no data? */
+	if (!val_flag)
+		add_caller(call_fn_sn, sn);
+
+out:
+	CLIB_DBG_FUNC_EXIT();
+	return;
+}
+
+static void do_phase4_direct_call_one_gimple(struct sinode *sn,
+				struct func_node *fn, gimple_seq gs)
+{
+	enum gimple_code gc = gimple_code(gs);
+	tree *ops = gimple_ops(gs);
+	struct gcall *g = NULL;
+	tree call_op = NULL;
+	if (gc != GIMPLE_CALL)
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+
+	g = (struct gcall *)gs;
+	if (gs->subcode & GF_CALL_INTERNAL) {
+		struct callf_list *_newc;
+		_newc = callf_list_find(&fn->callees,
+					(long)g->u.internal_fn,
+					0);
+		if (!_newc) {
+			_newc = callf_list_new();
+			_newc->value = (unsigned long)
+					      g->u.internal_fn;
+			_newc->value_flag = 0;
+			_newc->body_missing = 1;
+			list_add_tail(&_newc->sibling,
+					&fn->callees);
+		}
+		callf_gs_list_add(&_newc->gimple_stmts,
+					(void *)gs);
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+
+	call_op = ops[1];
+	BUG_ON(!call_op);
+	switch (TREE_CODE(call_op)) {
+	case ADDR_EXPR:
+	{
+		call_addr_expr(sn, fn, gs, call_op);
+		break;
+	}
+	case PARM_DECL:
+	case VAR_DECL:
+	{
+		break;
+	}
+	case SSA_NAME:
+	{
+		call_ssaname(sn, fn, gs, call_op);
+		break;
+	}
+	default:
+		si_log1_emer("miss %s\n",
+			tree_code_name[TREE_CODE(call_op)]);
+		break;
+	}
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
 }
 
 /*
  * just get the obviously one function it calls.
  * The PARM_DECL/VAR_DECL are traced later
  */
-static void get_direct_callee_caller(struct sinode *func_sn)
+static void do_phase4_direct_call(struct sinode *sn)
 {
-	tree __maybe_unused node = (tree)(long)func_sn->obj->real_addr;
-	struct func_node *fn = (struct func_node *)func_sn->data;
+	tree __maybe_unused node = (tree)(long)sn->obj->real_addr;
+	struct func_node *fn = (struct func_node *)sn->data;
 	struct code_path *next_cp;
+
+	CLIB_DBG_FUNC_ENTER();
 
 	analysis__get_func_code_paths_start(fn->codes);
 	while ((next_cp = analysis__get_func_next_code_path())) {
-		struct code_sentence *cs;
-		list_for_each_entry(cs, &next_cp->sentences, sibling) {
-			gimple_seq next_gs = (gimple_seq)cs->head;
-			enum gimple_code gc = gimple_code(next_gs);
-			tree *ops = gimple_ops(next_gs);
-			struct gcall *g = NULL;
-			tree call_op = NULL;
-			if (gc != GIMPLE_CALL)
-				continue;
+		basic_block bb;
+		gimple_seq next_gs;
 
-			g = (struct gcall *)next_gs;
-			if (next_gs->subcode & GF_CALL_INTERNAL) {
-				struct call_func_list *_newc;
-				_newc = call_func_list_find(
-							&fn->callees,
-							(long)g->u.internal_fn,
-							0);
-				if (!_newc) {
-					_newc = call_func_list_new();
-					_newc->value = (unsigned long)
-							      g->u.internal_fn;
-					_newc->value_flag = 0;
-					_newc->body_missing = 1;
-					list_add_tail(&_newc->sibling,
-							&fn->callees);
-				}
-				call_func_gimple_stmt_list_add(
-							&_newc->gimple_stmts,
-							(void *)next_gs);
-				cs->handled = 1;
-
-				continue;
-			}
-
-			call_op = ops[1];
-			BUG_ON(!call_op);
-			switch (TREE_CODE(call_op)) {
-			case ADDR_EXPR:
-			{
-				struct tree_exp *cfn = NULL;
-				struct sinode *call_fn_sn = NULL;
-				cfn = (struct tree_exp *)call_op;
-				if (!cfn->operands[0])
-					break;
-				BUG_ON(TREE_CODE(cfn->operands[0]) !=
-							FUNCTION_DECL);
-				get_func_sinode(cfn->operands[0],
-						&call_fn_sn, 1);
-				long value;
-				long val_flag;
-				if (!call_fn_sn) {
-					value = (long)cfn->operands[0];
-					val_flag = 1;
-				} else {
-					value = call_fn_sn->node_id.id.id1;
-					val_flag = 0;
-				}
-
-				struct call_func_list *_newc;
-				_newc = call_func_list_find(&fn->callees,
-							    value, val_flag);
-				if (!_newc) {
-					_newc = call_func_list_new();
-					_newc->value = value;
-					_newc->value_flag = val_flag;
-					if (val_flag)
-						_newc->body_missing = 1;
-					list_add_tail(&_newc->sibling,
-							&fn->callees);
-				}
-				call_func_gimple_stmt_list_add(
-							&_newc->gimple_stmts,
-							(void *)next_gs);
-				cs->handled = 1;
-
-				/* FIXME, what if call_fn_sn has no data? */
-				if (!val_flag)
-					add_caller(call_fn_sn, func_sn);
-
-				break;
-			}
-			case PARM_DECL:
-			case VAR_DECL:
-			{
-				break;
-			}
-			case SSA_NAME:
-			{
-				/* TODO */
-				break;
-			}
-			default:
-				si_log1("miss %s\n",
-					tree_code_name[TREE_CODE(call_op)]);
-				break;
-			}
+		bb = (basic_block)next_cp->cq;
+		next_gs = bb->il.gimple.seq;
+		for (; next_gs; next_gs = next_gs->next) {
+			do_phase4_direct_call_one_gimple(sn, fn, next_gs);
 		}
 	}
-}
 
-static void get_xrefs(struct sinode *func_sn)
-{
-	analysis__resfile_load(func_sn->buf);
-	get_var_func_marked(func_sn);
-	get_direct_callee_caller(func_sn);
+	CLIB_DBG_FUNC_EXIT();
 	return;
 }
 
+static void do_phase4_func(struct sinode *sn)
+{
+	CLIB_DBG_FUNC_ENTER();
+
+	analysis__resfile_load(sn->buf);
+	do_phase4_mark_var_func(sn);
+	do_phase4_direct_call(sn);
+
+	CLIB_DBG_FUNC_EXIT();
+}
+
+static void do_phase4(struct sibuf *b)
+{
+	CLIB_DBG_FUNC_ENTER();
+
+	analysis__resfile_load(b);
+
+	for (obj_idx = 0; obj_idx < real_obj_cnt; obj_idx++) {
+		if (objs[obj_idx].is_dropped || objs[obj_idx].is_replaced)
+			continue;
+
+		void *obj_addr;
+		obj_addr = (void *)(long)(objs[obj_idx].real_addr);
+
+		struct sinode *n;
+		if (objs[obj_idx].is_global_var) {
+			get_var_sinode((tree)obj_addr, &n, 0);
+			if (!n)
+				continue;
+
+			/* init possible value */
+			do_phase4_gvar(n);
+		} else if (objs[obj_idx].is_function) {
+			get_func_sinode((tree)obj_addr, &n, 0);
+			if ((!n) || (!n->data))
+				continue;
+
+			do_phase4_func(n);
+		} else {
+			continue;
+		}
+	}
+
+	CLIB_DBG_FUNC_EXIT();
+}
+
+/*
+ * ************************************************************************
+ * phase 5
+ * ************************************************************************
+ */
 /* NULL: the target var is extern, not defined in this source files */
 static struct var_node *get_target_var_node(struct sinode *fsn, tree node)
 {
-	BUG_ON(TREE_CODE(node) != VAR_DECL);
-	struct func_node *fn = (struct func_node *)fsn->data;
+	CLIB_DBG_FUNC_ENTER();
 
-	struct var_node_list *tmp;
+	BUG_ON(TREE_CODE(node) != VAR_DECL);
+	struct func_node *fn;
+	fn = (struct func_node *)fsn->data;
+
+	struct var_list *tmp;
 	list_for_each_entry(tmp, &fn->local_vars, sibling) {
-		if (tmp->var.node == (void *)node)
+		if (tmp->var.node == (void *)node) {
+			CLIB_DBG_FUNC_EXIT();
 			return &tmp->var;
+		}
 	}
 
 	struct sinode *target_vsn = NULL;
 	get_var_sinode(node, &target_vsn, 1);
-	if (!target_vsn)
+	if (!target_vsn) {
+		CLIB_DBG_FUNC_EXIT();
 		return NULL;
+	}
 
 	struct id_list *t;
 	list_for_each_entry(t, &fn->global_vars, sibling) {
@@ -6164,28 +7749,36 @@ static struct var_node *get_target_var_node(struct sinode *fsn, tree node)
 			continue;
 
 		vn = (struct var_node *)target_vsn->data;
+		CLIB_DBG_FUNC_EXIT();
 		return vn;
 	}
 
+	CLIB_DBG_FUNC_EXIT();
 	return NULL;
 }
 
 static struct var_node *get_target_parm_node(struct sinode *fsn, tree node)
 {
+	CLIB_DBG_FUNC_ENTER();
+
 	BUG_ON(TREE_CODE(node) != PARM_DECL);
 	struct func_node *fn = (struct func_node *)fsn->data;
 
-	struct var_node_list *tmp;
+	struct var_list *tmp;
 	list_for_each_entry(tmp, &fn->args, sibling) {
-		if (tmp->var.node == (void *)node)
+		if (tmp->var.node == (void *)node) {
+			CLIB_DBG_FUNC_EXIT();
 			return &tmp->var;
+		}
 	}
 
 	BUG();
 }
 
-static void _handle_marked_func(struct sinode *n, struct sinode *fsn, tree op)
+static void _do_phase5_func(struct sinode *n, struct sinode *fsn, tree op)
 {
+	CLIB_DBG_FUNC_ENTER();
+
 	enum tree_code tc = TREE_CODE(op);
 	switch (tc) {
 	case VAR_DECL:
@@ -6194,12 +7787,11 @@ static void _handle_marked_func(struct sinode *n, struct sinode *fsn, tree op)
 		vn = get_target_var_node(fsn, op);
 		if (!vn)
 			break;
-		struct possible_value_list *pv;
-		if (possible_value_list_find(
-					&vn->possible_values,
+		struct possible_list *pv;
+		if (!possible_list_find(&vn->possible_values,
 					VALUE_IS_FUNC,
 					n->node_id.id.id1)) {
-			pv = possible_value_list_new();
+			pv = possible_list_new();
 			pv->value_flag = VALUE_IS_FUNC;
 			pv->value = n->node_id.id.id1;
 			list_add_tail(&pv->sibling,
@@ -6211,12 +7803,11 @@ static void _handle_marked_func(struct sinode *n, struct sinode *fsn, tree op)
 	{
 		struct var_node *vn;
 		vn = get_target_parm_node(fsn, op);
-		struct possible_value_list *pv;
-		if (possible_value_list_find(
-					&vn->possible_values,
+		struct possible_list *pv;
+		if (!possible_list_find(&vn->possible_values,
 					VALUE_IS_FUNC,
 					n->node_id.id.id1)) {
-			pv = possible_value_list_new();
+			pv = possible_list_new();
 			pv->value_flag = VALUE_IS_FUNC;
 			pv->value = n->node_id.id.id1;
 			list_add_tail(&pv->sibling,
@@ -6227,17 +7818,16 @@ static void _handle_marked_func(struct sinode *n, struct sinode *fsn, tree op)
 	case COMPONENT_REF:
 	{
 		struct tree_exp *exp = (struct tree_exp *)op;
-		struct var_node_list *vnl;
-		vnl = component_ref_get_vnl(exp);
+		struct var_list *vnl;
+		vnl = get_component_ref_vnl(exp);
 		if (!vnl)
 			break;
 
-		struct possible_value_list *pv;
-		if (possible_value_list_find(
-					&vnl->var.possible_values,
+		struct possible_list *pv;
+		if (!possible_list_find(&vnl->var.possible_values,
 					VALUE_IS_FUNC,
 					n->node_id.id.id1)) {
-			pv = possible_value_list_new();
+			pv = possible_list_new();
 			pv->value_flag = VALUE_IS_FUNC;
 			pv->value = n->node_id.id.id1;
 			list_add_tail(&pv->sibling,
@@ -6250,7 +7840,7 @@ static void _handle_marked_func(struct sinode *n, struct sinode *fsn, tree op)
 	{
 		struct tree_exp *exp = (struct tree_exp *)op;
 		tree array_node = exp->operands[0];
-		_handle_marked_func(n, fsn, array_node);
+		_do_phase5_func(n, fsn, array_node);
 		break;
 	}
 	default:
@@ -6259,15 +7849,20 @@ static void _handle_marked_func(struct sinode *n, struct sinode *fsn, tree op)
 		break;
 	}
 	}
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
 }
 
-static void handle_marked_func(struct sinode *n)
+static void do_phase5_func(struct sinode *n)
 {
+	CLIB_DBG_FUNC_ENTER();
+
 	struct func_node *fn = (struct func_node *)n->data;
 	struct use_at_list *tmp_ua;
 	list_for_each_entry(tmp_ua, &fn->used_at, sibling) {
 		struct sinode *fsn;
-		fsn = analysis__sinode_search(siid_get_type(&tmp_ua->func_id),
+		fsn = analysis__sinode_search(siid_type(&tmp_ua->func_id),
 						SEARCH_BY_ID,
 						&tmp_ua->func_id);
 		BUG_ON(!fsn);
@@ -6281,47 +7876,91 @@ static void handle_marked_func(struct sinode *n)
 				continue;
 			tree *ops = gimple_ops(gs);
 			tree lhs = ops[0];
-			_handle_marked_func(n, fsn, lhs);
+			_do_phase5_func(n, fsn, lhs);
 		} else if (gc == GIMPLE_CALL) {
 			BUG_ON(tmp_ua->op_idx <= 1);
 		} else if (gc == GIMPLE_COND) {
-			/* TODO */
+			/* FIXME: we do nothing here */
 		} else if (gc == GIMPLE_ASM) {
 			/* TODO */
+			si_log1_todo("GIMPLE_ASM in phase5\n");
 		} else {
 			si_log1("miss %s\n", gimple_code_name[gc]);
 		}
 	}
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
 }
 
-static void add_callee(struct sinode *caller_fsn, struct code_sentence *cs,
+static void do_phase5(struct sibuf *b)
+{
+	CLIB_DBG_FUNC_ENTER();
+
+	/* handle the marked func */
+	for (obj_idx = 0; obj_idx < obj_cnt; obj_idx++) {
+		if (objs[obj_idx].is_dropped || objs[obj_idx].is_replaced)
+			continue;
+
+		void *obj_addr = (void *)(long)(objs[obj_idx].real_addr);
+		if (!objs[obj_idx].is_function) {
+			continue;
+		}
+
+		struct sinode *n;
+		get_func_sinode((tree)obj_addr, &n, 0);
+		if (!n)
+			continue;
+
+		if (!n->data)
+			continue;
+
+		do_phase5_func(n);
+	}
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
+}
+
+/*
+ * ************************************************************************
+ * phase 6
+ * ************************************************************************
+ */
+static void add_callee(struct sinode *caller_fsn, gimple_seq gs,
 			struct sinode *called_fsn)
 {
+	CLIB_DBG_FUNC_ENTER();
+
 	struct func_node *caller_fn = (struct func_node *)caller_fsn->data;
 	struct func_node *called_fn = (struct func_node *)called_fsn->data;
 
-	struct call_func_list *_newc;
-	_newc = call_func_list_find(&caller_fn->callees,
+	struct callf_list *_newc;
+	_newc = callf_list_find(&caller_fn->callees,
 					called_fsn->node_id.id.id1, 0);
 	if (!_newc) {
-		_newc = call_func_list_new();
+		_newc = callf_list_new();
 		_newc->value = called_fsn->node_id.id.id1;
 		_newc->value_flag = 0;
 		if (!called_fn)
 			_newc->body_missing = 1;
 		list_add_tail(&_newc->sibling, &caller_fn->callees);
 	}
-	call_func_gimple_stmt_list_add(&_newc->gimple_stmts, cs->head);
+	callf_gs_list_add(&_newc->gimple_stmts, gs);
 	if (called_fn)
 		add_caller(called_fsn, caller_fsn);
-	cs->handled = 1;
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
 }
 
 static void add_possible_callee(struct sinode *caller_fsn,
-				struct code_sentence *cs,
+				gimple_seq gs,
 				struct list_head *head)
 {
-	struct possible_value_list *tmp_pv;
+	CLIB_DBG_FUNC_ENTER();
+
+	struct possible_list *tmp_pv;
 	list_for_each_entry(tmp_pv, head, sibling) {
 		if (tmp_pv->value_flag != VALUE_IS_FUNC)
 			continue;
@@ -6331,67 +7970,81 @@ static void add_possible_callee(struct sinode *caller_fsn,
 							SEARCH_BY_ID,
 							id);
 		BUG_ON(!called_fsn);
-		add_callee(caller_fsn, cs, called_fsn);
+		add_callee(caller_fsn, gs, called_fsn);
 	}
-}
 
-static void do_parm_call(struct sinode *fsn, tree call_node,
-				struct code_sentence *cs)
-{
-	si_log1("parm call happened in %s\n", fsn->name);
+	CLIB_DBG_FUNC_EXIT();
 	return;
 }
 
-static void __do_var_call(struct sinode *fsn, tree call_node,
-				struct code_sentence *cs)
+static void call_parm_decl(struct sinode *fsn, struct func_node *fn,
+				gimple_seq gs, tree parm)
 {
-	struct var_node *vn = get_target_var_node(fsn, call_node);
+	CLIB_DBG_FUNC_ENTER();
 
-	add_possible_callee(fsn, cs, &vn->possible_values);
+	si_log1_todo("parm call happened in %s\n", fsn->name);
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
 }
 
-static void _do_var_call(struct sinode *fsn, tree node,
-			 struct code_sentence *cs)
+static void __call_var_decl(struct sinode *fsn, struct func_node *fn,
+				gimple_seq gs, tree var)
 {
-	enum tree_code tc = TREE_CODE(node);
+	CLIB_DBG_FUNC_ENTER();
+
+	struct var_node *vn = get_target_var_node(fsn, var);
+
+	add_possible_callee(fsn, gs, &vn->possible_values);
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
+}
+
+static void _call_var_decl(struct sinode *fsn, struct func_node *fn,
+			 gimple_seq gs, tree var)
+{
+	CLIB_DBG_FUNC_ENTER();
+
+	enum tree_code tc = TREE_CODE(var);
 	switch (tc) {
 	case COMPONENT_REF:
 	{
-		struct tree_exp *exp = (struct tree_exp *)node;
-		struct var_node_list *vnl = component_ref_get_vnl(exp);
+		struct tree_exp *exp = (struct tree_exp *)var;
+		struct var_list *vnl = get_component_ref_vnl(exp);
 		if (!vnl)
 			break;
 
-		add_possible_callee(fsn, cs, &vnl->var.possible_values);
+		add_possible_callee(fsn, gs, &vnl->var.possible_values);
 		break;
 	}
 	case PARM_DECL:
 	{
-		do_parm_call(fsn, node, cs);
+		call_parm_decl(fsn, fn, gs, var);
 		break;
 	}
 	case VAR_DECL:
 	{
-		__do_var_call(fsn, node, cs);
+		__call_var_decl(fsn, fn, gs, var);
 		break;
 	}
 	case INTEGER_CST:
 	{
-		BUG_ON(TREE_INT_CST_LOW(node) != 0);
+		BUG_ON(TREE_INT_CST_LOW(var) != 0);
 		break;
 	}
 	case ARRAY_REF:
 	case MEM_REF:
 	{
 		struct tree_exp *exp;
-		exp = (struct tree_exp *)node;
-		tree var = exp->operands[0];
-		_do_var_call(fsn, var, cs);
+		exp = (struct tree_exp *)var;
+		tree _var = exp->operands[0];
+		_call_var_decl(fsn, fn, gs, _var);
 		break;
 	}
 	case ADDR_EXPR:
 	{
-		struct tree_exp *exp = (struct tree_exp *)node;
+		struct tree_exp *exp = (struct tree_exp *)var;
 		tree op = exp->operands[0];
 		if (TREE_CODE(op) == FUNCTION_DECL)
 			break;
@@ -6406,13 +8059,18 @@ static void _do_var_call(struct sinode *fsn, tree node,
 		break;
 	}
 	}
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
 }
 
-static void do_var_call(struct sinode *fsn, tree call_node,
-			struct code_sentence *cs)
+static void call_var_decl(struct sinode *fsn, struct func_node *fn,
+			gimple_seq gs, tree var)
 {
-	struct var_node *vn = get_target_var_node(fsn, call_node);
-	__do_var_call(fsn, call_node, cs);
+	CLIB_DBG_FUNC_ENTER();
+
+	struct var_node *vn = get_target_var_node(fsn, var);
+	__call_var_decl(fsn, fn, gs, var);
 
 	struct use_at_list *tmp_ua;
 	list_for_each_entry(tmp_ua, &vn->used_at, sibling) {
@@ -6425,12 +8083,69 @@ static void do_var_call(struct sinode *fsn, tree call_node,
 			continue;
 		tree *ops = gimple_ops(gs);
 		tree rhs = ops[1];
-		_do_var_call(fsn, rhs, cs);
+		_call_var_decl(fsn, fn, gs, rhs);
 	}
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
 }
 
-static void get_indirect_cfg(struct sinode *func_sn)
+static void do_phase6_func_one_gimple(struct sinode *sn,
+			struct func_node *fn, gimple_seq gs)
 {
+	enum gimple_code gcode = gimple_code(gs);
+	tree *ops = gimple_ops(gs);
+	struct gcall __maybe_unused *g = NULL;
+	tree call_op = NULL;
+	if (gcode != GIMPLE_CALL)
+		return;;
+
+	g = (struct gcall *)gs;
+	if (gs->subcode & GF_CALL_INTERNAL) {
+		return;
+	}
+
+	CLIB_DBG_FUNC_ENTER();
+
+	call_op = ops[1];
+	BUG_ON(!call_op);
+	switch (TREE_CODE(call_op)) {
+	case PARM_DECL:
+	{
+		call_parm_decl(sn, fn, gs, call_op);
+		break;
+	}
+	case VAR_DECL:
+	{
+		call_var_decl(sn, fn, gs, call_op);
+		break;
+	}
+	case ADDR_EXPR:
+	{
+		call_addr_expr(sn, fn, gs, call_op);
+		break;
+	}
+	case SSA_NAME:
+	{
+		call_ssaname(sn, fn, gs, call_op);
+		break;
+	}
+	default:
+	{
+		si_log1("miss %s\n",
+			tree_code_name[TREE_CODE(call_op)]);
+		break;
+	}
+	}
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
+}
+
+static void do_phase6_func(struct sinode *func_sn)
+{
+	CLIB_DBG_FUNC_ENTER();
+
 	analysis__resfile_load(func_sn->buf);
 	tree __maybe_unused node = (tree)(long)func_sn->obj->real_addr;
 	struct func_node *fn = (struct func_node *)func_sn->data;
@@ -6438,53 +8153,44 @@ static void get_indirect_cfg(struct sinode *func_sn)
 
 	analysis__get_func_code_paths_start(fn->codes);
 	while ((next_cp = analysis__get_func_next_code_path())) {
-		struct code_sentence *cs;
-		list_for_each_entry(cs, &next_cp->sentences, sibling) {
-			gimple_seq next = (gimple_seq)cs->head;
-			enum gimple_code gcode = gimple_code(next);
-			tree *ops = gimple_ops(next);
-			struct gcall __maybe_unused *g = NULL;
-			tree call_op = NULL;
-			if (gcode != GIMPLE_CALL)
-				continue;
-
-			g = (struct gcall *)next;
-			if (next->subcode & GF_CALL_INTERNAL) {
-				continue;
-			}
-
-			call_op = ops[1];
-			BUG_ON(!call_op);
-			switch (TREE_CODE(call_op)) {
-			case PARM_DECL:
-			{
-				do_parm_call(func_sn, call_op, cs);
-				break;
-			}
-			case VAR_DECL:
-			{
-				do_var_call(func_sn, call_op, cs);
-				break;
-			}
-			case ADDR_EXPR:
-			{
-				break;
-			}
-			case SSA_NAME:
-			{
-				/* TODO */
-				break;
-			}
-			default:
-			{
-				si_log1("miss %s\n",
-					tree_code_name[TREE_CODE(call_op)]);
-				break;
-			}
-			}
+		basic_block b;
+		b = (basic_block)next_cp->cq;
+		gimple_seq next;
+		next = b->il.gimple.seq;
+		for (; next; next = next->next) {
+			do_phase6_func_one_gimple(func_sn, fn, next);
 		}
 	}
 
+	CLIB_DBG_FUNC_EXIT();
+	return;
+}
+
+static void do_phase6(struct sibuf *b)
+{
+	CLIB_DBG_FUNC_ENTER();
+
+	for (obj_idx = 0; obj_idx < obj_cnt; obj_idx++) {
+		if (objs[obj_idx].is_dropped || objs[obj_idx].is_replaced)
+			continue;
+
+		void *obj_addr = (void *)(long)(objs[obj_idx].real_addr);
+		if (!objs[obj_idx].is_function) {
+			continue;
+		}
+
+		struct sinode *n;
+		get_func_sinode((tree)obj_addr, &n, 0);
+		if (!n)
+			continue;
+
+		if (!n->data)
+			continue;
+
+		do_phase6_func(n);
+	}
+
+	CLIB_DBG_FUNC_EXIT();
 	return;
 }
 
@@ -6511,24 +8217,103 @@ static void c_show_progress(int signo, siginfo_t *si, void *arg, int last)
 #endif
 }
 
+static void do_gcc_global_var_adjust(void)
+{
+	CLIB_DBG_FUNC_ENTER();
+
+	size_t i = 0;
+	for (i = 0; i < obj_cnt; i++) {
+		if (!objs[i].gcc_global_varidx)
+			continue;
+
+		if (!objs[i].fake_addr) {
+			/* gcc global var is NULL */
+			objs[i].real_addr = 0;
+			objs[i].is_adjusted = 1;
+			obj_adjusted++;
+		} else if (!objs[i].size) {
+			/* gcc global var should be adjusted */
+			void *this_fake;
+			this_fake = (void *)(unsigned long)objs[i].fake_addr;
+			int do_next;
+			get_real_addr_1(&this_fake, &do_next);
+			BUG_ON(!this_fake);
+
+			objs[i].real_addr = (unsigned long)this_fake;
+			objs[i].is_adjusted = 1;
+			obj_adjusted++;
+		} else {
+			size_t old_adjusted = obj_adjusted;
+			do_tree((tree)(unsigned long)objs[i].real_addr);
+			BUG_ON(old_adjusted >= obj_adjusted);
+		}
+	}
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
+}
+
+static void setup_gcc_globals(void)
+{
+	CLIB_DBG_FUNC_ENTER();
+
+	size_t ggv_idx = 0;
+	for (ggv_idx = 0; ggv_idx < obj_cnt; ggv_idx++) {
+		if (objs[ggv_idx].gcc_global_varidx)
+			break;
+	}
+	BUG_ON(ggv_idx == obj_cnt);
+
+	for (int i = 0; i < TI_MAX; i++) {
+		si_global_trees[i] = (tree)(unsigned long)
+					objs[ggv_idx].real_addr;
+		ggv_idx++;
+	}
+	BUG_ON(ggv_idx > obj_cnt);
+
+	for (int i = 0; i < itk_none; i++) {
+		si_integer_types[i] = (tree)(unsigned long)
+					objs[ggv_idx].real_addr;
+		ggv_idx++;
+	}
+	BUG_ON(ggv_idx > obj_cnt);
+
+	for (int i = 0; i < (int)stk_type_kind_last; i++) {
+		si_sizetype_tab[i] = (tree)(unsigned long)
+					objs[ggv_idx].real_addr;
+		ggv_idx++;
+	}
+	BUG_ON(ggv_idx > obj_cnt);
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
+}
+
 static int gcc_ver_major = __GNUC__;
 static int gcc_ver_minor = __GNUC_MINOR__;
 static int c_callback(struct sibuf *buf, int parse_mode)
 {
-	struct file_context *fc = (struct file_context *)buf->load_addr;
+	CLIB_DBG_FUNC_ENTER();
+
+	struct file_content *fc = (struct file_content *)buf->load_addr;
 	if ((fc->gcc_ver_major != gcc_ver_major) ||
-		(fc->gcc_ver_minor != gcc_ver_minor))
+		(fc->gcc_ver_minor != gcc_ver_minor)) {
+		CLIB_DBG_FUNC_EXIT();
 		return -1;
+	}
 
 	mode = parse_mode;
 	cur_sibuf = buf;
 	addr_base = buf->payload;
 	obj_cnt = buf->obj_cnt;
+	real_obj_cnt = obj_cnt;
 	objs = buf->objs;
 	obj_idx = 0;
 	obj_adjusted = 0;
-	if (!obj_cnt)
+	if (!obj_cnt) {
+		CLIB_DBG_FUNC_EXIT();
 		return 0;
+	}
 
 	switch (mode) {
 	case MODE_ADJUST:
@@ -6537,6 +8322,7 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 				(fc->status != FC_STATUS_NONE)))
 			break;
 
+		get_real_obj_cnt();
 		show_progress_arg[0] = (long)"ADJUST";
 		show_progress_arg[1] = (long)fc->path;
 		show_progress_arg[2] = (long)&obj_adjusted;
@@ -6550,6 +8336,11 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 		void *faddrs[obj_cnt];
 		for (size_t i = 0; i < obj_cnt; i++) {
 			objs[i].is_adjusted = 0;
+			/* XXX: fixup the gcc global vars real_addr */
+			if (objs[i].gcc_global_varidx && (!objs[i].fake_addr))
+				objs[i].real_addr = 0;
+			if (objs[i].gcc_global_varidx && (!objs[i].size))
+				objs[i].real_addr = 0;	/* fix later */
 			raddrs[i] = (void *)(unsigned long)objs[i].real_addr;
 			faddrs[i] = (void *)(unsigned long)objs[i].fake_addr;
 		}
@@ -6557,10 +8348,15 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 		fake_addrs = faddrs;
 
 		/*
-		 * we collect the lower gimple before cfg pass, all functions
-		 * have been chained
+		 * we collect the lower gimple at ALL_IPA_PASSES_END,
+		 * all functions have been chained
 		 */
 		do_tree((tree)(unsigned long)objs[0].real_addr);
+
+		/*
+		 * Do NOT forget the gcc global vars
+		 */
+		do_gcc_global_var_adjust();
 
 		BUG_ON(obj_adjusted != obj_cnt);
 
@@ -6576,10 +8372,11 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 				(fc->status != FC_STATUS_ADJUSTED)))
 			break;
 
+		get_real_obj_cnt();
 		show_progress_arg[0] = (long)"GETBASE";
 		show_progress_arg[1] = (long)fc->path;
 		show_progress_arg[2] = (long)&obj_idx;
-		show_progress_arg[3] = (long)&obj_cnt;
+		show_progress_arg[3] = (long)&real_obj_cnt;
 		show_progress_arg[4] = (long)pthread_self();
 		mt_print_add();
 		mt_add_timer(show_progress_timeout, c_show_progress,
@@ -6599,10 +8396,11 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 				(fc->status != FC_STATUS_GETBASE)))
 			break;
 
+		get_real_obj_cnt();
 		show_progress_arg[0] = (long)"GETDETAIL";
 		show_progress_arg[1] = (long)fc->path;
 		show_progress_arg[2] = (long)&obj_idx;
-		show_progress_arg[3] = (long)&obj_cnt;
+		show_progress_arg[3] = (long)&real_obj_cnt;
 		show_progress_arg[4] = (long)pthread_self();
 		mt_print_add();
 		mt_add_timer(show_progress_timeout, c_show_progress,
@@ -6617,27 +8415,31 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 		mt_print_del();
 		break;
 	}
-	case MODE_GETXREFS:
+	case MODE_GETSTEP4:
 	{
 		if (unlikely((buf->status != FC_STATUS_GETDETAIL) ||
 				(fc->status != FC_STATUS_GETDETAIL)))
 			break;
 
-		show_progress_arg[0] = (long)"GETXREFS";
+		get_real_obj_cnt();
+		show_progress_arg[0] = (long)"GETSTEP4";
 		show_progress_arg[1] = (long)fc->path;
 		show_progress_arg[2] = (long)&obj_idx;
-		show_progress_arg[3] = (long)&obj_cnt;
+		show_progress_arg[3] = (long)&real_obj_cnt;
 		show_progress_arg[4] = (long)pthread_self();
 		mt_print_add();
 		mt_add_timer(show_progress_timeout, c_show_progress,
 				show_progress_arg, 0, 1);
 
-		void *xaddrs[obj_cnt];
-		xrefs_obj_checked = xaddrs;
-		/* XXX, get func_node's callees/callers/global/local_vars... */
-		do_xrefs(buf);
+		setup_gcc_globals();
 
-		fc->status = FC_STATUS_GETXREFS;
+		void *xaddrs[obj_cnt];
+		phase4_obj_checked = xaddrs;
+
+		/* XXX, get func_node's callees/callers/global/local_vars... */
+		do_phase4(buf);
+
+		fc->status = FC_STATUS_GETSTEP4;
 
 		mt_del_timer(0);
 		mt_print_del();
@@ -6645,8 +8447,8 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 	}
 	case MODE_GETINDCFG1:
 	{
-		if (unlikely((buf->status != FC_STATUS_GETXREFS) ||
-				(fc->status != FC_STATUS_GETXREFS)))
+		if (unlikely((buf->status != FC_STATUS_GETSTEP4) ||
+				(fc->status != FC_STATUS_GETSTEP4)))
 			break;
 
 		show_progress_arg[0] = (long)"GETINDCFG1";
@@ -6658,7 +8460,7 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 		mt_add_timer(show_progress_timeout, c_show_progress,
 				show_progress_arg, 0, 1);
 
-		do_indcfg1(buf);
+		do_phase5(buf);
 
 		fc->status = FC_STATUS_GETINDCFG1;
 
@@ -6681,7 +8483,7 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 		mt_add_timer(show_progress_timeout, c_show_progress,
 				show_progress_arg, 0, 1);
 
-		do_indcfg2(buf);
+		do_phase6(buf);
 
 		fc->status = FC_STATUS_GETINDCFG2;
 
@@ -6693,5 +8495,6 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 		BUG();
 	}
 
+	CLIB_DBG_FUNC_EXIT();
 	return 0;
 }

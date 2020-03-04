@@ -68,7 +68,7 @@ static const char *tree_code_string(int code)
 
 static void sinode_print_file(struct sinode *sin)
 {
-	clib_pretty_fprint(s, 16, "id: %08lx", sinode_get_id_whole(sin));
+	clib_pretty_fprint(s, 16, "id: %08lx", sinode_id_all(sin));
 	clib_pretty_fprint(s, 24, "data: %012lx", (long)sin->data);
 	clib_pretty_fprint(s, 24, "type: file");
 
@@ -80,7 +80,7 @@ static void sinode_print_file(struct sinode *sin)
 static void sinode_print_type(struct sinode *sin)
 {
 	struct type_node *t = NULL;
-	clib_pretty_fprint(s, 16, "id: %08lx", sinode_get_id_whole(sin));
+	clib_pretty_fprint(s, 16, "id: %08lx", sinode_id_all(sin));
 	clib_pretty_fprint(s, 24, "data: %012lx", (long)sin->data);
 	if (sin->data)
 		t = (struct type_node *)sin->data;
@@ -98,7 +98,7 @@ static void sinode_print_type(struct sinode *sin)
 
 static void sinode_print_var(struct sinode *sin)
 {
-	clib_pretty_fprint(s, 16, "id: %08lx", sinode_get_id_whole(sin));
+	clib_pretty_fprint(s, 16, "id: %08lx", sinode_id_all(sin));
 	clib_pretty_fprint(s, 24, "data: %012lx", (long)sin->data);
 	clib_pretty_fprint(s, 24, "type: var");
 	clib_pretty_fprint(s, 32, "name: %s", sin->name);
@@ -114,25 +114,15 @@ static void sinode_print_var(struct sinode *sin)
 static void sinode_print_func(struct sinode *sin)
 {
 	struct func_node *f = (struct func_node *)sin->data;
-	clib_pretty_fprint(s, 16, "id: %08lx", sinode_get_id_whole(sin));
+	clib_pretty_fprint(s, 16, "id: %08lx", sinode_id_all(sin));
 	clib_pretty_fprint(s, 24, "data: %012lx", (long)f);
 	clib_pretty_fprint(s, 24, "type: func");
 	clib_pretty_fprint(s, 32, "name: %s", sin->name);
 	if (sin->loc_file)
 		clib_pretty_fprint(s, 108, "loc: %s %d %d", sin->loc_file->name,
 					sin->loc_line, sin->loc_col);
-	if (f && (!list_empty(&f->unreachable_stmts))) {
-		struct unr_stmt *tmp;
-		list_for_each_entry(tmp, &f->unreachable_stmts,	sibling) {
-			int line = tmp->line;
-			int col = tmp->col;
-			clib_pretty_fprint(s, 32, "unreachable_stmt: %d %d",
-						line, col);
-		}
-	}
-
 	if (f && (!list_empty(&f->callers))) {
-		struct call_func_list *tmp;
+		struct callf_list *tmp;
 		list_for_each_entry(tmp, &f->callers, sibling) {
 			clib_pretty_fprint(s, 24, "caller: %d %08lx",
 						tmp->value_flag,
@@ -141,7 +131,7 @@ static void sinode_print_func(struct sinode *sin)
 	}
 
 	if (f && (!list_empty(&f->callees))) {
-		struct call_func_list *tmp;
+		struct callf_list *tmp;
 		list_for_each_entry(tmp, &f->callees, sibling) {
 			clib_pretty_fprint(s, 24, "callee: %d %08lx",
 						tmp->value_flag,
@@ -159,7 +149,7 @@ static void sinode_print_func(struct sinode *sin)
 	}
 
 	if (f && (!list_empty(&f->local_vars))) {
-		struct var_node_list *tmp;
+		struct var_list *tmp;
 		list_for_each_entry(tmp, &f->local_vars, sibling) {
 			clib_pretty_fprint(s, 32, "lvar: %016lx",
 							(long)tmp->var.node);
@@ -174,7 +164,7 @@ static void sinode_print_func(struct sinode *sin)
 static void sinode_print_codep(struct sinode *sin)
 {
 	struct code_path *c = (struct code_path *)sin;
-	clib_pretty_fprint(s, 16, "id: %08lx", sinode_get_id_whole(sin));
+	clib_pretty_fprint(s, 16, "id: %08lx", sinode_id_all(sin));
 	clib_pretty_fprint(s, 24, "data: %012lx", (long)c);
 	clib_pretty_fprint(s, 24, "type: code_path");
 	clib_pretty_fprint(s, 32, "func: %s", c->func->name);
@@ -189,7 +179,7 @@ static void sinode_print_codep(struct sinode *sin)
 }
 static void sinode_print(struct sinode *sin)
 {
-	switch (sinode_get_id_type(sin)) {
+	switch (sinode_idtype(sin)) {
 	case TYPE_FILE:
 		sinode_print_file(sin);
 		break;

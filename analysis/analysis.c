@@ -28,8 +28,8 @@ static int _do_phase(struct sibuf *buf, int step)
 	if (step > STEP1)
 		analysis__resfile_load(buf);
 
-	struct file_context *fc;
-	fc = (struct file_context *)buf->load_addr;
+	struct file_content *fc;
+	fc = (struct file_content *)buf->load_addr;
 	struct lang_ops *ops;
 	ops = lang_ops_find(&analysis_lang_ops_head, &fc->type);
 	if (!ops) {
@@ -38,6 +38,9 @@ static int _do_phase(struct sibuf *buf, int step)
 	}
 
 	err = ops->callback(buf, step);
+	if (unlikely(clib_dbg_func_check())) {
+		si_log1("CLIB_DBG_FUNC_ENTER/CLIB_DBG_FUNC_EXIT not paired\n");
+	}
 	if (err) {
 		err_dbg(0, "fc->type callback err");
 		return -1;
@@ -172,7 +175,7 @@ static void show_file_progress(int signo, siginfo_t *si, void *arg, int last)
 #endif
 }
 
-int parse_resfile(char *path, int built_in, int step)
+int parse_resfile(char *path, int built_in, int step, int autoy)
 {
 	int err = 0;
 	int flag = 0;
@@ -212,9 +215,15 @@ int parse_resfile(char *path, int built_in, int step)
 		if (err == -1) {
 			if (errno == ENOENT) {
 				char *line;
-				line = readline("resfile is new, backup?(Y/N)");
-				int ch = *line;
-				if ((ch == 'Y') || (ch == 'y'))
+				int ch;
+				if (!autoy) {
+					line = readline("resfile is new, "
+							"backup?(Y/N)");
+					ch = *line;
+				} else {
+					ch = 'Y';
+				}
+				if ((ch != 'N') && (ch != 'n'))
 					clib_copy_file(path, b, 0);
 			} else {
 				err_dbg(1, "stat err");
@@ -222,8 +231,14 @@ int parse_resfile(char *path, int built_in, int step)
 		}
 	} else {
 		char *line;
-		line = readline("resfile is not clean, force parsing?(Y/N)");
-		int ch = *line;
+		int ch;
+		if (!autoy) {
+			line = readline("resfile is not clean, "
+					"force parsing?(Y/N)");
+			ch = *line;
+		} else {
+			ch = 'Y';
+		}
 		if ((ch == 'N') || (ch == 'n')) {
 			fprintf(stdout, "ignore parsing the dirty resfile\n");
 			fflush(stdout);
@@ -441,13 +456,13 @@ redo2:
 static char parse_cmdname[] = "parse";
 static void parse_usage(void)
 {
-	fprintf(stdout, "\t(resfile) (kernel) (builtin) (step)\n"
+	fprintf(stdout, "\t(resfile) (kernel) (builtin) (step) (auto_Y)\n"
 			"\tGet information of resfile, steps are:\n"
 			"\t\t0 Get all information\n"
 			"\t\t1 Get information adjusted\n"
 			"\t\t2 Get base information\n"
 			"\t\t3 Get detail information\n"
-			"\t\t4 Get xrefs information\n"
+			"\t\t4 Prepare for step5\n"
 			"\t\t5 Get indirect call information\n"
 			"\t\t6 Check if all GIMPLE_CALL are set\n");
 }
@@ -456,7 +471,7 @@ static long parse_cb(int argc, char *argv[])
 	int err;
 	char respath[PATH_MAX];
 
-	if (argc != 5) {
+	if ((argc != 5) && (argc != 6)) {
 		parse_usage();
 		err_dbg(0, "argc invalid");
 		return -1;
@@ -470,7 +485,11 @@ static long parse_cb(int argc, char *argv[])
 	int kernel = atoi(argv[2]);
 	int builtin = atoi(argv[3]);
 	int step = atoi(argv[4]);
-	err = parse_resfile(respath, builtin, step);
+	int autoy = 0;
+	if (argc == 6)
+		autoy = atoi(argv[5]);
+
+	err = parse_resfile(respath, builtin, step, autoy);
 	if (err) {
 		err_dbg(0, "parse_resfile err");
 		return -1;
@@ -541,15 +560,15 @@ static long cmdline_cb(int argc, char *argv[])
 		return -1;
 	}
 
-	struct file_context *fc;
-	fc = analysis__resfile_get_filecontext(respath, argv[2]);
+	struct file_content *fc;
+	fc = analysis__resfile_get_fc(respath, argv[2]);
 	if (!fc) {
-		err_dbg(0, "analysis__resfile_get_filecontext err");
+		err_dbg(0, "analysis__resfile_get_fc err");
 		return -1;
 	}
 
 	fprintf(stdout, "the target command line is\n"
-			"\t%s\n", (char *)file_context_cmd_position(fc));
+			"\t%s\n", (char *)fc_cmdptr(fc));
 	return 0;
 }
 

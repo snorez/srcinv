@@ -60,10 +60,10 @@ void debuild_type(struct type_node *type)
 	{
 		fprintf(stderr, "enum %s {\n", type->type_name);
 
-		struct var_node_list *tmp;
+		struct var_list *tmp;
 		list_for_each_entry(tmp, &type->children, sibling) {
 			struct var_node *n = &tmp->var;
-			struct possible_value_list *pv;
+			struct possible_list *pv;
 			fprintf(stderr, "%s = ", n->name);
 			list_for_each_entry(pv, &n->possible_values, sibling) {
 				fprintf(stderr, "%ld,", pv->value);

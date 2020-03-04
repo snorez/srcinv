@@ -100,7 +100,7 @@ int trace_var(struct sinode *fsn, void *var_parm,
 	{
 		int parm_idx = 0;
 		int found = 0;
-		struct var_node_list *tmp;
+		struct var_list *tmp;
 		list_for_each_entry(tmp, &fn->args, sibling) {
 			parm_idx++;
 			if (tmp->var.node == node) {
@@ -110,30 +110,30 @@ int trace_var(struct sinode *fsn, void *var_parm,
 		}
 		BUG_ON(!found);
 
-		struct call_func_list *caller;
+		struct callf_list *caller;
 		list_for_each_entry(caller, &fn->callers, sibling) {
 			if (caller->call_id.id1 == fsn->node_id.id.id1)
 				continue;
 
 			BUG_ON(caller->value_flag);
 			BUG_ON(caller->body_missing);
-			BUG_ON(siid_get_type(&caller->call_id) == TYPE_FILE);
+			BUG_ON(siid_type(&caller->call_id) == TYPE_FILE);
 
 			struct sinode *caller_sn;
 			union siid *tid = (union siid *)&caller->value;
-			caller_sn = analysis__sinode_search(siid_get_type(tid),
+			caller_sn = analysis__sinode_search(siid_type(tid),
 								SEARCH_BY_ID, tid);
 			BUG_ON(!caller_sn);
 
 			resfile__resfile_load(caller_sn->buf);
 			struct func_node *caller_fn =
 						(struct func_node *)caller_sn->data;
-			struct call_func_list *caller_target_cfl;
-			caller_target_cfl = call_func_list_find(&caller_fn->callees,
+			struct callf_list *caller_target_cfl;
+			caller_target_cfl = callf_list_find(&caller_fn->callees,
 							fsn->node_id.id.id1);
 			BUG_ON(!caller_target_cfl);
 
-			struct call_func_gimple_stmt_list *call_gs_list;
+			struct callf_gs_list *call_gs_list;
 			list_for_each_entry(call_gs_list,
 						&caller_target_cfl->gimple_stmts,
 						sibling) {
@@ -198,11 +198,11 @@ static int check_func_path(struct sinode *fsn)
 
 static void create_func_paths(struct list_head *head)
 {
-	struct path_list_head *new_head;
-	new_head = path_list_head_new();
+	struct path_list *new_head;
+	new_head = path_list_new();
 	for (size_t i = 0; i < path_func_deep; i++) {
-		struct func_path_list *_new;
-		_new = func_path_list_new();
+		struct funcp_list *_new;
+		_new = funcp_list_new();
 		_new->fsn = (struct sinode *)path_funcs[i];
 		list_add_tail(&_new->sibling, &new_head->path_head);
 	}
@@ -227,7 +227,7 @@ void gen_func_paths(struct sinode *fsn_from, struct sinode *fsn_to,
 	struct func_node *fn;
 	fn = (struct func_node *)fsn_from->data;
 
-	struct call_func_list *tmp;
+	struct callf_list *tmp;
 	list_for_each_entry(tmp, &fn->callees, sibling) {
 		if (tmp->value_flag)
 			continue;
@@ -235,7 +235,7 @@ void gen_func_paths(struct sinode *fsn_from, struct sinode *fsn_to,
 			continue;
 		union siid *tid = (union siid *)&tmp->value;
 		struct sinode *next_fsn;
-		next_fsn = analysis__sinode_search(siid_get_type(tid),
+		next_fsn = analysis__sinode_search(siid_type(tid),
 							SEARCH_BY_ID, tid);
 		BUG_ON(!next_fsn);
 
@@ -251,9 +251,9 @@ void gen_func_paths(struct sinode *fsn_from, struct sinode *fsn_to,
 
 void drop_func_paths(struct list_head *head)
 {
-	struct path_list_head *tmp0, *next0;
+	struct path_list *tmp0, *next0;
 	list_for_each_entry_safe(tmp0, next0, head, sibling) {
-		struct func_path_list *tmp1, *next1;
+		struct funcp_list *tmp1, *next1;
 		list_for_each_entry_safe(tmp1, next1, &tmp0->path_head, sibling) {
 			list_del(&tmp1->sibling);
 			free(tmp1);
@@ -294,11 +294,11 @@ static __thread struct timeval tv_start, tv_cur;
 #define	TIME_FOR_ONE_CP	0x10
 static void create_func_code_paths(struct clib_rw_pool *pool)
 {
-	struct path_list_head *new_head;
-	new_head = path_list_head_new();
+	struct path_list *new_head;
+	new_head = path_list_new();
 	for (size_t i = 0; i < func_code_path_deep; i++) {
-		struct code_path_list *_new;
-		_new = code_path_list_new();
+		struct codep_list *_new;
+		_new = codep_list_new();
 		_new->cp = (struct code_path *)func_code_paths[i];
 		list_add_tail(&_new->sibling, &new_head->path_head);
 	}
@@ -358,9 +358,9 @@ static void gen_func_codepaths(struct code_path *cp, struct clib_rw_pool *pool,
 	return;
 }
 
-static void drop_func_codepath(struct path_list_head *head)
+static void drop_func_codepath(struct path_list *head)
 {
-	struct code_path_list *tmp1, *next1;
+	struct codep_list *tmp1, *next1;
 	list_for_each_entry_safe(tmp1, next1, &head->path_head, sibling) {
 		list_del(&tmp1->sibling);
 		free(tmp1);
@@ -397,7 +397,7 @@ void gen_code_paths(void *arg, struct clib_rw_pool *pool)
 	/* TODO */
 }
 
-void drop_code_path(struct path_list_head *head)
+void drop_code_path(struct path_list *head)
 {
 	drop_func_codepath(head);
 }

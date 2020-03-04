@@ -20,7 +20,6 @@
  * if there are multiple source files, we may need to reduce the info we collected
  */
 #include "si_gcc.h"
-#include "si_gcc_extra.h"
 
 struct plugin_info this_plugin_info = {
 	.version = "0.1",

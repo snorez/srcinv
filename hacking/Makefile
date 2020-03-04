@@ -22,7 +22,8 @@ CC1_SO = uninit.so \
 	 kern_copyuser.so \
 	 gensample.so \
 	 debuild.so \
-	 fuzz.so
+	 fuzz.so \
+	 test.so
 # ==============================================================================
 
 all: $(OUTCORE) $(CC0_SO) $(CC1_SO)

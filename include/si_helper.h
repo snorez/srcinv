@@ -1,6 +1,7 @@
 /*
  * TODO
- * Copyright (C) 2019  zerons
+ *
+ * Copyright (C) 2020 zerons
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,8 +16,9 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-#ifndef SI_DECLS_H_HEGJI43K
-#define SI_DECLS_H_HEGJI43K
+
+#ifndef SI_HELPER_H_67EHZSGV
+#define SI_HELPER_H_67EHZSGV
 
 #include "si_core.h"
 
@@ -163,91 +165,70 @@ CLIB_MODULE_EXIT()\
 }\
 static int __maybe_unused modname##____v
 
-#undef PLUGIN_SYMBOL_CONFLICT
-CLIB_MODULE_CALL_FUNC(analysis, sinode_new, struct sinode *,
-		(enum sinode_type type, char *name, size_t namelen,
-		 char *data, size_t datalen),
-		5, type, name, namelen, data, datalen);
-CLIB_MODULE_CALL_FUNC(analysis, sinode_insert, int,
-		(struct sinode *node, int behavior),
-		2, node, behavior);
-CLIB_MODULE_CALL_FUNC(analysis, sinode_search, struct sinode *,
-		(enum sinode_type type, int flag, void *arg),
-		3, type, flag, arg);
-CLIB_MODULE_CALL_FUNC(analysis, sinode_iter, void,
-		(struct rb_node *node, void (*cb)(struct rb_node *n)),
-		2, node, cb);
-CLIB_MODULE_CALL_FUNC0(analysis, sibuf_new, struct sibuf *);
-CLIB_MODULE_CALL_FUNC(analysis, sibuf_insert, void,
-		(struct sibuf *b),
-		1, b);
-CLIB_MODULE_CALL_FUNC(analysis, sibuf_remove, void,
-		(struct sibuf *b),
-		1, b);
-CLIB_MODULE_CALL_FUNC(analysis, sibuf_type_node_insert, int,
-		(struct sibuf *b, struct sibuf_type_node *stn),
-		2, b, stn);
-CLIB_MODULE_CALL_FUNC(analysis, sibuf_type_node_search, struct type_node *,
-		(struct sibuf *b, int tc, void *addr),
-		3, b, tc, addr);
-CLIB_MODULE_CALL_FUNC(analysis, resfile_new, struct resfile *,
-		(char *path, int built_in),
-		2, path, built_in);
-CLIB_MODULE_CALL_FUNC(analysis, resfile_add, void,
-		(struct resfile *rf),
-		1, rf);
-CLIB_MODULE_CALL_FUNC(analysis, resfile_read, int,
-		(struct resfile *rf, struct sibuf *buf, int force),
-		3, rf, buf, force);
-CLIB_MODULE_CALL_FUNC(analysis, resfile_load, void,
-		(struct sibuf *buf),
-		1, buf);
-CLIB_MODULE_CALL_FUNC(analysis, resfile_unload, void,
-		(struct sibuf *buf),
-		1, buf);
-CLIB_MODULE_CALL_FUNC0(analysis, resfile_gc, int);
-CLIB_MODULE_CALL_FUNC0(analysis, resfile_unload_all, void);
-CLIB_MODULE_CALL_FUNC(analysis, resfile_get_filecnt, int,
-		(struct resfile *rf, int *is_new),
-		2, rf, is_new);
-CLIB_MODULE_CALL_FUNC(analysis, resfile_get_offset, int,
-		(char *path,unsigned long filecnt,unsigned long *offs),
-		3, path, filecnt, offs);
-CLIB_MODULE_CALL_FUNC(analysis, resfile_get_filecontext, struct file_context *,
-		(char *path, char *targetfile),
-		2, path, targetfile);
-CLIB_MODULE_CALL_FUNC(analysis, get_func_code_paths_start, void,
-		(struct code_path *codes),
-		1, codes);
-CLIB_MODULE_CALL_FUNC0(analysis, get_func_next_code_path, struct code_path *);
-CLIB_MODULE_CALL_FUNC(analysis, trace_var, int,
-		(struct sinode *fsn, void *var_parm,
-		 struct sinode **target_fsn, void **target_vn),
-		4, fsn, var_parm, target_fsn, target_vn);
-CLIB_MODULE_CALL_FUNC(analysis, gen_func_paths, void,
-		(struct sinode *from, struct sinode *to,
-		 struct list_head *head, int idx),
-		4, from, to, head, idx);
-CLIB_MODULE_CALL_FUNC(analysis, drop_func_paths, void,
-		(struct list_head *head),
-		1, head);
-/* XXX, for now, we only handle max to FUNC_CP_MAX paths */
-#define FUNC_CP_MAX	0x100000
-CLIB_MODULE_CALL_FUNC(analysis, gen_code_paths, void,
-		(void *arg, struct clib_rw_pool *pool),
-		2, arg, pool);
-CLIB_MODULE_CALL_FUNC(analysis, drop_code_path, void,
-		(struct path_list_head *head),
-		1, head);
-CLIB_MODULE_CALL_FUNC(hacking, debuild_type, void,
-		(struct type_node *type),
-		1, type);
+static inline void si_lock_r(void)
+{
+	read_lock(&si->lock);
+}
 
-/*
- * ************************************************************************
- * inline functions
- * ************************************************************************
- */
+static inline void si_unlock_r(void)
+{
+	read_unlock(&si->lock);
+}
+
+static inline void si_lock_w(void)
+{
+	write_lock(&si->lock);
+}
+
+static inline void si_unlock_w(void)
+{
+	write_unlock(&si->lock);
+}
+
+static inline void sibuf_lock_r(struct sibuf *b)
+{
+	read_lock(&b->lock);
+}
+
+static inline void sibuf_unlock_r(struct sibuf *b)
+{
+	read_unlock(&b->lock);
+}
+
+static inline void sibuf_lock_w(struct sibuf *b)
+{
+	write_lock(&b->lock);
+}
+
+static inline void sibuf_unlock_w(struct sibuf *b)
+{
+	write_unlock(&b->lock);
+}
+
+#define	node_lock_r(node) \
+	do {\
+		typeof(node) ____node = (node);\
+		read_lock(&____node->lock);\
+	} while (0)
+
+#define	node_unlock_r(node) \
+	do {\
+		typeof(node) ____node = (node);\
+		read_unlock(&____node->lock);\
+	} while (0)
+
+#define	node_lock_w(node) \
+	do {\
+		typeof(node) ____node = (node);\
+		write_lock(&____node->lock);\
+	} while (0)
+
+#define	node_unlock_w(node) \
+	do {\
+		typeof(node) ____node = (node);\
+		write_unlock(&____node->lock);\
+	} while (0)
+
 static inline int si_type_match(struct si_type *t0, struct si_type *t1)
 {
 	if (!(t0->binary && t1->binary))
@@ -264,7 +245,7 @@ static inline int si_type_match(struct si_type *t0, struct si_type *t1)
 static inline struct sibuf *find_target_sibuf(void *addr)
 {
 	struct sibuf *tmp = NULL, *ret = NULL;
-	read_lock(&si->lock);
+	si_lock_r();
 	list_for_each_entry(tmp, &si->sibuf_head, sibling) {
 		if (((unsigned long)addr >= tmp->load_addr) &&
 			((unsigned long)addr < (tmp->load_addr +
@@ -274,19 +255,19 @@ static inline struct sibuf *find_target_sibuf(void *addr)
 		}
 	}
 
-	read_unlock(&si->lock);
+	si_unlock_r();
 	return ret;
 }
 
 static inline struct resfile *get_builtin_resfile(void)
 {
 	struct resfile *ret = NULL;
-	read_lock(&si->lock);
+	si_lock_r();
 	ret = list_first_entry_or_null(&si->resfile_head, struct resfile,
 					sibling);
 	if (ret && (!ret->built_in))
 		ret = NULL;
-	read_unlock(&si->lock);
+	si_unlock_r();
 	return ret;
 }
 
@@ -309,18 +290,18 @@ static inline char *__attr_name_find(char *name)
 static inline char *attr_name_find(char *name)
 {
 	char *ret = NULL;
-	read_lock(&si->lock);
+	si_lock_r();
 	ret = __attr_name_find(name);
-	read_unlock(&si->lock);
+	si_unlock_r();
 	return ret;
 }
 
 static inline char *attr_name_new(char *name)
 {
 	char *ret = NULL;
-	write_lock(&si->lock);
+	si_lock_w();
 	if ((ret = __attr_name_find(name))) {
-		write_unlock(&si->lock);
+		si_unlock_w();
 		return ret;
 	}
 
@@ -332,7 +313,7 @@ static inline char *attr_name_new(char *name)
 	list_add_tail(&_new->sibling, &si->attr_name_head);
 	ret = _new->name;
 
-	write_unlock(&si->lock);
+	si_unlock_w();
 	return ret;
 }
 
@@ -350,37 +331,37 @@ static inline struct attr_list *attr_list_new(char *attr_name)
 	return _new;
 }
 
-static inline struct attr_value_list *attr_value_list_new(void)
+static inline struct attrval_list *attrval_list_new(void)
 {
-	struct attr_value_list *_new;
-	_new = (struct attr_value_list *)src_buf_get(sizeof(*_new));
+	struct attrval_list *_new;
+	_new = (struct attrval_list *)src_buf_get(sizeof(*_new));
 	memset(_new, 0, sizeof(*_new));
 	return _new;
 }
 
-static inline void *file_context_cmd_position(void *start)
+static inline void *fc_cmdptr(void *start)
 {
-	struct file_context *tmp = (struct file_context *)start;
-	return ((char *)start + sizeof(struct file_context) - PATH_MAX +
+	struct file_content *tmp = (struct file_content *)start;
+	return ((char *)start + sizeof(struct file_content) - PATH_MAX +
 			tmp->path_len);
 }
 
-static inline void *file_context_payload_position(void *start)
+static inline void *fc_pldptr(void *start)
 {
-	struct file_context *tmp = (struct file_context *)start;
-	return ((char *)start + sizeof(struct file_context) - PATH_MAX +
+	struct file_content *tmp = (struct file_content *)start;
+	return ((char *)start + sizeof(struct file_content) - PATH_MAX +
 			tmp->path_len + tmp->cmd_len);
 }
 
 static inline void sinode_id(enum sinode_type type, union siid *id)
 {
-	write_lock(&si->lock);
+	si_lock_w();
 	union siid *type_id = &si->id_idx[type];
 
 	unsigned long cur_val = type_id->id0.id_value;
 	if (unlikely(cur_val == (unsigned long)-1)) {
 		err_dbg(0, "id exceed, type %d", type);
-		write_unlock(&si->lock);
+		si_unlock_w();
 		BUG();
 	}
 	if (unlikely(!cur_val))
@@ -388,37 +369,37 @@ static inline void sinode_id(enum sinode_type type, union siid *id)
 
 	id->id1 = type_id->id1;
 	type_id->id0.id_value++;
-	write_unlock(&si->lock);
+	si_unlock_w();
 }
 
-static inline enum sinode_type siid_get_type(union siid *id)
+static inline enum sinode_type siid_type(union siid *id)
 {
 	return (enum sinode_type)id->id0.id_type;
 }
 
-static inline unsigned long siid_get_value(union siid *id)
+static inline unsigned long siid_value(union siid *id)
 {
 	return (unsigned long)id->id0.id_value;
 }
 
-static inline unsigned long siid_get_whole(union siid *id)
+static inline unsigned long siid_all(union siid *id)
 {
 	return (unsigned long)id->id1;
 }
 
-static inline enum sinode_type sinode_get_id_type(struct sinode *sn)
+static inline enum sinode_type sinode_idtype(struct sinode *sn)
 {
-	return siid_get_type(&sn->node_id.id);
+	return siid_type(&sn->node_id.id);
 }
 
-static inline unsigned long sinode_get_id_value(struct sinode *sn)
+static inline unsigned long sinode_idvalue(struct sinode *sn)
 {
-	return siid_get_value(&sn->node_id.id);
+	return siid_value(&sn->node_id.id);
 }
 
-static inline unsigned long sinode_get_id_whole(struct sinode *sn)
+static inline unsigned long sinode_id_all(struct sinode *sn)
 {
-	return siid_get_whole(&sn->node_id.id);
+	return siid_all(&sn->node_id.id);
 }
 
 static inline void type_node_init(struct type_node *tn,
@@ -461,19 +442,19 @@ static inline struct var_node *var_node_new(void *node)
 	return _new;
 }
 
-static inline struct var_node_list *var_node_list_new(void *node)
+static inline struct var_list *var_list_new(void *node)
 {
-	struct var_node_list *_new;
-	_new = (struct var_node_list *)src_buf_get(sizeof(*_new));
+	struct var_list *_new;
+	_new = (struct var_list *)src_buf_get(sizeof(*_new));
 	memset(_new, 0, sizeof(*_new));
 	var_node_init(&_new->var, node);
 	return _new;
 }
 
-static inline struct var_node_list *var_node_list_find(struct list_head *head,
+static inline struct var_list *var_list_find(struct list_head *head,
 							void *node)
 {
-	struct var_node_list *tmp;
+	struct var_list *tmp;
 	list_for_each_entry(tmp, head, sibling) {
 		if (tmp->var.node == node)
 			return tmp;
@@ -493,19 +474,18 @@ static inline struct func_node *func_node_new(void *node)
 	INIT_LIST_HEAD(&_new->global_vars);
 	INIT_LIST_HEAD(&_new->local_vars);
 
-	INIT_LIST_HEAD(&_new->unreachable_stmts);
 	INIT_LIST_HEAD(&_new->used_at);
 	return _new;
 }
 
 static inline int func_caller_internal(union siid *id)
 {
-	return siid_get_type(id) == TYPE_FILE;
+	return siid_type(id) == TYPE_FILE;
 }
 
 static inline void code_path_init(struct code_path *cp)
 {
-	INIT_LIST_HEAD(&cp->sentences);
+	return;
 }
 
 static inline struct code_path *code_path_new(struct func_node *func,
@@ -540,40 +520,20 @@ static inline struct id_list *id_list_find(struct list_head *head,
 	return NULL;
 }
 
-static inline struct unr_stmt *unr_stmt_find(struct list_head *head,
-						int line, int col)
+static inline struct callf_list *callf_list_new(void)
 {
-	struct unr_stmt *tmp;
-	list_for_each_entry(tmp, head, sibling) {
-		if ((tmp->line == line) && (tmp->col == col))
-			return tmp;
-	}
-
-	return NULL;
-}
-
-static inline struct unr_stmt *unr_stmt_new(void)
-{
-	struct unr_stmt *_new;
-	_new = (struct unr_stmt *)src_buf_get(sizeof(*_new));
-	memset(_new, 0, sizeof(*_new));
-	return _new;
-}
-
-static inline struct call_func_list *call_func_list_new(void)
-{
-	struct call_func_list *_new;
-	_new = (struct call_func_list *)src_buf_get(sizeof(*_new));
+	struct callf_list *_new;
+	_new = (struct callf_list *)src_buf_get(sizeof(*_new));
 	memset(_new, 0, sizeof(*_new));
 	INIT_LIST_HEAD(&_new->gimple_stmts);
 	return _new;
 }
 
-static inline struct call_func_list *call_func_list_find(struct list_head *head,
+static inline struct callf_list *callf_list_find(struct list_head *head,
 							unsigned long value,
 							unsigned long flag)
 {
-	struct call_func_list *tmp;
+	struct callf_list *tmp;
 	list_for_each_entry(tmp, head, sibling) {
 		if ((tmp->value == value) && (tmp->value_flag == flag))
 			return tmp;
@@ -582,18 +542,18 @@ static inline struct call_func_list *call_func_list_find(struct list_head *head,
 }
 
 static inline
-struct call_func_gimple_stmt_list *call_func_gimple_stmt_list_new(void)
+struct callf_gs_list *callf_gs_list_new(void)
 {
-	struct call_func_gimple_stmt_list *_new;
-	_new = (struct call_func_gimple_stmt_list *)src_buf_get(sizeof(*_new));
+	struct callf_gs_list *_new;
+	_new = (struct callf_gs_list *)src_buf_get(sizeof(*_new));
 	memset(_new, 0, sizeof(*_new));
 	return _new;
 }
 
-static inline int call_func_gimple_stmt_list_exist(struct list_head *head,
+static inline int callf_gs_list_exist(struct list_head *head,
 							void *gimple)
 {
-	struct call_func_gimple_stmt_list *tmp;
+	struct callf_gs_list *tmp;
 	list_for_each_entry(tmp, head, sibling) {
 		if (tmp->gimple_stmt == gimple)
 			return 1;
@@ -601,14 +561,14 @@ static inline int call_func_gimple_stmt_list_exist(struct list_head *head,
 	return 0;
 }
 
-static inline void call_func_gimple_stmt_list_add(struct list_head *head,
+static inline void callf_gs_list_add(struct list_head *head,
 							void *gimple)
 {
-	if (call_func_gimple_stmt_list_exist(head, gimple))
+	if (callf_gs_list_exist(head, gimple))
 		return;
 
-	struct call_func_gimple_stmt_list *_new;
-	_new = call_func_gimple_stmt_list_new();
+	struct callf_gs_list *_new;
+	_new = callf_gs_list_new();
 	_new->gimple_stmt = gimple;
 	list_add_tail(&_new->sibling, head);
 }
@@ -634,20 +594,20 @@ static inline struct use_at_list *use_at_list_find(struct list_head *head,
 	return NULL;
 }
 
-static inline struct possible_value_list *possible_value_list_new(void)
+static inline struct possible_list *possible_list_new(void)
 {
-	struct possible_value_list *_new;
-	_new = (struct possible_value_list *)src_buf_get(sizeof(*_new));
+	struct possible_list *_new;
+	_new = (struct possible_list *)src_buf_get(sizeof(*_new));
 	memset(_new, 0, sizeof(*_new));
 	return _new;
 }
 
 static inline
-struct possible_value_list *possible_value_list_find(struct list_head *head,
+struct possible_list *possible_list_find(struct list_head *head,
 						unsigned long val_flag,
 						unsigned long value)
 {
-	struct possible_value_list *tmp;
+	struct possible_list *tmp;
 	list_for_each_entry(tmp, head, sibling) {
 		if (tmp->value == value)
 			return tmp;
@@ -655,34 +615,34 @@ struct possible_value_list *possible_value_list_find(struct list_head *head,
 	return NULL;
 }
 
-static inline struct sibuf_type_node *sibuf_type_node_new(void)
+static inline struct sibuf_typenode *sibuf_typenode_new(void)
 {
-	struct sibuf_type_node *_new;
-	_new = (struct sibuf_type_node *)src_buf_get(sizeof(*_new));
+	struct sibuf_typenode *_new;
+	_new = (struct sibuf_typenode *)src_buf_get(sizeof(*_new));
 	memset(_new, 0, sizeof(*_new));
 	return _new;
 }
 
-static inline struct func_path_list *func_path_list_new(void)
+static inline struct funcp_list *funcp_list_new(void)
 {
-	struct func_path_list *_new;
-	_new = (struct func_path_list *)xmalloc(sizeof(*_new));
+	struct funcp_list *_new;
+	_new = (struct funcp_list *)xmalloc(sizeof(*_new));
 	memset(_new, 0, sizeof(*_new));
 	return _new;
 }
 
-static inline struct code_path_list *code_path_list_new(void)
+static inline struct codep_list *codep_list_new(void)
 {
-	struct code_path_list *_new;
-	_new = (struct code_path_list *)xmalloc(sizeof(*_new));
+	struct codep_list *_new;
+	_new = (struct codep_list *)xmalloc(sizeof(*_new));
 	memset(_new, 0, sizeof(*_new));
 	return _new;
 }
 
-static inline struct path_list_head *path_list_head_new(void)
+static inline struct path_list *path_list_new(void)
 {
-	struct path_list_head *_new;
-	_new = (struct path_list_head *)xmalloc(sizeof(*_new));
+	struct path_list *_new;
+	_new = (struct path_list *)xmalloc(sizeof(*_new));
 	memset(_new, 0, sizeof(*_new));
 	INIT_LIST_HEAD(&_new->path_head);
 	return _new;
@@ -733,10 +693,10 @@ static inline void __si_log(const char *fmt, ...)
 	}
 }
 
-#define	SI_LOG_FMT(fmt)	"[%02d/%02d/%d %02d:%02d:%02d][%s %s:%d] " fmt
+#define	SI_LOG_FMT(fmt)	"[%02d/%02d %02d:%02d][%s %s:%d][%s] " fmt
 #define	SI_LOG_TMARGS \
-	____tm.tm_mon+1, ____tm.tm_mday, ____tm.tm_year, \
-	____tm.tm_hour, ____tm.tm_min, ____tm.tm_sec
+	____tm.tm_mon+1, ____tm.tm_mday, \
+	____tm.tm_hour, ____tm.tm_min
 #define	SI_LOG_LINEINFO \
 	__FILE__, __LINE__
 
@@ -748,16 +708,37 @@ static inline void __si_log(const char *fmt, ...)
 #define	SI_LOG_TM() \
 	struct tm ____tm = SI_LOG_GETTM()
 
-#define	si_log(str, fmt, ...) ({\
+#define	SI_LOG(LEVEL, str, fmt, ...) ({\
 	SI_LOG_TM();\
 	__si_log(SI_LOG_FMT(fmt),SI_LOG_TMARGS,str,\
-			SI_LOG_LINEINFO,##__VA_ARGS__);\
+			SI_LOG_LINEINFO,LEVEL,##__VA_ARGS__);\
 	})
+#define	SI_LOG_NOLINE(LEVEL, str, fmt, ...) ({\
+	SI_LOG_TM();\
+	__si_log(SI_LOG_FMT(fmt),SI_LOG_TMARGS,str,\
+			"NOFILE",0,LEVEL,##__VA_ARGS__);\
+	})
+
+#define	si_log(fmt, ...) \
+	SI_LOG_NOLINE("INFO", "0", fmt, ##__VA_ARGS__)
+
 #define	si_log1(fmt, ...) \
-	si_log("analysis", fmt, ##__VA_ARGS__)
+	SI_LOG("INFO", "1", fmt, ##__VA_ARGS__)
+#define	si_log1_todo(fmt, ...) \
+	SI_LOG("TODO", "1", fmt, ##__VA_ARGS__)
+#define	si_log1_emer(fmt, ...) \
+	SI_LOG("EMER", "1", fmt, ##__VA_ARGS__)
+
 #define	si_log2(fmt, ...) \
-	si_log("hacking", fmt, ##__VA_ARGS__)
+	SI_LOG("INFO", "2", fmt, ##__VA_ARGS__)
+#define	si_log2_todo(fmt, ...) \
+	SI_LOG("TODO", "2", fmt, ##__VA_ARGS__)
+#define	si_log2_emer(fmt, ...) \
+	SI_LOG("EMER", "2", fmt, ##__VA_ARGS__)
+
+/* for CLIB_MODULE_CALL_FUNC */
+#undef PLUGIN_SYMBOL_CONFLICT
 
 DECL_END
 
-#endif /* end of include guard: SI_DECLS_H_HEGJI43K */
+#endif /* end of include guard: SI_HELPER_H_67EHZSGV */

@@ -16,7 +16,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "si_gcc.h"
-#include "si_gcc_extra.h"
 #include "./hacking.h"
 
 CLIB_MODULE_NAME(uninit);
@@ -39,13 +38,14 @@ CLIB_MODULE_EXIT()
 	return;
 }
 
+#ifdef COMPILE_THISFILE
 static expanded_location __maybe_unused *get_code_path_loc(struct sinode *fsn, struct code_path *cp)
 {
-	struct code_sentence *first_cs;
+	struct code_stmt *first_cs;
 	gimple_seq gs;
 
 	first_cs = list_first_entry_or_null(&cp->sentences,
-						struct code_sentence, sibling);
+						struct code_stmt, sibling);
 	if (!first_cs)
 		gs = (gimple_seq)cp->cond_head;
 	else
@@ -61,9 +61,9 @@ static expanded_location __maybe_unused *get_code_path_loc(struct sinode *fsn, s
 
 static struct use_at_list *first_use_in_cp(struct var_node *vn, struct list_head *cp)
 {
-	struct code_path_list *tmp0;
+	struct codep_list *tmp0;
 	list_for_each_entry(tmp0, cp, sibling) {
-		struct code_sentence *tmp1;
+		struct code_stmt *tmp1;
 		list_for_each_entry(tmp1, &tmp0->cp->sentences, sibling) {
 			struct use_at_list *tmp2;
 			list_for_each_entry(tmp2, &vn->used_at, sibling) {
@@ -86,7 +86,7 @@ static lock_t log_lock;
 static void log_uninit_use(struct list_head *cp, expanded_location *xloc)
 {
 	mutex_lock(&log_lock);
-	struct code_path_list __maybe_unused *cp_tmp;
+	struct codep_list __maybe_unused *cp_tmp;
 
 	si_log2("========trigger location========\n");
 	si_log2("maybe uninitialized var used at (%s %d %d)\n",
@@ -169,17 +169,17 @@ static void *__do_uninit_check_func(void *arg)
 	long *args = (long *)arg;
 	struct sinode *fsn;
 	struct clib_rw_pool __maybe_unused *rw_pool;
-	struct path_list_head *cp;
+	struct path_list *cp;
 	struct clib_mt_pool *mt_pool;
 	atomic_t *paths_read;
 	fsn = (struct sinode *)args[0];
 	rw_pool = (struct clib_rw_pool *)args[1];
-	cp = (struct path_list_head *)args[2];
+	cp = (struct path_list *)args[2];
 	mt_pool = (struct clib_mt_pool *)args[3];
 	paths_read = (atomic_t *)args[4];
 	struct func_node *fn = (struct func_node *)fsn->data;
 
-	struct var_node_list *vnl;
+	struct var_list *vnl;
 	list_for_each_entry(vnl, &fn->local_vars, sibling) {
 		tree node = (tree)vnl->var.node;
 		if (TREE_STATIC(node))
@@ -215,8 +215,8 @@ static void do_uninit_check_func(void *arg, struct clib_rw_pool *pool)
 
 	mt_pool = clib_mt_pool_new(thread_cnt);
 
-	struct path_list_head *single_cp;
-	while ((single_cp = (struct path_list_head *)clib_rw_pool_pop(pool))) {
+	struct path_list *single_cp;
+	while ((single_cp = (struct path_list *)clib_rw_pool_pop(pool))) {
 		if (found) {
 			analysis__drop_code_path(single_cp);
 			atomic_inc(paths_read);
@@ -224,7 +224,7 @@ static void do_uninit_check_func(void *arg, struct clib_rw_pool *pool)
 		}
 
 		if (unlikely(!mt_pool)) {
-			struct var_node_list *vnl;
+			struct var_list *vnl;
 			list_for_each_entry(vnl, &fn->local_vars, sibling) {
 				tree node = (tree)vnl->var.node;
 				if (TREE_STATIC(node))
@@ -384,12 +384,14 @@ static void show_progress(int signo, siginfo_t *si, void *arg, int last)
 		fflush(stdout);
 	}
 }
+#endif
 
 static void uninit_cb(void)
 {
 	si_log2("checking uninitialized variables not supported now\n");
 	return;
 
+#ifdef COMPILE_THISFILE
 	si_log2("checking uninitialized variables\n");
 
 	unsigned long func_id = 0;
@@ -409,7 +411,7 @@ static void uninit_cb(void)
 	tid->id0.id_type = TYPE_FUNC_GLOBAL;
 	for (; func_id < si->id_idx[TYPE_FUNC_GLOBAL].id1; func_id++) {
 		struct sinode *fsn;
-		fsn = analysis__sinode_search(siid_get_type(tid), SEARCH_BY_ID, tid);
+		fsn = analysis__sinode_search(siid_type(tid), SEARCH_BY_ID, tid);
 		processed++;
 		if (!fsn)
 			continue;
@@ -433,7 +435,7 @@ static void uninit_cb(void)
 	tid->id0.id_type = TYPE_FUNC_STATIC;
 	for (; func_id < si->id_idx[TYPE_FUNC_STATIC].id1; func_id++) {
 		struct sinode *fsn;
-		fsn = analysis__sinode_search(siid_get_type(tid), SEARCH_BY_ID, tid);
+		fsn = analysis__sinode_search(siid_type(tid), SEARCH_BY_ID, tid);
 		processed++;
 		if (!fsn)
 			continue;
@@ -444,4 +446,5 @@ static void uninit_cb(void)
 
 	si_log2("checking uninitialized variables done\n");
 	return;
+#endif
 }

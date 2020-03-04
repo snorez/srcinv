@@ -199,8 +199,8 @@ mmap_again1:
 	}
 
 	memset(buf, 0, sizeof(*buf));
-	struct file_context *fc = (struct file_context *)start;
-	void *zero = file_context_payload_position(start);
+	struct file_content *fc = (struct file_content *)start;
+	void *zero = fc_pldptr(start);
 
 	buf->rf = rf;
 	buf->load_addr = (unsigned long)start;
@@ -396,8 +396,8 @@ int resfile_get_filecnt(struct resfile *rf, int *is_new)
 				return -1;
 			}
 
-			struct file_context *fc;
-			fc = (struct file_context *)tmp_read_buf;
+			struct file_content *fc;
+			fc = (struct file_content *)tmp_read_buf;
 			if (fc->status != FC_STATUS_NONE)
 				*is_new = 0;
 
@@ -466,7 +466,7 @@ int resfile_get_offset(char *path, unsigned long filecnt, unsigned long *offs)
 	return 0;
 }
 
-struct file_context *resfile_get_filecontext(char *path, char *targetfile)
+struct file_content *resfile_get_fc(char *path, char *targetfile)
 {
 	int fd;
 	int err = 0;
@@ -502,8 +502,8 @@ struct file_context *resfile_get_filecontext(char *path, char *targetfile)
 			return NULL;
 		}
 
-		struct file_context *fc;
-		fc = (struct file_context *)tmp_read_buf;
+		struct file_content *fc;
+		fc = (struct file_content *)tmp_read_buf;
 		if (!strcmp(fc->path, targetfile)) {
 			close(fd);
 			return fc;

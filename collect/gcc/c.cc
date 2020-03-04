@@ -1,9 +1,15 @@
 /*
- * collect C program info compiled by GCC at ALL_IPA_PASSES_START
+ * collect C program info compiled by GCC at ALL_IPA_PASSES_END
  *	some tree_node is not handled for now, just raise a BUG
  *
  * refs:
  *	https://gcc.gnu.org/onlinedocs/gcc-8.3.0/gccint/GTY-Options.html
+ *
+ * TODOs:
+ *	why is there functions still contain saved_tree??
+ *	decls_to_pointers in gimple_df
+ *	default_defs in gimple_df
+ *	tm_restart in gimple_df, this one not needed
  *
  * Copyright (C) 2019  zerons
  *
@@ -22,16 +28,16 @@
  */
 
 #include "si_gcc.h"
-#include "si_gcc_extra.h"
 
 struct plugin_info this_plugin_info = {
 	.version = "0.1",
-	.help = "collect functions' Abstract Syntax Tree",
+	.help = "collect function Abstract Syntax Tree at ALL_IPA_PASSES_END",
 };
 
 static int gcc_ver = __GNUC__;
 static int gcc_ver_minor = __GNUC_MINOR__;
 static char ver[16];
+/* init in plugin_init */
 struct plugin_gcc_version version_needed = {
 	.basever = "",
 };
@@ -41,7 +47,7 @@ int plugin_is_GPL_compatible;
 static char nodes_mem[MAX_SIZE_PER_FILE];
 static char *mem_ptr_start = NULL;
 static char *mem_ptr = NULL;
-static struct file_context *write_ctx;
+static struct file_content *write_ctx;
 
 static const char *outpath = "/tmp/c_ast";
 static int outfd = -1;
@@ -57,7 +63,7 @@ static int prepare_outfile(void)
 
 static int get_compiling_args(void)
 {
-	write_ctx = (struct file_context *)nodes_mem;
+	write_ctx = (struct file_content *)nodes_mem;
 	write_ctx->type.binary = SI_TYPE_SRC;
 	write_ctx->type.kernel = SI_TYPE_BOTH;
 	write_ctx->type.os_type = SI_TYPE_OS_LINUX;
@@ -95,7 +101,7 @@ static int get_compiling_args(void)
 	else {
 		/* XXX, drop -fplugin args */
 		char *cmd;
-		cmd = (char *)file_context_cmd_position((void *)nodes_mem);
+		cmd = (char *)fc_cmdptr((void *)nodes_mem);
 		char *cur = ptr;
 		char *end;
 		while (1) {
@@ -121,7 +127,7 @@ static int get_compiling_args(void)
 		write_ctx->cmd_len += 1;	/* the last null byte */
 	}
 	mem_ptr_start =
-		(char *)file_context_payload_position((void *)nodes_mem);
+		(char *)fc_pldptr((void *)nodes_mem);
 	mem_ptr = mem_ptr_start;
 	return 0;
 }
@@ -170,9 +176,10 @@ static void nodes_flush(int fd)
 
 	int i = 0;
 	for (i = 0; i < (int)MAX_OBJS_PER_FILE; i++) {
-		if ((!objs[i].fake_addr))
+		if ((!objs[i].fake_addr) && (!objs[i].gcc_global_varidx))
 			break;
 	}
+	BUG_ON(i != obj_idx);
 
 	write_ctx->objs_offs = mem_ptr - nodes_mem;
 	write_ctx->objs_cnt = i;
@@ -946,33 +953,1007 @@ static void do_language_function(struct language_function *node, int flag)
 	do_c_arg_info(node->arg_info, 1);
 }
 
+static void do_basic_block(basic_block bb, int flag);
+static void do_gimple_seq(gimple_seq gs);
+static size_t gsstruct_size(gimple_seq gs)
+{
+	return gsstruct_code_size[gss_for_code(gimple_code(gs))];
+}
+
 static size_t gimple_total_size(gimple_seq gs)
 {
-	size_t base_size = gsstruct_code_size[gss_for_code(gimple_code(gs))];
+	size_t base_size = gsstruct_size(gs);
+
+	/* there is an exception: gphi */
+	if (gimple_code(gs) == GIMPLE_PHI) {
+		struct gphi *node;
+		node = (struct gphi *)gs;
+
+		base_size -= sizeof(*node);
+		base_size += sizeof(*node) * node->nargs;
+		return base_size;
+	}
+
 	if (!gimple_has_ops(gs) || (!gimple_num_ops(gs)))
 		return base_size;
 	return base_size + (gimple_num_ops(gs)-1) * sizeof(tree);
 }
-static void do_basic_block(basic_block bb, int flag);
-static void do_gimple_seq(gimple_seq gs, int flag)
+
+static inline void gimple_write(gimple *gs)
+{
+	mem_write((void *)gs, gimple_total_size(gs));
+}
+
+/* for struct gimple */
+static void do_gimple_base(gimple *gs, int flag)
 {
 	if (!gs)
 		return;
 	if (flag && is_obj_checked((void *)gs))
 		return;
 	if (flag)
-		mem_write((void *)gs, gimple_total_size(gs));
+		gimple_write(gs);
 
 	do_location(gs->location);
-	tree *ops = gimple_ops(gs);
+	do_basic_block(gs->bb, 1);
+	do_gimple_seq(gs->next);
+	do_gimple_seq(gs->prev);
+
+	return;
+}
+
+static void do_ssa_use_operand(void *node, int flag);
+static void do_use_optype_d(struct use_optype_d *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked((void *)node))
+		return;
+	if (flag)
+		mem_write((void *)node, sizeof(*node));
+
+	do_use_optype_d(node->next, 1);
+	do_ssa_use_operand(&node->use_ptr, 0);
+}
+
+static void do_gs_with_ops_base(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gimple_statement_with_ops_base *node0;
+	node0 = (struct gimple_statement_with_ops_base *)gs;
+
+	do_gimple_base(gs, 0);
+	do_use_optype_d(node0->use_ops, 1);
+}
+
+static inline void do_gs_ops(gimple *gs)
+{
+	tree *ops;
+	ops = gimple_ops(gs);
 	for (unsigned int i = 0; i < gimple_num_ops(gs); i++) {
-		/* TODO, handle function decl */
+		/* FIXME: handle function decl? */
 		do_tree(ops[i]);
 	}
+}
+static void do_gs_with_ops(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
 
-	do_basic_block(gs->bb, 1);
-	do_gimple_seq(gs->next, 1);
-	do_gimple_seq(gs->prev, 1);
+	struct gimple_statement_with_ops __maybe_unused *node0;
+	node0 = (struct gimple_statement_with_ops *)gs;
+
+	do_gs_with_ops_base(gs, 0);
+	do_gs_ops(gs);
+}
+
+static void do_gs_with_mem_ops_base(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gimple_statement_with_memory_ops_base *node0;
+	node0 = (struct gimple_statement_with_memory_ops_base *)gs;
+
+	do_gs_with_ops_base(gs, 0);
+	do_tree(node0->vdef);
+	do_tree(node0->vuse);
+}
+
+static void do_gs_with_mem_ops(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gimple_statement_with_memory_ops __maybe_unused *node0;
+	node0 = (struct gimple_statement_with_memory_ops *)gs;
+
+	do_gs_with_mem_ops_base(gs, 0);
+	do_gs_ops(gs);
+}
+
+static void do_gcall(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gcall __maybe_unused *node0;
+	node0 = (struct gcall *)gs;
+
+	do_gs_with_mem_ops_base(gs, 0);
+
+	if (!(gs->subcode & GF_CALL_INTERNAL)) {
+		do_tree(node0->u.fntype);
+	}
+	do_gs_ops(gs);
+}
+
+static void do_gs_omp(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gimple_statement_omp *node0;
+	node0 = (struct gimple_statement_omp *)gs;
+
+	do_gimple_base(gs, 0);
+	do_gimple_seq(node0->body);
+}
+
+static void do_gbind(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gbind *node0;
+	node0 = (struct gbind *)gs;
+
+	do_gimple_base(gs, 0);
+	do_tree(node0->vars);
+	do_tree(node0->block);
+	do_gimple_seq(node0->body);
+}
+
+static void do_gcatch(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gcatch *node0;
+	node0 = (struct gcatch *)gs;
+
+	do_gimple_base(gs, 0);
+	do_tree(node0->types);
+	do_gimple_seq(node0->handler);
+}
+
+static void do_geh_filter(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct geh_filter *node0;
+	node0 = (struct geh_filter *)gs;
+
+	do_gimple_base(gs, 0);
+	do_tree(node0->types);
+	do_gimple_seq(node0->failure);
+}
+
+static void do_geh_else(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct geh_else *node0;
+	node0 = (struct geh_else *)gs;
+
+	do_gimple_base(gs, 0);
+	do_gimple_seq(node0->n_body);
+	do_gimple_seq(node0->e_body);
+}
+
+static void do_geh_mnt(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct geh_mnt *node0;
+	node0 = (struct geh_mnt *)gs;
+
+	do_gimple_base(gs, 0);
+	do_tree(node0->fndecl);
+}
+
+static void do_phi_arg_d(struct phi_arg_d *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked((void *)node))
+		return;
+	if (flag)
+		mem_write((void *)node, sizeof(*node));
+
+	/* ignore: do_location(node->locus); */
+	do_ssa_use_operand(&node->imm_use, 0);
+	do_tree(node->def);
+}
+
+static void do_gphi(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gphi *node0;
+	node0 = (struct gphi *)gs;
+
+	do_gimple_base(gs, 0);
+	do_tree(node0->result);
+	for (unsigned i = 0; i < node0->nargs; i++) {
+		do_phi_arg_d(&node0->args[i], 0);
+	}
+}
+
+static void do_gs_eh_ctrl(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gimple_statement_eh_ctrl __maybe_unused *node0;
+	node0 = (struct gimple_statement_eh_ctrl *)gs;
+
+	do_gimple_base(gs, 0);
+}
+
+static void do_gresx(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gresx __maybe_unused *node0;
+	node0 = (struct gresx *)gs;
+
+	do_gs_eh_ctrl(gs, 0);
+}
+
+static void do_geh_dispatch(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct geh_dispatch __maybe_unused *node0;
+	node0 = (struct geh_dispatch *)gs;
+
+	do_gs_eh_ctrl(gs, 0);
+}
+
+static void do_gtry(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gtry *node0;
+	node0 = (struct gtry *)gs;
+
+	do_gimple_base(gs, 0);
+	do_gimple_seq(node0->eval);
+	do_gimple_seq(node0->cleanup);
+}
+
+static __maybe_unused void do_gs_wce(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gimple_statement_wce *node0;
+	node0 = (struct gimple_statement_wce *)gs;
+
+	do_gimple_base(gs, 0);
+	do_gimple_seq(node0->cleanup);
+}
+
+static void do_gasm(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gasm *node0;
+	node0 = (struct gasm *)gs;
+	do_gs_with_mem_ops_base(gs, 0);
+
+	if (!is_obj_checked((void *)node0->string))
+		mem_write((void *)node0->string, strlen(node0->string) + 1);
+
+	do_gs_ops(gs);
+}
+
+static void do_gomp_critical(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gomp_critical *node0;
+	node0 = (struct gomp_critical *)gs;
+
+	do_gs_omp(gs, 0);
+	do_tree(node0->clauses);
+	do_tree(node0->name);
+}
+
+static void do_gomp_for_iter(struct gimple_omp_for_iter *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked((void *)node))
+		return;
+	if (flag)
+		mem_write((void *)node, sizeof(*node));
+
+	do_tree(node->index);
+	do_tree(node->initial);
+	do_tree(node->final);
+	do_tree(node->incr);
+}
+
+static void do_gomp_for(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gomp_for *node0;
+	node0 = (struct gomp_for *)gs;
+
+	do_gs_omp(gs, 0);
+	do_tree(node0->clauses);
+	do_gomp_for_iter(node0->iter, 1);
+	do_gimple_seq(node0->pre_body);
+}
+
+static void do_gs_omp_parallel_layout(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gimple_statement_omp_parallel_layout *node0;
+	node0 = (struct gimple_statement_omp_parallel_layout *)gs;
+
+	do_gs_omp(gs, 0);
+	do_tree(node0->clauses);
+	do_tree(node0->child_fn);
+	do_tree(node0->data_arg);
+}
+
+static void do_gs_omp_taskreg(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gimple_statement_omp_taskreg __maybe_unused *node0;
+	node0 = (struct gimple_statement_omp_taskreg *)gs;
+
+	do_gs_omp_parallel_layout(gs, 0);
+}
+
+static void do_gomp_parallel(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gomp_parallel __maybe_unused *node0;
+	node0 = (struct gomp_parallel *)gs;
+
+	do_gs_omp_taskreg(gs, 0);
+}
+
+static void do_gomp_target(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gomp_target __maybe_unused *node0;
+	node0 = (struct gomp_target *)gs;
+
+	do_gs_omp_parallel_layout(gs, 0);
+}
+
+static void do_gomp_task(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gomp_task *node0;
+	node0 = (struct gomp_task *)gs;
+
+	do_gs_omp_taskreg(gs, 0);
+	do_tree(node0->copy_fn);
+	do_tree(node0->arg_size);
+	do_tree(node0->arg_align);
+}
+
+static void do_gomp_sections(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gomp_sections *node0;
+	node0 = (struct gomp_sections *)gs;
+
+	do_gs_omp(gs, 0);
+	do_tree(node0->clauses);
+	do_tree(node0->control);
+}
+
+static void do_gomp_continue(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gomp_continue *node0;
+	node0 = (struct gomp_continue *)gs;
+
+	do_gimple_base(gs, 0);
+	do_tree(node0->control_def);
+	do_tree(node0->control_use);
+}
+
+static void do_gs_omp_single_layout(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gimple_statement_omp_single_layout *node0;
+	node0 = (struct gimple_statement_omp_single_layout *)gs;
+
+	do_gs_omp(gs, 0);
+	do_tree(node0->clauses);
+}
+
+static void do_gomp_single(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gomp_single __maybe_unused *node0;
+	node0 = (struct gomp_single *)gs;
+
+	do_gs_omp_single_layout(gs, 0);
+}
+
+static void do_gomp_teams(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gomp_teams __maybe_unused *node0;
+	node0 = (struct gomp_teams *)gs;
+
+	do_gs_omp_single_layout(gs, 0);
+}
+
+static void do_gomp_ordered(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gomp_ordered __maybe_unused *node0;
+	node0 = (struct gomp_ordered *)gs;
+
+	do_gs_omp_single_layout(gs, 0);
+}
+
+static void do_gomp_atomic_load(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gomp_atomic_load *node0;
+	node0 = (struct gomp_atomic_load *)gs;
+
+	do_gimple_base(gs, 0);
+	do_tree(node0->rhs);
+	do_tree(node0->lhs);
+}
+
+static void do_gs_omp_atomic_store_layout(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gimple_statement_omp_atomic_store_layout *node0;
+	node0 = (struct gimple_statement_omp_atomic_store_layout *)gs;
+
+	do_gimple_base(gs, 0);
+	do_tree(node0->val);
+}
+
+static void do_gomp_atomic_store(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gomp_atomic_store __maybe_unused *node0;
+	node0 = (struct gomp_atomic_store *)gs;
+
+	do_gs_omp_atomic_store_layout(gs, 0);
+}
+
+static void do_gs_omp_return(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gimple_statement_omp_return __maybe_unused *node0;
+	node0 = (struct gimple_statement_omp_return *)gs;
+
+	do_gs_omp_atomic_store_layout(gs, 0);
+}
+
+static void do_gtransaction(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gtransaction *node0;
+	node0 = (struct gtransaction *)gs;
+
+	do_gs_with_mem_ops_base(gs, 0);
+	do_gimple_seq(node0->body);
+	do_tree(node0->label_norm);
+	do_tree(node0->label_uninst);
+	do_tree(node0->label_over);
+}
+
+static void do_gcond(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gcond __maybe_unused *node0;
+	node0 = (struct gcond *)gs;
+
+	do_gs_with_ops(gs, 0);
+}
+
+static void do_gdebug(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gdebug __maybe_unused *node0;
+	node0 = (struct gdebug *)gs;
+
+	do_gs_with_ops(gs, 0);
+}
+
+static void do_ggoto(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct ggoto __maybe_unused *node0;
+	node0 = (struct ggoto *)gs;
+
+	do_gs_with_ops(gs, 0);
+}
+
+static void do_glabel(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct glabel __maybe_unused *node0;
+	node0 = (struct glabel *)gs;
+
+	do_gs_with_ops(gs, 0);
+}
+
+static void do_gswitch(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gswitch __maybe_unused *node0;
+	node0 = (struct gswitch *)gs;
+
+	do_gs_with_ops(gs, 0);
+}
+
+static void do_gassign(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct gassign __maybe_unused *node0;
+	node0 = (struct gassign *)gs;
+
+	do_gs_with_mem_ops(gs, 0);
+}
+
+static void do_greturn(gimple *gs, int flag)
+{
+	if (!gs)
+		return;
+	if (flag && is_obj_checked((void *)gs))
+		return;
+	if (flag)
+		gimple_write(gs);
+
+	struct greturn __maybe_unused *node0;
+	node0 = (struct greturn *)gs;
+
+	do_gs_with_mem_ops(gs, 0);
+}
+
+static void do_gimple_seq(gimple_seq gs)
+{
+	if (!gs)
+		return;
+
+	BUG_ON(check_gimple_code(gs));
+
+	switch (gimple_code(gs)) {
+	case GIMPLE_ASM:
+	{
+		do_gasm(gs, 1);
+		break;
+	}
+	case GIMPLE_ASSIGN:
+	{
+		do_gassign(gs, 1);
+		break;
+	}
+	case GIMPLE_CALL:
+	{
+		do_gcall(gs, 1);
+		break;
+	}
+	case GIMPLE_COND:
+	{
+		do_gcond(gs, 1);
+		break;
+	}
+	case GIMPLE_LABEL:
+	{
+		do_glabel(gs, 1);
+		break;
+	}
+	case GIMPLE_GOTO:
+	{
+		do_ggoto(gs, 1);
+		break;
+	}
+	case GIMPLE_NOP:
+	{
+		do_gimple_base(gs, 1);
+		break;
+	}
+	case GIMPLE_RETURN:
+	{
+		do_greturn(gs, 1);
+		break;
+	}
+	case GIMPLE_SWITCH:
+	{
+		do_gswitch(gs, 1);
+		break;
+	}
+	case GIMPLE_PHI:
+	{
+		do_gphi(gs, 1);
+		break;
+	}
+	case GIMPLE_OMP_PARALLEL:
+	{
+		do_gomp_parallel(gs, 1);
+		break;
+	}
+	case GIMPLE_OMP_TASK:
+	{
+		do_gomp_task(gs, 1);
+		break;
+	}
+	case GIMPLE_OMP_ATOMIC_LOAD:
+	{
+		do_gomp_atomic_load(gs, 1);
+		break;
+	}
+	case GIMPLE_OMP_ATOMIC_STORE:
+	{
+		do_gomp_atomic_store(gs, 1);
+		break;
+	}
+	case GIMPLE_OMP_FOR:
+	{
+		do_gomp_for(gs, 1);
+		break;
+	}
+	case GIMPLE_OMP_CONTINUE:
+	{
+		do_gomp_continue(gs, 1);
+		break;
+	}
+	case GIMPLE_OMP_SINGLE:
+	{
+		do_gomp_single(gs, 1);
+		break;
+	}
+	case GIMPLE_OMP_TARGET:
+	{
+		do_gomp_target(gs, 1);
+		break;
+	}
+	case GIMPLE_OMP_TEAMS:
+	{
+		do_gomp_teams(gs, 1);
+		break;
+	}
+	case GIMPLE_OMP_RETURN:
+	{
+		do_gs_omp_return(gs, 1);
+		break;
+	}
+	case GIMPLE_OMP_SECTIONS:
+	{
+		do_gomp_sections(gs, 1);
+		break;
+	}
+	case GIMPLE_OMP_SECTIONS_SWITCH:
+	{
+		/* FIXME: is do_gimple_base() right? */
+		do_gimple_base(gs, 1);
+		break;
+	}
+	case GIMPLE_OMP_MASTER:
+	case GIMPLE_OMP_TASKGROUP:
+	case GIMPLE_OMP_SECTION:
+	case GIMPLE_OMP_GRID_BODY:
+	{
+		do_gs_omp(gs, 1);
+		break;
+	}
+	case GIMPLE_OMP_ORDERED:
+	{
+		do_gomp_ordered(gs, 1);
+		break;
+	}
+	case GIMPLE_OMP_CRITICAL:
+	{
+		do_gomp_critical(gs, 1);
+		break;
+	}
+	case GIMPLE_BIND:
+	{
+		do_gbind(gs, 1);
+		break;
+	}
+	case GIMPLE_TRY:
+	{
+		do_gtry(gs, 1);
+		break;
+	}
+	case GIMPLE_CATCH:
+	{
+		do_gcatch(gs, 1);
+		break;
+	}
+	case GIMPLE_EH_FILTER:
+	{
+		do_geh_filter(gs, 1);
+		break;
+	}
+	case GIMPLE_EH_MUST_NOT_THROW:
+	{
+		do_geh_mnt(gs, 1);
+		break;
+	}
+	case GIMPLE_EH_ELSE:
+	{
+		do_geh_else(gs, 1);
+		break;
+	}
+	case GIMPLE_RESX:
+	{
+		do_gresx(gs, 1);
+		break;
+	}
+	case GIMPLE_EH_DISPATCH:
+	{
+		do_geh_dispatch(gs, 1);
+		break;
+	}
+	case GIMPLE_DEBUG:
+	{
+		do_gdebug(gs, 1);
+		break;
+	}
+	case GIMPLE_PREDICT:
+	{
+		/* FIXME: is do_gimple_base() right? */
+		do_gimple_base(gs, 1);
+		break;
+	}
+	case GIMPLE_TRANSACTION:
+	{
+		do_gtransaction(gs, 1);
+		break;
+	}
+	default:
+	{
+		BUG();
+	}
+	}
+
+	return;
 }
 
 /*
@@ -1001,7 +1982,7 @@ static void do_edge(void *node, int flag)
 
 	/* insns? */
 	if (current_ir_type() == IR_GIMPLE)
-		do_gimple_seq(node0->insns.g, 1);
+		do_gimple_seq(node0->insns.g);
 	else
 		BUG();
 }
@@ -1040,7 +2021,7 @@ static void do_nb_iter_bound(void *node, int flag)
 	node0 = (struct nb_iter_bound *)node;
 	if (flag)
 		mem_write(node, sizeof(*node0));
-	do_gimple_seq(node0->stmt, 1);
+	do_gimple_seq(node0->stmt);
 	do_nb_iter_bound(node0->next, 1);
 }
 
@@ -1169,8 +2150,8 @@ static void do_basic_block(basic_block bb, int flag)
 
 	/* basic_block_il_dependent */
 	BUG_ON(bb->flags & BB_RTL);
-	do_gimple_seq(bb->il.gimple.seq, 1);
-	do_gimple_seq(bb->il.gimple.phi_nodes, 1);
+	do_gimple_seq(bb->il.gimple.seq);
+	do_gimple_seq(bb->il.gimple.phi_nodes);
 }
 
 static void do_vec_basic_block(void *node, int flag)
@@ -1229,10 +2210,10 @@ static void do_ssa_operands(void *node, int flag)
 		mem_write(node, sizeof(*node0));
 
 	/* TODO: struct ssa_operand_memory_d *operand_memory */
-	/* TODO: struct use_optype_d *free_uses */
+	/* ignore: struct use_optype_d *free_uses */
 }
 
-/* gimple-ssa.h: SSA and dataflow information */
+/* gimple-ssa.h: SSA and dataflow datastructure */
 static void do_gimple_df(struct gimple_df *df, int flag)
 {
 	if (!df)
@@ -1248,18 +2229,29 @@ static void do_gimple_df(struct gimple_df *df, int flag)
 	/* tree vop */
 	do_tree(df->vop);
 
-	/* TODO: hash_map<tree> decls_to_pointers. How to handle this one? */
+	/*
+	 * decls_to_pointers used in:
+	 *	gcc/alias.c
+	 *	gcc/cfgexpand.c
+	 *	gcc/dse.c
+	 *	gcc/gimple-expr.c
+	 */
+	/* TODO: do_hash_map(df->decls_to_pointers, 1); */
 
 	/* vec<tree> free_ssanames free_ssanemes_queue */
+	/* might be better ignore these two fields */
+#ifdef GCC_CONTAIN_FREE_SSANAMES
 	do_vec_tree((void *)df->free_ssanames, 1);
 	do_vec_tree((void *)df->free_ssanames_queue, 1);
+#endif
 
-	/* TODO: hash_table<ssa_name_hasher> default_defs. Howto? */
+	/* hash_table is borrowed from libiberty htab_t in hashtab.h */
+	/* TODO: do_hash_table(df->default_defs, 1); */
 
 	/* ssa_operands ssa_operands */
 	do_ssa_operands(&df->ssa_operands, 0);
 
-	/* TODO: hash_table<tm_restart_hasher tm_restart. Howto? */
+	/* ignore: hash_table<tm_restart_hasher tm_restart. Howto? */
 }
 
 /* cfgloop.h: the loops in this function */
@@ -1275,10 +2267,57 @@ static void do_loops(struct loops *loop, int flag)
 	/* vec<loop_p> larray */
 	do_vec_loop(loop->larray, 1);
 
-	/* TODO: hash_table<loop_exit_hasher> exits. Howto? */
+	/* TODO: hash_table<loop_exit_hasher> exits. likewise */
 
 	/* struct loop *tree_root */
 	do_loop(loop->tree_root, 1);
+}
+
+static void do_function(struct function *node, int flag);
+static void do_histogram_value(void *node)
+{
+	if (!node)
+		return;
+	if (is_obj_checked(node))
+		return;
+
+	struct histogram_value_t *node0;
+	node0 = (struct histogram_value_t *)node;
+
+	mem_write(node, sizeof(*node0));
+	if (!is_obj_checked((void *)node0->hvalue.counters))
+		mem_write(node0->hvalue.counters,
+			node0->n_counters * sizeof(node0->hvalue.counters[0]));
+
+	do_function(node0->fun, 1);
+
+	do_tree(node0->hvalue.value);
+	do_gimple_seq(node0->hvalue.stmt);
+	do_histogram_value(node0->hvalue.next);
+}
+
+static void do_histogram_values(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	struct htab *node0;
+	node0 = (struct htab *)node;
+
+	if (flag)
+		mem_write(node, sizeof(*node0));
+
+	if (!is_obj_checked((void *)node0->entries))
+		mem_write(node0->entries,
+				node0->size * sizeof(node0->entries[0]));
+	for (size_t i = 0; i < node0->size; i++) {
+		if ((node0->entries[i] == HTAB_EMPTY_ENTRY) ||
+			node0->entries[i] == HTAB_DELETED_ENTRY)
+			continue;
+		do_histogram_value(node0->entries[i]);
+	}
 }
 
 static void do_function(struct function *node, int flag)
@@ -1301,13 +2340,13 @@ static void do_function(struct function *node, int flag)
 #if __GNUC__ < 8
 	do_tree(node0->cilk_frame_decl);
 #endif
-	do_gimple_seq(node0->gimple_body, 1);
+	do_gimple_seq(node0->gimple_body);
 	do_cfg(node0->cfg, 1);
 	do_gimple_df(node0->gimple_df, 1);
 	do_loops(node0->x_current_loops, 1);
+	do_histogram_values(node0->value_histograms, 1);
 	/* TODO, node0->eh, except.h, ignore it */
 	/* TODO, node0->su */
-	/* TODO, node0->value_histograms */
 	/* TODO, node0->used_types_hash */
 	/* TODO, node0->fde */
 	/* TODO, node0->cannot_be_copied_reason */
@@ -1377,6 +2416,8 @@ static void do_tree(tree node)
 {
 	if (!node)
 		return;
+
+	BUG_ON(check_tree_code(node));
 
 	enum tree_code code = TREE_CODE(node);
 	enum tree_code_class tc = TREE_CODE_CLASS(code);
@@ -1895,10 +2936,7 @@ static void do_var_decl(tree node, int flag)
 		size_t start = obj_idx - 1;
 		expanded_location xloc;
 		xloc = expand_location(DECL_SOURCE_LOCATION(node));
-		if (is_global_var(node) &&
-			((!DECL_CONTEXT(node)) ||
-			 (TREE_CODE(DECL_CONTEXT(node)) ==
-				TRANSLATION_UNIT_DECL)) && (xloc.file)) {
+		if (si_is_global_var(node, &xloc)) {
 			objs[start].is_global_var = 1;
 		}
 	}
@@ -1968,11 +3006,36 @@ static void do_function_decl(tree node, int flag)
 	 *	can be the case for a C99 "extern inline" function.
 	 */
 
+#if 0
+	/*
+	 * UPDATE: as we modify the collection of gimples, there could be
+	 * some function_decl there, which may still contain saved_tree.
+	 */
 	BUG_ON(node0->saved_tree);
+#endif
 
 	if (is_obj_checked((void *)node))
 		return;
 	node_write(node);
+
+#if 0
+	/*
+	 * XXX: update: maybe we donot need to do this?
+	 *
+	 * XXX: update
+	 *	an OOB access on tree_code_class happened in
+	 *	net/core/sock_reuseport.c.
+	 *	so first we decrease the function collection size
+	 *	then add a check assert on tree_code_name gimple_code_name.
+	 * NOTE: we need to save the name node
+	 */
+	if (!node0->f) {
+		tree name = DECL_NAME(node);
+		do_tree(name);
+		return;
+	}
+#endif
+
 	size_t start = obj_idx - 1;
 	objs[start].is_function = 1;
 
@@ -2016,44 +3079,114 @@ static void do_vec(tree node, int flag)
 
 static void do_fixed_cst(tree node, int flag)
 {
-#if 0
 	if (!node)
 		return;
 	if (flag && is_obj_checked((void *)node))
 		return;
 	if (flag)
 		node_write(node);
-#endif
 
-	BUG();
+	return;
 }
 
 static void do_vector(tree node, int flag)
 {
-#if 0
 	if (!node)
 		return;
 	if (flag && is_obj_checked((void *)node))
 		return;
 	if (flag)
 		node_write(node);
-#endif
 
-	BUG();
+	return;
 }
 
 static void do_complex(tree node, int flag)
 {
-#if 0
 	if (!node)
 		return;
 	if (flag && is_obj_checked((void *)node))
 		return;
 	if (flag)
 		node_write(node);
-#endif
 
-	BUG();
+	return;
+}
+
+static void do_tree_p(void *node)
+{
+	if (!node)
+		return;
+	if (is_obj_checked(node))
+		return;
+
+	tree *node0;
+	node0 = (tree *)node;
+	mem_write(node, sizeof(*node0));
+	do_tree(*node0);
+}
+
+/*
+ * check imm_use_iterator structure
+ * TODO, still confused..
+ *	the root ssa_use_operand_t use loc.ssa_name while others use
+ *	loc.stmt?
+ *	the root ssa_use_operand_t->use is NULL
+ */
+static void do_ssa_use_operand(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked((void *)node))
+		return;
+
+	struct ssa_use_operand_t *node0;
+	node0 = (struct ssa_use_operand_t *)node;
+	if (flag)
+		mem_write(node, sizeof(*node0));
+
+	do_ssa_use_operand(node0->prev, 1);
+	do_ssa_use_operand(node0->next, 1);
+
+	/*
+	 * FIXME: stmt gimple or ssa_name tree?
+	 *	if node0->use is NULL, this is a root node, use the ssa_name
+	 *	otherwise, use the stmt
+	 */
+	if (node0->use) {
+		do_gimple_seq(node0->loc.stmt);
+		do_tree_p(node0->use);
+	} else {
+		/* this is the root node */
+		BUG_ON(TREE_CODE(node0->loc.ssa_name) != SSA_NAME);
+		do_tree(node0->loc.ssa_name);
+	}
+}
+
+static void do_ptr_info_def(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	struct ptr_info_def *node0;
+	node0 = (struct ptr_info_def *)node;
+	if (flag)
+		mem_write(node, sizeof(*node0));
+}
+
+static void do_range_info_def(void *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	struct range_info_def *node0;
+	node0 = (struct range_info_def *)node;
+	if (flag)
+		mem_write(node, sizeof(*node0));
 }
 
 static void do_ssa_name(tree node, int flag)
@@ -2068,36 +3201,41 @@ static void do_ssa_name(tree node, int flag)
 	struct tree_ssa_name *node0 = (struct tree_ssa_name *)node;
 	do_typed((tree)&node0->typed, 0);
 	do_tree(node0->var);
-	do_gimple_seq(node0->def_stmt, 1);
-	/* TODO: info, imm_uses */
+	do_gimple_seq(node0->def_stmt);
+
+	int testv;
+	testv = node0->typed.type ? (!POINTER_TYPE_P(TREE_TYPE(node))) : 2;
+	if (!testv) {
+		do_ptr_info_def(node0->info.ptr_info, 1);
+	} else if (testv == 1) {
+		do_range_info_def(node0->info.range_info, 1);
+	}
+
+	do_ssa_use_operand(&node0->imm_uses, 0);
 }
 
 static void do_binfo(tree node, int flag)
 {
-#if 0
 	if (!node)
 		return;
 	if (flag && is_obj_checked((void *)node))
 		return;
 	if (flag)
 		node_write(node);
-#endif
 
-	BUG();
+	return;
 }
 
 static void do_omp_clause(tree node, int flag)
 {
-#if 0
 	if (!node)
 		return;
 	if (flag && is_obj_checked((void *)node))
 		return;
 	if (flag)
 		node_write(node);
-#endif
 
-	BUG();
+	return;
 }
 
 static void do_optimization_option(tree node, int flag)
@@ -2122,16 +3260,14 @@ static void do_optimization_option(tree node, int flag)
 
 static void do_target_option(tree node, int flag)
 {
-#if 0
 	if (!node)
 		return;
 	if (flag && is_obj_checked((void *)node))
 		return;
 	if (flag)
 		node_write(node);
-#endif
 
-	BUG();
+	return;
 }
 
 #if 0
@@ -2151,13 +3287,75 @@ static void ast_collect(void *gcc_data, void *user_data)
 }
 #endif
 
+static int global_collected = 0;
+static void do_global_tree(tree obj, unsigned short idx)
+{
+	BUG_ON(idx >= (1ULL<<(sizeof(idx)*8)));
+	if (is_obj_checked((void *)obj)) {
+		objs[obj_idx].fake_addr = (unsigned long)obj;
+		objs[obj_idx].gcc_global_varidx = idx;
+		obj_idx++;
+	} else {
+		int cur_idx = obj_idx;
+		do_tree(obj);
+		BUG_ON(cur_idx >= obj_idx);
+		objs[cur_idx].gcc_global_varidx = idx;
+	}
+}
+
+static void collect_global_data(void)
+{
+	/*
+	 * use objs to track all gcc global vars
+	 * check if the current object is already checked?
+	 * if not, do the collection as usual
+	 */
+
+	unsigned short idx = 1; /* start with 1 */
+
+	/* collect global_trees data */
+	for (int i = 0; i < TI_MAX; i++) {
+		do_global_tree(global_trees[i], idx);
+		idx++;
+	}
+
+	/* collect the standard C integer types */
+	for (int i = 0; i < itk_none; i++) {
+		do_global_tree(integer_types[i], idx);
+		idx++;
+	}
+
+	/* collect the types used to represent sizes */
+	for (int i = 0; i < stk_type_kind_last; i++) {
+		do_global_tree(sizetype_tab[i], idx);
+		idx++;
+	}
+}
+
 static void ast_collect(void *gcc_data, void *user_data)
 {
+	/*
+	 * check gcc/cgraph.h FOR_EACH_SYMBOL:
+	 *	for ((node) = symtab->first_symbol(); (node); ->next)
+	 *	the first_symbol() just return nodes
+	 * the file contains some other macros:
+	 *	FOR_EACH_DEFINED_SYMBOL
+	 *	FOR_EACH_DEFINED_FUNCTION
+	 */
 	symtab_node *node = symtab->nodes;
 	while (node) {
 		tree decl = node->decl;
 		do_tree(decl);
 		node = node->next;
+	}
+
+	/*
+	 * collect some global data first
+	 * make sure we only call collect_global_data() once
+	 */
+	if (!global_collected) {
+		collect_global_data();
+		global_collected = 1;
 	}
 
 	nodes_flush(outfd);
@@ -2229,7 +3427,7 @@ int plugin_init(struct plugin_name_args *plugin_info,
 				&this_plugin_info);
 
 	/* collect data, flush data to file */
-	register_callback(plugin_info->base_name, PLUGIN_ALL_IPA_PASSES_START,
+	register_callback(plugin_info->base_name, PLUGIN_ALL_IPA_PASSES_END,
 				ast_collect, NULL);
 	return 0;
 }

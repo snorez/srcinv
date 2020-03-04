@@ -345,7 +345,7 @@ meantime, it detects the statements which are not reachable.
 
 
 --[ 4.4 - GET_XREFS
-PHASE3, set possible_value_list for every non-local variables, get variables and
+PHASE3, set possible_list for every non-local variables, get variables and
 functions(not direct call) marked(use_at_list), get direct call.
 A direct call is the second op of GIMPLE_CALL statement is addr of a function.
 If the second op of GIMPLE_CALL is VAR_DECL or PARM_DECL, it is an indirect call.
@@ -356,7 +356,7 @@ The resfile of Linux Kernel 4.14.x could not get through the step yet.
 
 --[ 4.5 - GET_INDCFG1
 PHASE4, handle marked functions, if the statement is GIMPLE_ASSIGN, get the lhs of
-this statement, then the var_node of lhs, add a possible_value_list.
+this statement, then the var_node of lhs, add a possible_list.
 
 
 
@@ -365,7 +365,7 @@ PHASE5, handle the indirect calls.
 
 The second op of GIMPLE_CALL is VAR_DECL:
 	get the target var_node of this VAR_DECL
-	check the possible_value_list, add the functions into callee
+	check the possible_list, add the functions into callee
 	check the use_at_list, find out where this value get assigned.
 
 For examples:
