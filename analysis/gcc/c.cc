@@ -5220,8 +5220,7 @@ static void do_get_base(struct sibuf *buf)
 				type = TYPE_NONE;
 		} else if (objs[obj_idx].is_function) {
 			flag = check_file_func((tree)obj_addr);
-			if ((flag == FUNC_IS_EXTERN) ||
-				(flag == FUNC_IS_NONE)) {
+			if (flag == FUNC_IS_EXTERN) {
 				objs[obj_idx].is_dropped = 1;
 				continue;
 			} else if (flag == FUNC_IS_STATIC) {

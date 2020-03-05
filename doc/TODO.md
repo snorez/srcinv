@@ -10,3 +10,7 @@
 + Generate patches for some kind of bugs.
 + More program language support.
 + ...
+
+# collect
++ gcc/c.cc
+	+ why is there functions still contain non-null `saved_tree`?

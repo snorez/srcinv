@@ -147,12 +147,15 @@ static inline int check_file_func(tree node)
 {
 	BUG_ON(TREE_CODE(node) != FUNCTION_DECL);
 	BUG_ON(!DECL_NAME(node));
-	if ((!DECL_EXTERNAL(node)) || DECL_SAVED_TREE(node) ||
+
+	/*
+	 * update: we ignore DECL_SAVED_TREE check here, just
+	 * check functions with f->cfg
+	 * in the meanwhile, we should handle the caller
+	 */
+	if ((!DECL_EXTERNAL(node)) ||
 		(DECL_STRUCT_FUNCTION(node) &&
 		 (DECL_STRUCT_FUNCTION(node)->cfg))) {
-		if (DECL_SAVED_TREE(node))
-			return FUNC_IS_NONE;
-
 		if (TREE_PUBLIC(node)) {
 			return FUNC_IS_GLOBAL;
 		} else {

@@ -206,7 +206,9 @@ BUILD_BUG_ON(SRC_BUF_END > RESFILE_BUF_START, "build arg check err");
 #define	VAR_IS_STATIC	1
 #define	VAR_IS_GLOBAL	2
 #define	FUNC_IS_EXTERN	0
+#if 0
 #define	FUNC_IS_NONE	1	/* for fndecl has saved_tree */
+#endif
 #define	FUNC_IS_STATIC	2
 #define	FUNC_IS_GLOBAL	3
 /* maxium 256 */
