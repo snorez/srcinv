@@ -6168,60 +6168,7 @@ static int is_same_field(tree field0, tree field1, int macro_expanded)
 	CLIB_DBG_FUNC_EXIT();
 }
 
-static struct var_list *get_target_field_phase4(struct type_node *tn,
-						tree field)
-{
-	if (!tn)
-		return NULL;
-
-	CLIB_DBG_FUNC_ENTER();
-
-	struct var_list *tmp = NULL;
-	BUG_ON((tn->type_code != RECORD_TYPE) &&
-			(tn->type_code != UNION_TYPE));
-	BUG_ON(TREE_CODE(field) != FIELD_DECL);
-	int macro_expanded = is_type_from_expand_macro(tn);
-
-	list_for_each_entry(tmp, &tn->children, sibling) {
-		tree n1 = (tree)tmp->var.node;
-		tree n2 = (tree)field;
-
-		if (is_same_field(n1, n2, macro_expanded)) {
-			CLIB_DBG_FUNC_EXIT();
-			return tmp;
-		}
-	}
-
-	list_for_each_entry(tmp, &tn->children, sibling) {
-		struct type_node *t = tmp->var.type;
-		if (!t)
-			continue;
-		struct var_list *ret = NULL;
-		if ((t != tn) && ((t->type_code == RECORD_TYPE) ||
-					(t->type_code == UNION_TYPE)))
-			ret = get_target_field_phase4(t, field);
-		if (ret) {
-			CLIB_DBG_FUNC_EXIT();
-			return ret;
-		}
-	}
-
-#if 0
-	/* typedef struct xxx_s xxx */
-	tree type_tree = (tree)tn->node;
-	tree main_type = TYPE_CANONICAL(type_tree);
-	struct type_node *tn_tmp;
-	tn_tmp = find_type_node(main_type);
-	if (tn_tmp == tn)
-		BUG();
-	tmp = get_target_field_phase4(tn_tmp, field);
-	BUG_ON(!tmp);
-#endif
-
-	CLIB_DBG_FUNC_EXIT();
-	return NULL;
-}
-
+static struct var_list *get_target_field0(struct type_node *tn, tree field);
 static void do_struct_init(struct type_node *tn, tree init_tree)
 {
 	CLIB_DBG_FUNC_ENTER();
@@ -6243,7 +6190,7 @@ static void do_struct_init(struct type_node *tn, tree init_tree)
 	for (unsigned long i = 0; i < length; i++) {
 		BUG_ON(TREE_CODE(addr[i].index) != FIELD_DECL);
 		struct var_list *vnl;
-		vnl = get_target_field_phase4(tn, (tree)addr[i].index);
+		vnl = get_target_field0(tn, (tree)addr[i].index);
 		do_init_value(&vnl->var, addr[i].value);
 	}
 
@@ -6271,7 +6218,7 @@ static void do_union_init(struct type_node *tn, tree init_tree)
 	for (unsigned long i = 0; i < length; i++) {
 		BUG_ON(TREE_CODE(addr[i].index) != FIELD_DECL);
 		struct var_list *vnl;
-		vnl = get_target_field_phase4(tn, (tree)addr[i].index);
+		vnl = get_target_field0(tn, (tree)addr[i].index);
 		do_init_value(&vnl->var, addr[i].value);
 	}
 
@@ -6736,6 +6683,7 @@ re_search:
 
 	if (list_empty(&tn1->children)) {
 		si_log1_todo("tn1 has no children\n");
+		CLIB_DBG_FUNC_EXIT();
 		return NULL;
 	}
 
