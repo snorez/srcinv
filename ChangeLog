@@ -1,4 +1,8 @@
 Thu Mar  5 18:06:49 HKT 2020
+	* check_file_var(): add a new return value: VAR_IS_LOCAL
+	* add testcase directory: check comments in analysis/gcc/c.cc
+	* call_ssaname(): fix a hand writing error: not MODE_ADJUST but
+			  MODE_GETINDCFG2
 	* check_file_func(): do NOT check DECL_SAVED_TREE, do NOT use
 			     FUNC_IS_NONE.
 

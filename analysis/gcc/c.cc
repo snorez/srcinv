@@ -13,13 +13,9 @@
  *
  * TODO:
  *	SSA_NAMEs
- *	do_phase4_mem_ref
- *	get_array_ref_tn
- *	get_component_ref_vnl
- *	do_phase4_mark_component_ref
  *	do_phase4_mark_bit_field_ref
- *	do_gop_mark
- *	what exactly does histogram_values do?
+ *	call_ssaname_gassign_var_decl
+ *	call_ssaname_gphi
  *
  * dump_function_to_file() in gcc/tree-cfg.c
  *	Dump function_decl fn to file using flags
@@ -5235,7 +5231,8 @@ static void do_get_base(struct sibuf *buf)
 						buf->payload, (tree)obj_addr);
 		} else if (objs[obj_idx].is_global_var) {
 			flag = check_file_var((tree)obj_addr);
-			if (flag == VAR_IS_EXTERN) {
+			if ((flag == VAR_IS_EXTERN) ||
+				(flag == VAR_IS_LOCAL)) {
 				objs[obj_idx].is_dropped = 1;
 				continue;
 			} else if (flag == VAR_IS_STATIC) {
@@ -6737,8 +6734,10 @@ re_search:
 		prev_vnl = tmp;
 	}
 
-	if (list_empty(&tn1->children))
-		BUG();
+	if (list_empty(&tn1->children)) {
+		si_log1_todo("tn1 has no children\n");
+		return NULL;
+	}
 
 	/* check the last field */
 	tmp = list_last_entry(&tn1->children, struct var_list, sibling);
@@ -6932,6 +6931,25 @@ static void do_phase4_mark_bit_field_ref(struct tree_exp *op)
 	case ARRAY_REF:
 	{
 		tn = get_array_ref_tn((struct tree_exp *)t0);
+		break;
+	}
+	case SSA_NAME:
+	{
+		/* v0.4-test */
+		/*
+		 * print_IO_APIC() in linux kernel
+		 * the t0 is a INTEGER_TYPE, how to handle this situation??
+		 * this may happen when some codes are:
+		 *	union {
+		 *		u32 dword;
+		 *		struct {
+		 *			...
+		 *		};
+		 *	} some_type;
+		 */
+		tn = find_type_node(TREE_TYPE(t0));
+		if (tn->type_code == INTEGER_TYPE)
+			tn = NULL;
 		break;
 	}
 	default:
@@ -7365,26 +7383,12 @@ static void add_callee(struct sinode *caller_fsn, gimple_seq gs,
 static void call_ssaname_gassign_component_ref(struct sinode *sn,
 				struct func_node *fn,
 				gimple_seq orig_gs,
-				struct gassign *ga)
+				tree ref_op)
 {
 	CLIB_DBG_FUNC_ENTER();
 
 	struct var_list *vnl;
-	tree ref_op;
 	struct possible_list *pl;
-
-	ref_op = gimple_assign_rhs1(ga);
-	BUG_ON(TREE_CODE(ref_op) != COMPONENT_REF);
-
-	if (gimple_assign_rhs2(ga)) {
-		si_log1_todo("GIMPLE_ASSIGN COMPONENT_REF >1 rhs: %d %s %s\n",
-				ga->num_ops,
-				tree_code_name[TREE_CODE(
-						gimple_assign_rhs2(ga))],
-				tree_code_name[TREE_CODE(
-						gimple_assign_rhs3(ga))]);
-		goto out;
-	}
 
 	vnl = get_component_ref_vnl((struct tree_exp *)ref_op);
 	if (!vnl) {
@@ -7428,6 +7432,31 @@ out:
 	return;
 }
 
+static void call_parm_decl(struct sinode *fsn, struct func_node *fn,
+				gimple_seq gs, tree parm);
+static void call_var_decl(struct sinode *fsn, struct func_node *fn,
+				gimple_seq gs, tree var);
+static void call_ssaname_gassign_var_decl(struct sinode *sn,
+				struct func_node *fn,
+				gimple_seq orig_gs,
+				tree var)
+{
+	CLIB_DBG_FUNC_ENTER();
+
+	/*
+	 * machine_check_poll() in linux kernel
+	 */
+
+	if (mode == MODE_GETINDCFG2) {
+		call_var_decl(sn, fn, orig_gs, var);
+	}
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
+}
+
+static void call_addr_expr(struct sinode *sn, struct func_node *fn,
+			gimple_seq gs, tree call_op);
 static void call_ssaname_gassign(struct sinode *sn,
 				struct func_node *fn,
 				gimple_seq orig_gs,
@@ -7445,11 +7474,27 @@ static void call_ssaname_gassign(struct sinode *sn,
 	switch (tc) {
 	case COMPONENT_REF:
 	{
-		call_ssaname_gassign_component_ref(sn, fn, orig_gs, ga);
+		BUG_ON(TREE_CODE(gimple_assign_rhs1(ga)) != COMPONENT_REF);
+		call_ssaname_gassign_component_ref(sn, fn, orig_gs,
+					gimple_assign_rhs1(ga));
 		break;
 	}
 	case NOP_EXPR:
 	{
+		break;
+	}
+	case VAR_DECL:
+	{
+		BUG_ON(TREE_CODE(gimple_assign_rhs1(ga)) != VAR_DECL);
+		call_ssaname_gassign_var_decl(sn, fn, orig_gs,
+					gimple_assign_rhs1(ga));
+		break;
+	}
+	case ADDR_EXPR:
+	{
+		/* testcase-1.c */
+		BUG_ON(TREE_CODE(gimple_assign_rhs1(ga)) != ADDR_EXPR);
+		call_addr_expr(sn, fn, orig_gs, gimple_assign_rhs1(ga));
 		break;
 	}
 	default:
@@ -7463,10 +7508,54 @@ static void call_ssaname_gassign(struct sinode *sn,
 	return;
 }
 
-static void call_parm_decl(struct sinode *fsn, struct func_node *fn,
-				gimple_seq gs, tree parm);
-static void call_var_decl(struct sinode *fsn, struct func_node *fn,
-				gimple_seq gs, tree var);
+static void call_ssaname(struct sinode *sn, struct func_node *fn,
+				gimple_seq gs, tree call_op);
+static void call_ssaname_gphi_op(struct sinode *sn, struct func_node *fn,
+				gimple_seq orig_gs, tree phi_op)
+{
+	CLIB_DBG_FUNC_ENTER();
+
+	switch (TREE_CODE(phi_op)) {
+	case SSA_NAME:
+	{
+		call_ssaname(sn, fn, orig_gs, phi_op);
+		break;
+	}
+	default:
+	{
+		si_log1_todo("miss %s\n", tree_code_name[TREE_CODE(phi_op)]);
+		break;
+	}
+	}
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
+}
+
+static void call_ssaname_gphi(struct sinode *sn, struct func_node *fn,
+				gimple_seq orig_gs, gimple_seq def_stmt)
+{
+	/*
+	 * check dump_gimple_phi() in gcc/gimple-pretty-print.c
+	 */
+	CLIB_DBG_FUNC_ENTER();
+
+	size_t i;
+	for (i = 0; i < gimple_phi_num_args(def_stmt); i++) {
+		call_ssaname_gphi_op(sn, fn, orig_gs,
+					gimple_phi_arg_def(def_stmt, i));
+	}
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
+}
+
+/*
+ * XXX: be careful, this function is called in two phases:
+ *	MODE_GETSTEP4 / MODE_GETINDCFG2
+ *
+ *	so, the procedure here should handle these phases carefully
+ */
 static void call_ssaname(struct sinode *sn,
 				struct func_node *fn,
 				gimple_seq gs,
@@ -7485,6 +7574,20 @@ static void call_ssaname(struct sinode *sn,
 	case GIMPLE_ASSIGN:
 	{
 		call_ssaname_gassign(sn, fn, gs, def_gs);
+		break;
+	}
+	case GIMPLE_PHI:
+	{
+		/*
+		 * this might happen when the code does this:
+		 *	void (*cb)(int);
+		 *	if (...)
+		 *		cb = cb1;
+		 *	else
+		 *		cb = cb2;
+		 *	cb(1);		=> PHI node
+		 */
+		call_ssaname_gphi(sn, fn, gs, def_gs);
 		break;
 	}
 	default:
@@ -7509,7 +7612,7 @@ ssa_var:
 	}
 	case VAR_DECL:
 	{
-		if (mode == MODE_ADJUST)
+		if (mode == MODE_GETINDCFG2)
 			call_var_decl(sn, fn, gs, var);
 		break;
 	}
@@ -7842,6 +7945,12 @@ static void _do_phase5_func(struct sinode *n, struct sinode *fsn, tree op)
 		_do_phase5_func(n, fsn, array_node);
 		break;
 	}
+	case SSA_NAME:
+	{
+		/* testcase-1.c */
+		/* FIXME: do nothing here */
+		break;
+	}
 	default:
 	{
 		si_log1("miss %s\n", tree_code_name[tc]);
@@ -7994,7 +8103,8 @@ static void __call_var_decl(struct sinode *fsn, struct func_node *fn,
 
 	struct var_node *vn = get_target_var_node(fsn, var);
 
-	add_possible_callee(fsn, gs, &vn->possible_values);
+	if (vn)
+		add_possible_callee(fsn, gs, &vn->possible_values);
 
 	CLIB_DBG_FUNC_EXIT();
 	return;
@@ -8068,21 +8178,24 @@ static void call_var_decl(struct sinode *fsn, struct func_node *fn,
 {
 	CLIB_DBG_FUNC_ENTER();
 
-	struct var_node *vn = get_target_var_node(fsn, var);
+	struct var_node *vn = NULL;
 	__call_var_decl(fsn, fn, gs, var);
 
-	struct use_at_list *tmp_ua;
-	list_for_each_entry(tmp_ua, &vn->used_at, sibling) {
-		gimple_seq gs = (gimple_seq)tmp_ua->gimple_stmt;
-		analysis__resfile_load(find_target_sibuf(gs));
-		enum gimple_code gc = gimple_code(gs);
-		if ((gc != GIMPLE_ASSIGN) || (tmp_ua->op_idx))
-			continue;
-		if (gimple_num_ops(gs) != 2)
-			continue;
-		tree *ops = gimple_ops(gs);
-		tree rhs = ops[1];
-		_call_var_decl(fsn, fn, gs, rhs);
+	vn = get_target_var_node(fsn, var);
+	if (vn) {
+		struct use_at_list *tmp_ua;
+		list_for_each_entry(tmp_ua, &vn->used_at, sibling) {
+			gimple_seq gs = (gimple_seq)tmp_ua->gimple_stmt;
+			analysis__resfile_load(find_target_sibuf(gs));
+			enum gimple_code gc = gimple_code(gs);
+			if ((gc != GIMPLE_ASSIGN) || (tmp_ua->op_idx))
+				continue;
+			if (gimple_num_ops(gs) != 2)
+				continue;
+			tree *ops = gimple_ops(gs);
+			tree rhs = ops[1];
+			_call_var_decl(fsn, fn, gs, rhs);
+		}
 	}
 
 	CLIB_DBG_FUNC_EXIT();

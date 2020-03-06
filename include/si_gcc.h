@@ -128,8 +128,9 @@ static inline int check_file_var(tree node)
 			BUG_ON(!DECL_NAME(node));
 			return VAR_IS_GLOBAL;
 		} else {
-			if (unlikely(!TREE_STATIC(node)))
-				BUG();
+			if (unlikely(!TREE_STATIC(node))) {
+				return VAR_IS_LOCAL;
+			}
 			return VAR_IS_STATIC;
 		}
 	} else {
@@ -443,10 +444,12 @@ static inline void get_var_sinode(tree node, struct sinode **sn_ret, int flag)
 		sn = analysis__sinode_search(TYPE_VAR_STATIC, SEARCH_BY_SPEC,
 						(void *)args);
 	} else {
-		BUG();
+		/* VAR_IS_LOCAL */
+		return;
 	}
 
 	*sn_ret = sn;
+	return;
 }
 
 static inline void show_gimple(gimple_seq gs)
