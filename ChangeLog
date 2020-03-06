@@ -1,5 +1,6 @@
 Fri Mar  6 20:48:06 HKT 2020
 	* get_target_field_phase4: removed
+	* fix SIGSEGV in get_target_field1(): xloc could be NULL in UNION_TYPE
 
 Thu Mar  5 18:06:49 HKT 2020
 	* check_file_var(): add a new return value: VAR_IS_LOCAL
