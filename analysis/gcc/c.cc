@@ -12,6 +12,8 @@
  *	PHASE3: is there any race condition?
  *
  * TODO:
+ *	rewrite phase 4-6
+ *		phase 1-3 are solid now, 4-6 are bad.
  *	SSA_NAMEs
  *	do_phase4_mark_bit_field_ref
  *	call_ssaname_gassign_var_decl
@@ -7088,7 +7090,11 @@ static void do_gop_mark(tree op)
 				(TREE_CODE(op0) == STRING_CST)) {
 			break;
 		} else if ((TREE_CODE(op0) == LABEL_DECL)) {
-			BUG_ON(gimple_code(cur_gimple) != GIMPLE_ASSIGN);
+			if (gimple_code(cur_gimple) != GIMPLE_ASSIGN)
+				si_log1_todo("miss %s\n",
+					gimple_code_name[
+					gimple_code(cur_gimple)]);
+			break;
 		} else {
 			expanded_location *xloc;
 			xloc = get_gimple_loc(fsn->buf->payload,&gs->location);
