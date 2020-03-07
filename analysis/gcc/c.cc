@@ -6716,9 +6716,9 @@ re_search:
 						b->payload,
 						node);
 			si_log1_todo("UNION_TYPE at %s %d %d\n",
-					xloc->file,
-					xloc->line,
-					xloc->column);
+					xloc ? xloc->file : NULL,
+					xloc ? xloc->line : 0,
+					xloc ? xloc->column : 0);
 			CLIB_DBG_FUNC_EXIT();
 			return prev_vnl;
 		}
