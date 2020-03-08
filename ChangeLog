@@ -1,3 +1,8 @@
+Sun Mar  8 21:19:18 HKT 2020
+	* analysis/gcc/c.cc: rewrite phase 4-6
+	* analysis/gcc/c.cc: output thread ID, with CLIB_DBG_FUNC_ENTER(), it
+	can show us which source file trigger an exception.
+
 Sat Mar  7 10:55:57 HKT 2020
 	* fix an imcomplete fix in get_target_field1()
 	* remove a BUG_ON

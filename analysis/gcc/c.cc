@@ -6580,13 +6580,16 @@ static struct var_list *get_target_field0(struct type_node *tn, tree field)
 
 	list_for_each_entry(tmp, &tn->children, sibling) {
 		struct type_node *t = tmp->var.type;
+		struct var_list *ret = NULL;
+
 		if (!t)
 			continue;
-		struct var_list *ret = NULL;
+
 		if ((t != tn) &&
 			((t->type_code == RECORD_TYPE) ||
 			 (t->type_code == UNION_TYPE)))
 			ret = get_target_field0(t, field);
+
 		if (ret) {
 			CLIB_DBG_FUNC_EXIT();
 			return ret;
@@ -8255,7 +8258,7 @@ static void c_show_progress(int signo, siginfo_t *si, void *arg, int last)
 	mt_print0(id, buf);
 	clib_ap_end(buf);
 #else
-	mt_print1(id, "%s (%ld%%)\n", parsing_file, percent);
+	mt_print1(id, "0x%lx %s (%ld%%)\n", id, parsing_file, percent);
 #endif
 }
 
