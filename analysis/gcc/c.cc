@@ -8206,7 +8206,10 @@ static void do_phase5_func(struct sinode *n)
 {
 	CLIB_DBG_FUNC_ENTER();
 
-	struct func_node *fn = (struct func_node *)n->data;
+	struct func_node *fn;
+
+	analysis__resfile_load(n->buf);
+	fn = (struct func_node *)n->data;
 
 	__do_func_used_at(n, fn);
 	__do_trace_call(n, fn);
