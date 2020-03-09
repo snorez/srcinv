@@ -7908,6 +7908,11 @@ static void call_ssaname_gassign(struct sinode *sn,
 		call_addr_expr(sn, fn, orig_gs, gimple_assign_rhs1(ga));
 		break;
 	}
+	case MEM_REF:
+	{
+		/* TODO */
+		break;
+	}
 	default:
 	{
 		si_log1_todo("miss subcode %s\n", tree_code_name[tc]);
@@ -7955,6 +7960,10 @@ static void call_ssaname_gphi_op(struct sinode *sn, struct func_node *fn,
 	case SSA_NAME:
 	{
 		call_ssaname(sn, fn, orig_gs, phi_op, 1);
+		break;
+	}
+	case INTEGER_CST:
+	{
 		break;
 	}
 	default:
