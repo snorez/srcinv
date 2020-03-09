@@ -1,3 +1,6 @@
+Mon Mar  9 09:49:05 HKT 2020
+	* analysis: output target file cmdline AND idx
+
 Sun Mar  8 21:19:18 HKT 2020
 	* analysis/gcc/c.cc: rewrite phase 4-6
 	* analysis/gcc/c.cc: output thread ID, with CLIB_DBG_FUNC_ENTER(), it

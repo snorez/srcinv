@@ -466,7 +466,7 @@ int resfile_get_offset(char *path, unsigned long filecnt, unsigned long *offs)
 	return 0;
 }
 
-struct file_content *resfile_get_fc(char *path, char *targetfile)
+struct file_content *resfile_get_fc(char *path, char *targetfile, int *idx)
 {
 	int fd;
 	int err = 0;
@@ -476,6 +476,7 @@ struct file_content *resfile_get_fc(char *path, char *targetfile)
 		return NULL;
 	}
 
+	*idx = 0;
 	while (1) {
 		unsigned int *this_total = (unsigned int *)tmp_read_buf;
 		err = read(fd, this_total, sizeof(unsigned int));
@@ -508,6 +509,7 @@ struct file_content *resfile_get_fc(char *path, char *targetfile)
 			close(fd);
 			return fc;
 		}
+		*idx = *idx + 1;
 	}
 
 	close(fd);

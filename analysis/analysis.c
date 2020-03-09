@@ -561,14 +561,15 @@ static long cmdline_cb(int argc, char *argv[])
 	}
 
 	struct file_content *fc;
-	fc = analysis__resfile_get_fc(respath, argv[2]);
+	int idx;
+	fc = analysis__resfile_get_fc(respath, argv[2], &idx);
 	if (!fc) {
 		err_dbg(0, "analysis__resfile_get_fc err");
 		return -1;
 	}
 
-	fprintf(stdout, "the target command line is\n"
-			"\t%s\n", (char *)fc_cmdptr(fc));
+	fprintf(stdout, "the target file idx: %d, command line is\n"
+			"\t%s\n", idx, (char *)fc_cmdptr(fc));
 	return 0;
 }
 

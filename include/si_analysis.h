@@ -92,8 +92,8 @@ CLIB_MODULE_CALL_FUNC(analysis, resfile_get_offset, int,
 		3, path, filecnt, offs);
 
 CLIB_MODULE_CALL_FUNC(analysis, resfile_get_fc, struct file_content *,
-		(char *path, char *targetfile),
-		2, path, targetfile);
+		(char *path, char *targetfile, int *idx),
+		3, path, targetfile, idx);
 
 CLIB_MODULE_CALL_FUNC(analysis, get_func_code_paths_start, void,
 		(struct code_path *codes),
