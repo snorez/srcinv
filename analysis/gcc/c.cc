@@ -12,7 +12,7 @@
  *	PHASE3: is there any race condition?
  *
  * TODO:
- *	rewrite phase 5-6
+ *	todos and si_log1_todo
  *
  * phase 1-3 are solid now, 4-6 are bad.
  * phase4: init value, mark var parm function ONLY
@@ -6496,6 +6496,7 @@ static void do_phase4_gvar(struct sinode *sn)
 }
 
 static void __4_mark_gimple_op(tree op);
+#if 0
 static struct type_node *get_mem_ref_tn(tree op)
 {
 	CLIB_DBG_FUNC_ENTER();
@@ -6527,6 +6528,7 @@ static struct type_node *get_mem_ref_tn(tree op)
 	CLIB_DBG_FUNC_EXIT();
 	return tn;
 }
+#endif
 
 static struct type_node *get_array_ref_tn(struct tree_exp *exp)
 {
@@ -6559,9 +6561,15 @@ static struct var_list *get_target_field0(struct type_node *tn, tree field)
 	struct var_list *tmp = NULL;
 	while (tn->type_code == POINTER_TYPE) {
 		tn = tn->next;
+		if (!tn) {
+			CLIB_DBG_FUNC_EXIT();
+			return NULL;
+		}
 	}
 	if ((tn->type_code != RECORD_TYPE) && (tn->type_code != UNION_TYPE)) {
-		si_log1_todo("miss %s\n", tree_code_name[tn->type_code]);
+		if (tn->type_code != VOID_TYPE)
+			si_log1_todo("miss %s\n",
+					tree_code_name[tn->type_code]);
 		CLIB_DBG_FUNC_EXIT();
 		return NULL;
 	}
@@ -6820,8 +6828,7 @@ static struct var_list *get_component_ref_vnl(tree op)
 	}
 	case MEM_REF:
 	{
-		/* tn = find_type_node(TREE_TYPE(t0)); */
-		tn = get_mem_ref_tn(t0);
+		tn = find_type_node(TREE_TYPE(t0));
 		break;
 	}
 	default:
@@ -6916,8 +6923,7 @@ static void __4_mark_bit_field_ref(tree op)
 	switch (TREE_CODE(t0)) {
 	case MEM_REF:
 	{
-		/* tn = find_type_node(TREE_TYPE(t0)); */
-		tn = get_mem_ref_tn(t0);
+		tn = find_type_node(TREE_TYPE(t0));
 		break;
 	}
 	case VAR_DECL:

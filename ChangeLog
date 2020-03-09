@@ -1,5 +1,7 @@
 Mon Mar  9 09:49:05 HKT 2020
 	* analysis: output target file cmdline AND idx
+	* analysis/gcc/c.cc: do NOT use get_mem_ref_tn()
+	* analysis/gcc/c.cc: fix a potential NULL-deref BUG
 
 Sun Mar  8 21:19:18 HKT 2020
 	* analysis/gcc/c.cc: rewrite phase 4-6
