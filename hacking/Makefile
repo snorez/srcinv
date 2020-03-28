@@ -21,6 +21,7 @@ CC0_SO =
 CC1_SO = uninit.so \
 	 kern_copyuser.so \
 	 gensample.so \
+	 list_function.so \
 	 debuild.so \
 	 fuzz.so \
 	 test.so
