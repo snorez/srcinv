@@ -6,7 +6,7 @@ This document still needs to be perfected.
 
 
 
-<p id="0"></p>
+<span id="0"></span>
 ### Contents
 - [1 - Introduction](#1)
 	- [1.1 - The framework](#1.1)
@@ -28,7 +28,7 @@ This document still needs to be perfected.
 
 
 
-<p id="1"></p>
+<span id="1"></span>
 ### 1 - Introduction
 SRCINV is short for source code investigator.
 
@@ -46,7 +46,7 @@ patches for the bug.
 
 
 
-<p id="1.1"></p>
+<span id="1.1"></span>
 ### 1.1 - The framework
 - **Directories**
 	- analysis
@@ -90,7 +90,7 @@ patches for the bug.
 
 
 
-<p id="1.2"></p>
+<span id="1.2"></span>
 ### 1.2 - The dependencies
 The framework could only run on 64bit GNU/Linux systems, and need personality
 system call to disable the current process aslr.
@@ -110,7 +110,7 @@ Header files:
 
 
 
-<p id="1.3"></p>
+<span id="1.3"></span>
 ### 1.3 - The targets
 For now, the framework is only for C projects compiled by GCC.
 
@@ -118,7 +118,7 @@ For now, the framework is only for C projects compiled by GCC.
 
 
 
-<p id="2"></p>
+<span id="2"></span>
 ### 2 - Usage of this framework
 This framework has several levels:
 - level 0: SRCINV(the main).
@@ -232,7 +232,7 @@ parse the collected data, use the parsed data.
 
 
 
-<p id="3"></p>
+<span id="3"></span>
 ### 3 - Collect information of the target project
 **NOTE: before collecting information of a project, make sure the resfile not
 exist yet.**
@@ -349,7 +349,7 @@ collect is about 30G.
 
 
 
-<p id="4"></p>
+<span id="4"></span>
 ### 4 - Parse the data
 The main feature of the framework is parsing the data. However, it is
 the most complicated part.
@@ -394,7 +394,7 @@ all the six phases.
 
 
 
-<p id="4.1"></p>
+<span id="4.1"></span>
 ### 4.1 - ADJUST
 The data we collect, a lot of pointers in it. We must adjust these pointers
 before we read it, locations as well.
@@ -406,7 +406,7 @@ use `*(expanded_location *)(sibuf->payload + loc_value)` to get the location.
 
 
 
-<p id="4.2"></p>
+<span id="4.2"></span>
 ### 4.2 - GET BASE
 Base info include:
 - TYPE\_FUNC\_GLOBAL,
@@ -424,7 +424,7 @@ symbols?).
 
 
 
-<p id="4.3"></p>
+<span id="4.3"></span>
 ### 4.3 - GET DETAIL
 For TYPE\_TYPE, need to know the type it points to, or the size, or the fields.
 
@@ -437,7 +437,7 @@ function body.
 
 
 
-<p id="4.4"></p>
+<span id="4.4"></span>
 ### 4.4 - PHASE4
 PHASE4, set possible\_list for each non-local variables, get variables and
 functions(not direct call) marked(use\_at\_list).
@@ -446,7 +446,7 @@ functions(not direct call) marked(use\_at\_list).
 
 
 
-<p id="4.5"></p>
+<span id="4.5"></span>
 ### 4.5 - PHASE5
 PHASE5, handle marked functions, then try best to trace calls.
 
@@ -460,7 +460,7 @@ NOTE, we are dealing with tree\_ssa\_name now.
 
 
 
-<p id="4.6"></p>
+<span id="4.6"></span>
 ### 4.6 - PHASE6
 Nothing to do here, do phase5 again.
 
@@ -468,7 +468,7 @@ Nothing to do here, do phase5 again.
 
 
 
-<p id="5"></p>
+<span id="5"></span>
 ### 5 - Use the information to do something
 We need to write some plugins to use parsed data. As we collect the lower
 GIMPLEs, these are what we handle in hacking plugins.
@@ -502,7 +502,7 @@ This plugin detects all functions one by one:
 
 
 
-<p id="6"></p>
+<span id="6"></span>
 ### 6 - Future work
 Check [TODO.md](https://github.com/hardenedlinux/srcinv/blob/master/doc/TODO.md)
 
@@ -510,14 +510,14 @@ Check [TODO.md](https://github.com/hardenedlinux/srcinv/blob/master/doc/TODO.md)
 
 
 
-<p id="7"></p>
+<span id="7"></span>
 ### 7 - References
 [0] [srcinv project homepage](https://github.com/hardenedlinux/srcinv/)
 
-<p id="ref1"></p>
+<span id="ref1"></span>
 [1] [GNU Compiler Collection Internals](https://gcc.gnu.org/onlinedocs/gcc-8.3.0/gccint.pdf)
 
-<p id="ref2"></p>
+<span id="ref2"></span>
 [2] [GCC source code](http://mirrors.concertpass.com/gcc/releases/gcc-8.3.0/gcc-8.3.0.tar.gz)
 
 [3] [深入分析GCC](https://www.amazon.cn/dp/B06XCPZFKD)
@@ -527,7 +527,7 @@ Check [TODO.md](https://github.com/hardenedlinux/srcinv/blob/master/doc/TODO.md)
 [Back to Contents](#0)
 
 
-<p id="8"></p>
+<span id="8"></span>
 ### 8 - Greetings
 Thanks to the author of <<深入分析GCC>> for helping me to understand the
 inside of GCC.

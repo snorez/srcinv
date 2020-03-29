@@ -1,6 +1,1 @@
-Sun Mar 29 13:05:31 HKT 2020
-	* hacking/list_function.cc: add output format support
 
-Sat Mar 28 21:30:06 HKT 2020
-	* hacking: add list_function module
-	* hacking/list_function.cc: do not output filename
