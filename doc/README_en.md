@@ -98,13 +98,13 @@ system call to disable the current process aslr.
 The colorful prompt could be incompatible.
 
 Libraries:
-	[clib](https://github.com/snorez/clib/)
-	ncurses
-	readline
-	libcapstone
+- [clib](https://github.com/snorez/clib/)
+- ncurses
+- readline
+- libcapstone
 
 Header files:
-	gcc plugin library
+- gcc plugin library
 
 [Back to Contents](#0)
 
