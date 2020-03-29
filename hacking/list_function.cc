@@ -26,23 +26,31 @@ static char modname[] = "list_function";
 
 static void usage(void)
 {
-	fprintf(stdout, "\t[dir/file]\n\tList functions in dir or file\n");
+	fprintf(stdout, "\t[dir/file] (format)\n"
+			"\tList functions in dir or file\n"
+			"\tformat:\n"
+			"\t\t0(normal output)\n"
+			"\t\t1(markdown output)\n");
 }
 
-static void find_match(char *target);
+static void find_match(char *target, int format);
 static long cb(int argc, char *argv[])
 {
-	if (argc != 2) {
+	if ((argc != 2) && (argc != 3)) {
 		err_msg("argc invalid");
 		return -1;
 	}
 
 	char *target = argv[1];
-	find_match(target);
+	int format = 0;
+	if (argc == 3)
+		format = atoi(argv[2]);
+
+	find_match(target, format);
 	return 0;
 }
 
-static void __match(union siid *tid, char *target)
+static void __match(union siid *tid, char *target, int format)
 {
 	struct sinode *fsn;
 	fsn = analysis__sinode_search(siid_type(tid), SEARCH_BY_ID, tid);
@@ -54,25 +62,38 @@ static void __match(union siid *tid, char *target)
 	if (strncmp(target, filename, strlen(target)))
 		return;
 
-	fprintf(stdout, "%s in %s\n", fsn->name, fsn->loc_file->name);
+	switch (format) {
+	case 1:
+	{
+		/* for markdown */
+		fprintf(stdout, "- `%s`\n", fsn->name);
+		break;
+	}
+	case 0:
+	default:
+	{
+		fprintf(stdout, "%s\n", fsn->name);
+		break;
+	}
+	}
 
 	return;
 }
 
-static void find_match(char *target)
+static void find_match(char *target, int format)
 {
 	unsigned long func_id = 0;
 	union siid *tid = (union siid *)&func_id;
 
 	tid->id0.id_type = TYPE_FUNC_GLOBAL;
 	for (; func_id < si->id_idx[TYPE_FUNC_GLOBAL].id1; func_id++) {
-		__match(tid, target);
+		__match(tid, target, format);
 	}
 
 	func_id = 0;
 	tid->id0.id_type = TYPE_FUNC_STATIC;
 	for (; func_id < si->id_idx[TYPE_FUNC_STATIC].id1; func_id++) {
-		__match(tid, target);
+		__match(tid, target, format);
 	}
 
 	return;

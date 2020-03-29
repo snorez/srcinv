@@ -1,47 +1,76 @@
-# SRCINV
-[English obsolete](https://github.com/hardenedlinux/srcinv/blob/master/doc/README_en.md)
+# SRCINV v0.6
+SRCINV, a source code audit tool.
+Tested linux-5.3.y with gcc 8.3.0, both vmlinux and single module.
 
-# Build this project
-To build this project, you need several libraries:
+Two branches: [master](https://github.com/hardenedlinux/srcinv/tree/master) and [dev](https://github.com/hardenedlinux/srcinv/tree/dev)
+
+[Implementation English doc](https://github.com/hardenedlinux/srcinv/blob/master/doc/README_en.md)
+
+### Build srcinv
+Dependencies to build this project:
 +	libncurses
 +	libreadline
 +	libcapstone
 +	[clib: use the latest version](https://github.com/snorez/clib/)
-+	gcc-plugin, test gcc/g++ 5.4.0/6.3.0
++	gcc-plugin, test gcc/g++ 8.3.0
 
-Modify `CLIB_PATH`/`GCC_PLUGIN_INC`/`SRCINV_ROOT`/`CC_RELEASE` in `pre_defines.makefile`
+About pre\_defines.makefile:
+- `CLIB_PATH`: path to clib
+- `SRCINV_ROOT`: path to srcinv
+- `GCC_PLUGIN_INC`: path to gcc plugin headers folder
+- `CONFIG_ANALYSIS_THREAD`: how many threads to parse resfile
+- `CONFIG_DEBUG_MOODE`: output more messages
+- `HAVE_CLIB_DBG_FUNC`: multi-thread backtrace support
+- `USE_NCURSES`: use ncurses to show detail of each phase
+- `Wno-packed-not-aligned`: not used
+- `fno-omit-frame-pointer`: not used
+- `CONFIG_THREAD_STACKSZ`: the size of thread to parse
+- `CONFIG_ID_VALUE_BITS`: bits to represent the value of siid
+- `CONFIG_ID_TYPE_BITS`: bits to represent the type of siid
+- `CONFIG_SRC_BUF_START`: start of the src memory area, the global si pointer
+- `CONFIG_SRC_BUF_BLKSZ`: the size of each time we expand the src memory area
+- `CONFIG_SRC_BUF_END`: end of the src memory area
+- `CONFIG_RESFILE_BUF_START`: start of resfile area, where we load the resfile
+- `CONFIG_RESFILE_BUF_SIZE`: size of each time we expand resfile area
+- `CONFIG_SIBUF_LOADED_MAX`: how many source files(sibuf) mmap into memory
+- `CONFIG_SI_PATH_MAX`: length of src path
+- `CONFIG_SRC_ID_LEN`: length of src id
+- `CONFIG_MAX_OBJS_PER_FILE`: max objects we collect for each source file
+- `CONFIG_MAX_SIZE_PER_FILE`: max size for each source file
+- `CONFIG_SAVED_SRC`: the filename to save the src content
+- `GCC_CONTAIN_FREE_SSANAMES`: set if you want to collect the freed ssanames
 
 Run `make` and `make install`
 
-# Usage (obsolete)
-### NOTICE
-if a project generates several executable files, run `make` separately.
+### Usage
+- **collect**: Do this in the target project root directory, not srcinv root.
+	- Each `make` should generate only ONE executable file.
+	- For a project that may generate more than one executable file, you need to modify the Makefile(s), and generate them one by one.
+	- Example, for linux kernel
+		- `make mrproper`
+		- `make localmodconfig` to prepare the `.config` file
+		- `make EXTRA_CFLAGS+='-fplugin=/path/to/srcinv/collect/c.so -fplugin-arg-c-output=/path/to/srcinv/tmp/xxx/resfile' vmlinux -jx` to generate builtin resfile
+		- `make EXTRA_CFLAGS+='-fplugin=/path/to/srcinv/collect/c.so -fplugin-arg-c-output=/path/to/srcinv/tmp/xxx/tty.resfile' -C . M=drivers/tty/ modules` to get the tty module resfile
 
-One resfile is ***JUST*** for one executable file. Thus, you may need to modify the Makefiles in the project.
+- **analysis**: in srcinv root directory, `./si_core`
+	- `load_srcfile xxx`, xxx is the folder in srcinv/tmp where you just put the resfile(s) into
+	- `analysis` into analysis mode
+	- `help` list supported commands
+	- `parse resfile 1 1 0` the first `1` is set for kernel project, the second `1` is for the core(for linux kernel, it is vmlinux; `0` for `tty.resfile`). You can also parse the resfile by:
+		- `parse resfile 1 1 1`
+		- `parse resfile 1 1 2`
+		- `parse resfile 1 1 3`
+		- `parse resfile 1 1 4`
+		- `parse resfile 1 1 5`
+		- `parse resfile 1 1 6`
 
-For linux kernel, vmlinux and .ko are executable files.
+- **hacking**: do anything you want to do
+	- in `SRCINV>` mode, run `hacking`
+	- `help` list supported commands
 
-For a project that may generate more than one executable files, you need to
-modify the Makefile(s), and generate them one by one.
 
-### Example, for linux kernel(4.14.x)
-+ change to the target directory, `make mrproper`
-+ prepare .config file, `make oldconfig`
-+ `make EXTRA_CFLAGS+='-fplugin=/.../.../srcinv/collect/c.so -fplugin-arg-c-output=/.../.../.../xxx' vmlinux -jx`
-+ back into srcinv directory, `./si_core`
-+ `getinfo /.../.../.../xxx 1 1 0`
-	+ also, we could split steps:
-		+ `getinfo /.../.../.../xxx 1 1 1` `quit`
-			here, we can make a backup for srcoutput file, like 4.14_src1
-		+ `./si_core` `load_srcfile`
-		+ `getinfo /.../.../.../xxx 1 1 2` `quit` and backup, 4.14_src2
-		+ `getinfo /.../.../.../xxx 1 1 3` `quit`, 4.14_src3
-		+ ...
-	+ When something goes wrong, you can rebuild this project without `ver=`,
-		restore the 4.14_srcx file,
-		and use `gdb ./si_core` `load_srcfile`, to find out the BUG and
-		fix it.
 
+### screenshots parsing linux kernel
 ![step_1_0](https://github.com/hardenedlinux/srcinv/blob/master/doc/phase1_0.png)
 ![step_1_1](https://github.com/hardenedlinux/srcinv/blob/master/doc/phase1_1.png)
 ![step_1_2](https://github.com/hardenedlinux/srcinv/blob/master/doc/phase1_2.png)
