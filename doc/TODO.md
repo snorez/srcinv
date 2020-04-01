@@ -13,6 +13,7 @@
 
 
 ### analysis
++ Update resfile and src.saved information once the target project get patched.
 + Backtrace variables, where it comes from.
 + Trace variables, where it get used.
 + Mark actions: read or write, lock or unlock, ...
