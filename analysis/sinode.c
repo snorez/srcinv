@@ -712,3 +712,58 @@ void sinode_iter(struct rb_node *node, void (*cb)(struct rb_node *arg))
 	sinode_iter(node->rb_right, cb);
 	return;
 }
+
+/*
+ * ************************************************************************
+ * find sinode, if match() return true, do callback()
+ * ************************************************************************
+ */
+static void __sinode_match(enum sinode_type type,
+			int (*match)(struct sinode *),
+			void (*cb)(struct sinode *))
+{
+	unsigned long id_ = 0;
+	union siid *id = (union siid *)&id_;
+
+	id->id0.id_type = type;
+	for (; id_ < si->id_idx[type].id1; id_++) {
+		struct sinode *sn;
+		sn = sinode_search(type, SEARCH_BY_ID, id);
+		if (!sn)
+			continue;
+
+		if (match(sn))
+			cb(sn);
+	}
+}
+
+void sinode_match(char *type, int (*match)(struct sinode *),
+			void (*cb)(struct sinode *))
+{
+	if (!strcmp(type, "var")) {
+		__sinode_match(TYPE_VAR_GLOBAL, match, cb);
+		__sinode_match(TYPE_VAR_STATIC, match, cb);
+	} else if (!strcmp(type, "var_global")) {
+		__sinode_match(TYPE_VAR_GLOBAL, match, cb);
+	} else if (!strcmp(type, "var_static")) {
+		__sinode_match(TYPE_VAR_STATIC, match, cb);
+	} else if (!strcmp(type, "func")) {
+		__sinode_match(TYPE_FUNC_GLOBAL, match, cb);
+		__sinode_match(TYPE_FUNC_STATIC, match, cb);
+	} else if (!strcmp(type, "func_global")) {
+		__sinode_match(TYPE_FUNC_GLOBAL, match, cb);
+	} else if (!strcmp(type, "func_static")) {
+		__sinode_match(TYPE_FUNC_STATIC, match, cb);
+	} else {
+		fprintf(stdout, "type %s not implemented yet\n"
+				"Supported type now:\n"
+				"\tvar\n"
+				"\tvar_global\n"
+				"\tvar_static\n"
+				"\tfunc\n"
+				"\tfunc_global\n"
+				"\tfunc_static\n", type);
+	}
+
+	return;
+}

@@ -41,6 +41,11 @@ CLIB_MODULE_CALL_FUNC(analysis, sinode_iter, void,
 		(struct rb_node *node, void (*cb)(struct rb_node *n)),
 		2, node, cb);
 
+CLIB_MODULE_CALL_FUNC(analysis, sinode_match, void,
+		(char *type, int (*match)(struct sinode *),
+		 void (*cb)(struct sinode *)),
+		3, type, match, cb);
+
 CLIB_MODULE_CALL_FUNC0(analysis, sibuf_new, struct sibuf *);
 
 CLIB_MODULE_CALL_FUNC(analysis, sibuf_insert, void,
