@@ -52,7 +52,7 @@ static long cb(int argc, char *argv[])
 
 	argv_name = argv[1];
 	char *type = argv[2];
-	argv_opt = "all";
+	argv_opt = (char *)"all";
 	if (argc == 4)
 		argv_opt = argv[3];
 

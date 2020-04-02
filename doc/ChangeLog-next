@@ -1,6 +1,7 @@
 Thu Apr  2 23:38:08 HKT 2020
 	* hacking: add show_detail.cc
 	* analysis/sinode.c: add sinode_match()
+	* doc: update README.md
 
 Thu Apr  2 11:29:59 HKT 2020
 	* doc: update TODO.md

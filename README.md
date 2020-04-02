@@ -43,6 +43,10 @@ About pre\_defines.makefile:
 Run `make` and `make install`
 
 ### Usage
+**NOTE**: you should modify config/module.conf before you want to use a
+specific module. e.g. you code a new module for hacking, you should add it
+into config/module.conf file before running it.
+
 - **collect**: Do this in the target project root directory, not srcinv root.
 	- Each `make` should generate only ONE executable file.
 	- For a project that may generate more than one executable file, you need to modify the Makefile(s), and generate them one by one.
