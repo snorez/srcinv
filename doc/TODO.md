@@ -13,6 +13,7 @@
 
 
 ### analysis
++ why are there some functions like isra.xx part.yy?
 + Update resfile and src.saved information once the target project get patched.
 + Backtrace variables, where it comes from.
 + Trace variables, where it get used.
