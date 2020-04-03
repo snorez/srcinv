@@ -120,7 +120,8 @@ static void output_func(struct sinode *sn)
 	}
 
 	if (all || (!strcmp(argv_opt, "body"))) {
-		fprintf(stdout, "Body: %p\n", fn);
+		fprintf(stdout, "Body:\n"
+				"\t%p\n", fn);
 	}
 }
 

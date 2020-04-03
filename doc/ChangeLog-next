@@ -1,3 +1,7 @@
+Fri Apr  3 10:48:43 HKT 2020
+	* hacking/show_detail.cc: fix body output style
+	* NEW RELEASE: v0.6.1
+
 Fri Apr  3 10:36:11 HKT 2020
 	* hacking/show_detail.cc: fix null deref issue
 
