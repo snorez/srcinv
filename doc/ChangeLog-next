@@ -1,3 +1,6 @@
+Fri Apr  3 10:36:11 HKT 2020
+	* hacking/show_detail.cc: fix null deref issue
+
 Thu Apr  2 23:38:08 HKT 2020
 	* hacking: add show_detail.cc
 	* analysis/sinode.c: add sinode_match()

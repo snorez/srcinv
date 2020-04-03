@@ -83,7 +83,7 @@ static void output_func(struct sinode *sn)
 			sn->loc_line, sn->loc_col);
 	}
 
-	if (all || (fn && (!strcmp(argv_opt, "caller")))) {
+	if (fn && (all || (!strcmp(argv_opt, "caller")))) {
 		fprintf(stdout, "Callers:\n");
 
 		struct callf_list *tmp;
@@ -101,7 +101,7 @@ static void output_func(struct sinode *sn)
 		}
 	}
 
-	if (all || (fn && (!strcmp(argv_opt, "callee")))) {
+	if (fn && (all || (!strcmp(argv_opt, "callee")))) {
 		fprintf(stdout, "Callees:\n");
 
 		struct callf_list *tmp;
@@ -119,8 +119,8 @@ static void output_func(struct sinode *sn)
 		}
 	}
 
-	if (all || (fn && (!strcmp(argv_opt, "body")))) {
-		fprintf(stdout, "Body: %p\n", fn->codes);
+	if (all || (!strcmp(argv_opt, "body"))) {
+		fprintf(stdout, "Body: %p\n", fn);
 	}
 }
 
@@ -138,7 +138,7 @@ static void output_var(struct sinode *sn)
 			sn->loc_line, sn->loc_col);
 	}
 
-	if (all || (vn && (!strcmp(argv_opt, "used")))) {
+	if (vn && (all || (!strcmp(argv_opt, "used")))) {
 		fprintf(stdout, "Used at:\n");
 
 		struct use_at_list *tmp;
