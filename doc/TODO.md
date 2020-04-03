@@ -88,6 +88,19 @@
 	 * single function when needed or splitting also the parts.
 	 */
 	```
+	- constprop
+	```c
+	/*
+	 * in gcc/ipa-cp.c, create_specialized_node()
+	 * Create a specialized version of NODE with known constants in
+	 * KNOWN_CSTS, known contexts in KNOWN_CONTEXTS and known aggregate
+	 * value in AGGVALS and redirect all edges in CALLERS to it.
+	 *
+	 * in gcc/cgraphclones.c, create_virtual_clone()
+	 * Create callgraph node clone with new declaration. The actual body
+	 * will be copied later at compilation stage.
+	 */
+	```
 
 + Update resfile and src.saved information once the target project get patched.
 + Update all function xrefs after parsing a new module
