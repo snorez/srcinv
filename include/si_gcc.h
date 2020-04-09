@@ -799,6 +799,23 @@ inline void gcc_vec_length_address(vec<T, A, vl_embed> *v,
 	CLIB_DBG_FUNC_EXIT();
 }
 
+static inline struct var_list *get_tn_field(struct type_node *tn, char *name)
+{
+	if (!tn)
+		return NULL;
+
+	struct var_list *tmp;
+	list_for_each_entry(tmp, &tn->children, sibling) {
+		if (!tmp->var.name)
+			continue;
+
+		if (!strcmp(tmp->var.name, name))
+			return tmp;
+	}
+
+	return NULL;
+}
+
 #endif
 
 #endif /* end of include guard: SI_GCC_H_LETQ5PZR */

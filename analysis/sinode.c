@@ -754,6 +754,8 @@ void sinode_match(char *type, int (*match)(struct sinode *),
 		__sinode_match(TYPE_FUNC_GLOBAL, match, cb);
 	} else if (!strcmp(type, "func_static")) {
 		__sinode_match(TYPE_FUNC_STATIC, match, cb);
+	} else if (!strcmp(type, "type")) {
+		__sinode_match(TYPE_TYPE, match, cb);
 	} else {
 		fprintf(stdout, "type %s not implemented yet\n"
 				"Supported type now:\n"
@@ -762,7 +764,9 @@ void sinode_match(char *type, int (*match)(struct sinode *),
 				"\tvar_static\n"
 				"\tfunc\n"
 				"\tfunc_global\n"
-				"\tfunc_static\n", type);
+				"\tfunc_static\n"
+				"\ttype\n",
+				type);
 	}
 
 	return;
