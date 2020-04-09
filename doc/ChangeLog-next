@@ -1,5 +1,8 @@
 Thu Apr  9 11:44:35 HKT 2020
 	* hacking/show_detail.cc: output type
+	* hacking/show_detail.cc: support '*' for type output
+	* doc: update README_en.md
+	* doc: update TODO.md
 
 Fri Apr  3 11:56:28 HKT 2020
 	* doc: update TODO.md

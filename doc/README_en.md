@@ -22,6 +22,7 @@ This document still needs to be perfected.
 	- [4.5 - PHASE5](#4.5)
 	- [4.6 - PHASE6](#4.6)
 - [5 - Use the information to do something](#5)
+	- [5.1 - show\_detail](#5.1)
 - [6 - Future work](#6)
 - [7 - References](#7)
 - [8 - Greetings](#8)
@@ -497,6 +498,30 @@ This plugin detects all functions one by one:
 - traversal all local variables(not static)
 	- traversal code_paths, find first position this variable used
 	- check if the first used statement is to read this variable. [The demo](https://www.youtube.com/watch?v=anNoHjrYqVc)
+
+[Back to Contents](#0)
+
+
+
+<span id="5.1"></span>
+### 5.1 - show_detail
+show\_detail: Show detail of variables, functions, types.
+For data types, sometimes, we want to know where does the field of a structure
+get used at.
+`show_detail xxx.yyy.zzz type [all|src|used|offset|size]` should output the
+message.
+We can do more. If a structure contains some fields without a name, we use `*`.
+```c
+struct xxx {
+	struct list_head sibling;
+	union {
+		struct hlist_node list0;
+		struct hlist_node list1;
+	};
+	/* ... */
+}
+```
+`show_detail xxx.*.list0 type used` will show the used-at results.
 
 [Back to Contents](#0)
 

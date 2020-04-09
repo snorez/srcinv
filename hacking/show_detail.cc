@@ -201,6 +201,49 @@ static void output_var(struct sinode *sn)
 	}
 }
 
+static void vl_add(struct var_list *vl, struct var_list **res, int entries,
+			int *idx)
+{
+	int cur_idx = *idx;
+	if (cur_idx < entries) {
+		res[cur_idx] = vl;
+		*idx = cur_idx + 1;
+	} else {
+		fprintf(stdout, "var_list too many\n");
+	}
+}
+
+static int find_target(struct type_node *tn, int level,
+			struct var_list **res, int entries, int *idx)
+{
+	if (!tn)
+		return 0;
+
+	char *name = split_names[level];
+	if ((!name) || (!name[0]))
+		return 1;
+
+	struct var_list *vl_tmp = NULL;
+
+	if (*name == '*') {
+		list_for_each_entry(vl_tmp, &tn->children, sibling) {
+			if (find_target(vl_tmp->var.type, level+1,
+					res, entries, idx)) {
+				vl_add(vl_tmp, res, entries, idx);
+			}
+		}
+	} else {
+		vl_tmp = get_tn_field(tn, name);
+		if (vl_tmp &&
+			find_target(vl_tmp->var.type, level+1,
+				    res, entries, idx)) {
+			vl_add(vl_tmp, res, entries, idx);
+		}
+	}
+
+	return 0;
+}
+
 static void output_type(struct sinode *sn)
 {
 	int all;
@@ -212,36 +255,24 @@ static void output_type(struct sinode *sn)
 	if (!tn)
 		return;
 
-	struct var_list *vl_tmp = NULL;
-	struct type_node *tn_tmp = tn;
-	int i = 1;
-	int found = 0;
-	for (; i < TYPE_MAX_DEPTH; i++) {
-		if ((!split_names[i]) || (!split_names[i][0])) {
-			found = 1;
-			break;
-		}
+	int vls_max = 0x100;
+	int idx = 0;
+	struct var_list *vls[vls_max] = {0};
 
-		vl_tmp = get_tn_field(tn_tmp, split_names[i]);
-		if (!vl_tmp)
-			break;
-
-		tn_tmp = vl_tmp->var.type;
-	}
-
-	if (!found)
+	int ret = find_target(tn, 1, vls, vls_max, &idx);
+	if ((!idx) && (!ret))
 		return;
 
 	if (all || (!strcmp(argv_opt, "src"))) {
 		output_src(sn);
 	}
 
-	if (!vl_tmp) {
+	if (!idx) {
 		/* ignore argv_opt, handle the used_at */
 		fprintf(stdout, "Used at:\n");
 
 		struct use_at_list *tmp;
-		list_for_each_entry(tmp, &tn_tmp->used_at, sibling) {
+		list_for_each_entry(tmp, &tn->used_at, sibling) {
 			struct sinode *fsn;
 			fsn = analysis__sinode_search(siid_type(&tmp->func_id),
 					SEARCH_BY_ID, &tmp->func_id);
@@ -254,43 +285,48 @@ static void output_type(struct sinode *sn)
 		return;
 	}
 
-	if (all || (!strcmp(argv_opt, "used"))) {
-		fprintf(stdout, "Used at:\n");
+	for (int i = 0; i < idx; i++) {
+		struct var_list *vl = vls[i];
 
-		struct use_at_list *tmp;
-		list_for_each_entry(tmp, &vl_tmp->var.used_at, sibling) {
-			struct sinode *fsn;
-			fsn = analysis__sinode_search(siid_type(&tmp->func_id),
-					SEARCH_BY_ID, &tmp->func_id);
-			fprintf(stdout, "\t%s %p %ld\n",
-					fsn ? fsn->name : "NULL",
-					tmp->gimple_stmt,
-					tmp->op_idx);
+		if (all || (!strcmp(argv_opt, "used"))) {
+			fprintf(stdout, "Used at:\n");
+
+			struct use_at_list *tmp;
+			list_for_each_entry(tmp, &vl->var.used_at, sibling) {
+				struct sinode *fsn;
+				fsn = analysis__sinode_search(
+						siid_type(&tmp->func_id),
+						SEARCH_BY_ID, &tmp->func_id);
+				fprintf(stdout, "\t%s %p %ld\n",
+						fsn ? fsn->name : "NULL",
+						tmp->gimple_stmt,
+						tmp->op_idx);
+			}
 		}
-	}
 
-	if (all || (!strcmp(argv_opt, "offset"))) {
-		fprintf(stdout, "Offset:\n");
+		if (all || (!strcmp(argv_opt, "offset"))) {
+			fprintf(stdout, "Offset:\n");
 
-		analysis__resfile_load(sn->buf);
+			analysis__resfile_load(sn->buf);
 
-		unsigned long offset;
-		tree field;
+			unsigned long offset;
+			tree field;
 
-		field = (tree)vl_tmp->var.node;
-		offset = get_field_offset(field);
+			field = (tree)vl->var.node;
+			offset = get_field_offset(field);
 
-		fprintf(stdout, "\t%ld\n", offset);
-	}
+			fprintf(stdout, "\t%ld\n", offset);
+		}
 
-	if (all || (!strcmp(argv_opt, "size"))) {
-		fprintf(stdout, "Size:\n");
+		if (all || (!strcmp(argv_opt, "size"))) {
+			fprintf(stdout, "Size:\n");
 
-		unsigned long sz = 0;
-		if (vl_tmp->var.type)
-			sz = vl_tmp->var.type->ofsize;
+			unsigned long sz = 0;
+			if (vl->var.type)
+				sz = vl->var.type->ofsize;
 
-		fprintf(stdout, "\t%ld\n", sz);
+			fprintf(stdout, "\t%ld\n", sz);
+		}
 	}
 
 	return;
