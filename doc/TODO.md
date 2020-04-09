@@ -121,4 +121,6 @@
 ### hacking
 + Given a path point, generate samples to trigger it.
 + Generate patches for some kind of bugs.
++ show\_detail.cc
+	- why `perf_raw_frag.*.next` used\_at list is empty?
 + ...

@@ -506,10 +506,11 @@ This plugin detects all functions one by one:
 <span id="5.1"></span>
 ### 5.1 - show_detail
 show\_detail: Show detail of variables, functions, types.
+
 For data types, sometimes, we want to know where does the field of a structure
-get used at.
-`show_detail xxx.yyy.zzz type [all|src|used|offset|size]` should output the
-message.
+get used at. `show_detail xxx.yyy.zzz type [all|src|used|offset|size]` should
+output the message.
+
 We can do more. If a structure contains some fields without a name, we use `*`.
 ```c
 struct xxx {
