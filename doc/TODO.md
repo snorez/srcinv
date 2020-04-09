@@ -105,6 +105,7 @@
 	 */
 	```
 
++ rewrite parse\_resfile()
 + Update resfile and src.saved information once the target project get patched.
 + Update all function xrefs after parsing a new module
 + Backtrace variables, where it comes from.

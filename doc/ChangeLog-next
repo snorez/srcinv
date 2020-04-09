@@ -4,6 +4,10 @@ Thu Apr  9 11:44:35 HKT 2020
 	* doc: update README_en.md
 	* doc: update TODO.md
 	* hacking/show_detail.cc: add testcase-2.c
+	* analysis: remove file_content->status
+	* analysis:parse_resfile(): only do backup on STEP1
+	* analysis: check sibuf status in _do_phase()
+	* analysis: add one_sibuf command for parsing one sibuf
 
 Fri Apr  3 11:56:28 HKT 2020
 	* doc: update TODO.md

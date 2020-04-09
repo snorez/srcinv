@@ -89,8 +89,8 @@ CLIB_MODULE_CALL_FUNC0(analysis, resfile_gc, int);
 CLIB_MODULE_CALL_FUNC0(analysis, resfile_unload_all, void);
 
 CLIB_MODULE_CALL_FUNC(analysis, resfile_get_filecnt, int,
-		(struct resfile *rf, int *is_new),
-		2, rf, is_new);
+		(struct resfile *rf),
+		1, rf);
 
 CLIB_MODULE_CALL_FUNC(analysis, resfile_get_offset, int,
 		(char *path,unsigned long filecnt,unsigned long *offs),

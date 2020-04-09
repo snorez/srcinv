@@ -22,7 +22,7 @@
 
 LIST_HEAD(analysis_lang_ops_head);
 
-static int _do_phase(struct sibuf *buf, int step)
+static int parse_sibuf(struct sibuf *buf, int step, int force)
 {
 	int err = 0;
 	if (step > STEP1)
@@ -37,6 +37,9 @@ static int _do_phase(struct sibuf *buf, int step)
 		return -1;
 	}
 
+	if (unlikely((!force) && (buf->status != (step - 1))))
+		return 0;
+
 	err = ops->callback(buf, step);
 	if (unlikely(clib_dbg_func_check())) {
 		si_log1("CLIB_DBG_FUNC_ENTER/CLIB_DBG_FUNC_EXIT not paired\n");
@@ -44,6 +47,23 @@ static int _do_phase(struct sibuf *buf, int step)
 	if (err) {
 		err_dbg(0, "fc->type callback err");
 		return -1;
+	}
+
+	return 0;
+}
+
+static int parse_sibuf_bypath(char *srcpath, int step, int force)
+{
+	struct sibuf *tmp;
+	list_for_each_entry_reverse(tmp, &si->sibuf_head, sibling) {
+		analysis__resfile_load(tmp);
+
+		struct file_content *fc;
+		fc = (struct file_content *)tmp->load_addr;
+		if (!is_same_path(fc->path, srcpath))
+			continue;
+
+		return parse_sibuf(tmp, step, force);
 	}
 
 	return 0;
@@ -101,9 +121,9 @@ static void *do_phase(void *arg)
 	atomic_set(&t->in_use, 2);
 	int step = t->step;
 
-	int err = _do_phase(t->buf, step);
+	int err = parse_sibuf(t->buf, step, 0);
 	if (err) {
-		err_dbg(0, "_do_phase err");
+		err_dbg(0, "parse_sibuf err");
 		t->ret = 1;
 		atomic_set(&t->in_use, 0);
 		return (void *)-1;
@@ -175,11 +195,10 @@ static void show_file_progress(int signo, siginfo_t *si, void *arg, int last)
 #endif
 }
 
-int parse_resfile(char *path, int built_in, int step, int autoy)
+static int parse_resfile(char *path, int built_in, int step, int autoy)
 {
 	int err = 0;
 	int flag = 0;
-	int is_new;
 	struct resfile *newrf;
 
 	if (step == 0) {
@@ -196,7 +215,7 @@ int parse_resfile(char *path, int built_in, int step, int autoy)
 
 	fprintf(stdout, "[....] take a preview of the resfile\r");
 	fflush(stdout);
-	err = analysis__resfile_get_filecnt(newrf, &is_new);
+	err = analysis__resfile_get_filecnt(newrf);
 	if (err == -1) {
 		err_dbg(0, "analysis__resfile_get_filecnt err");
 		return -1;
@@ -204,10 +223,11 @@ int parse_resfile(char *path, int built_in, int step, int autoy)
 	fprintf(stdout, "[done]\n");
 	fflush(stdout);
 
-	/*
-	 * check if the resfile is new, and if we need to do a backup
-	 */
-	if (is_new) {
+	if (step == STEP1) {
+		/*
+		 * we only need to do the backup for STEP1, because the future
+		 * step will not modify the resfile.
+		 */
 		char b[PATH_MAX];
 		struct stat st;
 		snprintf(b, PATH_MAX, "%s.0", path);
@@ -228,21 +248,6 @@ int parse_resfile(char *path, int built_in, int step, int autoy)
 			} else {
 				err_dbg(1, "stat err");
 			}
-		}
-	} else {
-		char *line;
-		int ch;
-		if (!autoy) {
-			line = readline("resfile is not clean, "
-					"force parsing?(Y/N)");
-			ch = *line;
-		} else {
-			ch = 'Y';
-		}
-		if ((ch == 'N') || (ch == 'n')) {
-			fprintf(stdout, "ignore parsing the dirty resfile\n");
-			fflush(stdout);
-			return 0;
 		}
 	}
 
@@ -500,6 +505,25 @@ static long parse_cb(int argc, char *argv[])
 	return 0;
 }
 
+static char one_sibuf_cmdname[] = "one_sibuf";
+static void one_sibuf_usage(void)
+{
+	fprintf(stdout, "\t(srcpath) (step) (force)\n");
+}
+static long one_sibuf_cb(int argc, char *argv[])
+{
+	if (argc != 4) {
+		one_sibuf_usage();
+		err_dbg(0, "argc invalid");
+		return -1;
+	}
+
+	char *path = argv[1];
+	int step = atoi(argv[2]);
+	int force = atoi(argv[3]);
+	return parse_sibuf_bypath(path, step, !!force);
+}
+
 static char getoffs_cmdname[] = "getoffs";
 static void getoffs_usage(void)
 {
@@ -596,6 +620,12 @@ SI_MOD_SUBENV_INIT()
 		goto err1;
 	}
 
+	err = clib_cmd_ac_add(one_sibuf_cmdname, one_sibuf_cb, one_sibuf_usage);
+	if (err) {
+		err_dbg(0, "clib_cmd_ac_add err");
+		goto err2;
+	}
+
 	/*
 	 * load analysis modules first
 	 */
@@ -603,17 +633,19 @@ SI_MOD_SUBENV_INIT()
 	head = si_module_get_head(SI_PLUGIN_CATEGORY_ANALYSIS);
 	if (!head) {
 		err_dbg(0, "si_module_get_head err");
-		goto err2;
+		goto errl;
 	}
 
 	err = si_module_load_all(head);
 	if (err) {
 		err_dbg(0, "si_module_load_all err");
-		goto err2;
+		goto errl;
 	}
 
 	return 0;
 
+errl:
+	clib_cmd_ac_del(one_sibuf_cmdname);
 err2:
 	clib_cmd_ac_del(cmdline_cmdname);
 err1:

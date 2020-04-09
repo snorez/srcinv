@@ -8381,10 +8381,6 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 	switch (mode) {
 	case MODE_ADJUST:
 	{
-		if (unlikely((buf->status != FC_STATUS_NONE) ||
-				(fc->status != FC_STATUS_NONE)))
-			break;
-
 		get_real_obj_cnt();
 		show_progress_arg[0] = (long)"ADJUST";
 		show_progress_arg[1] = (long)fc->path;
@@ -8423,18 +8419,12 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 
 		BUG_ON(obj_adjusted != obj_cnt);
 
-		fc->status = FC_STATUS_ADJUSTED;
-
 		mt_del_timer(0);
 		mt_print_del();
 		break;
 	}
 	case MODE_GETBASE:
 	{
-		if (unlikely((buf->status != FC_STATUS_ADJUSTED) ||
-				(fc->status != FC_STATUS_ADJUSTED)))
-			break;
-
 		get_real_obj_cnt();
 		show_progress_arg[0] = (long)"GETBASE";
 		show_progress_arg[1] = (long)fc->path;
@@ -8447,18 +8437,12 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 
 		do_get_base(buf);
 
-		fc->status = FC_STATUS_GETBASE;
-
 		mt_del_timer(0);
 		mt_print_del();
 		break;
 	}
 	case MODE_GETDETAIL:
 	{
-		if (unlikely((buf->status != FC_STATUS_GETBASE) ||
-				(fc->status != FC_STATUS_GETBASE)))
-			break;
-
 		get_real_obj_cnt();
 		show_progress_arg[0] = (long)"GETDETAIL";
 		show_progress_arg[1] = (long)fc->path;
@@ -8472,18 +8456,12 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 		/* XXX: get details till codepath */
 		do_get_detail(buf);
 
-		fc->status = FC_STATUS_GETDETAIL;
-
 		mt_del_timer(0);
 		mt_print_del();
 		break;
 	}
 	case MODE_GETSTEP4:
 	{
-		if (unlikely((buf->status != FC_STATUS_GETDETAIL) ||
-				(fc->status != FC_STATUS_GETDETAIL)))
-			break;
-
 		get_real_obj_cnt();
 		show_progress_arg[0] = (long)"GETSTEP4";
 		show_progress_arg[1] = (long)fc->path;
@@ -8502,18 +8480,12 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 		/* XXX, get func_node's callees/callers/global/local_vars... */
 		do_phase4(buf);
 
-		fc->status = FC_STATUS_GETSTEP4;
-
 		mt_del_timer(0);
 		mt_print_del();
 		break;
 	}
 	case MODE_GETINDCFG1:
 	{
-		if (unlikely((buf->status != FC_STATUS_GETSTEP4) ||
-				(fc->status != FC_STATUS_GETSTEP4)))
-			break;
-
 		show_progress_arg[0] = (long)"GETINDCFG1";
 		show_progress_arg[1] = (long)fc->path;
 		show_progress_arg[2] = (long)&obj_idx;
@@ -8525,18 +8497,12 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 
 		do_phase5(buf);
 
-		fc->status = FC_STATUS_GETINDCFG1;
-
 		mt_del_timer(0);
 		mt_print_del();
 		break;
 	}
 	case MODE_GETINDCFG2:
 	{
-		if (unlikely((buf->status != FC_STATUS_GETINDCFG1) ||
-				(fc->status != FC_STATUS_GETINDCFG1)))
-			break;
-
 		show_progress_arg[0] = (long)"GETINDCFG2";
 		show_progress_arg[1] = (long)fc->path;
 		show_progress_arg[2] = (long)&obj_idx;
@@ -8548,14 +8514,12 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 
 		do_phase6(buf);
 
-		fc->status = FC_STATUS_GETINDCFG2;
-
 		mt_del_timer(0);
 		mt_print_del();
 		break;
 	}
 	default:
-		BUG();
+		break;
 	}
 
 	CLIB_DBG_FUNC_EXIT();

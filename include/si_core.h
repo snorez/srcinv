@@ -132,7 +132,7 @@ struct file_content {
 	 * NOTE, cmd and path are terminated with null byte
 	 */
 	unsigned short		cmd_len;
-	unsigned char		status;
+	unsigned char		padding;
 
 	/* must be the last field */
 	char			path[PATH_MAX];

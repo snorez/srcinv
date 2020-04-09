@@ -351,9 +351,8 @@ int resfile_gc(void)
 }
 
 static char tmp_read_buf[MAX_SIZE_PER_FILE];
-int resfile_get_filecnt(struct resfile *rf, int *is_new)
+int resfile_get_filecnt(struct resfile *rf)
 {
-	*is_new = 1;
 	int fd, err;
 	fd = rf->fd;
 	if (fd == -1) {
@@ -396,15 +395,8 @@ int resfile_get_filecnt(struct resfile *rf, int *is_new)
 				return -1;
 			}
 
-			struct file_content *fc;
-			fc = (struct file_content *)tmp_read_buf;
-			if (fc->status != FC_STATUS_NONE)
-				*is_new = 0;
-
 			*cnt += 1;
 		}
-	} else {
-		*is_new = 0;
 	}
 
 	close(fd);
@@ -505,7 +497,7 @@ struct file_content *resfile_get_fc(char *path, char *targetfile, int *idx)
 
 		struct file_content *fc;
 		fc = (struct file_content *)tmp_read_buf;
-		if (!strcmp(fc->path, targetfile)) {
+		if (is_same_path(fc->path, targetfile)) {
 			close(fd);
 			return fc;
 		}
