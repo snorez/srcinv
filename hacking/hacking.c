@@ -44,6 +44,7 @@ static long load_sibuf_cb(int argc, char *argv[])
 	list_for_each_entry(b, &si->sibuf_head, sibling) {
 		if ((long)b != addr)
 			continue;
+		found = 1;
 		analysis__resfile_load(b);
 		break;
 	}

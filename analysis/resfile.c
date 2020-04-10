@@ -233,6 +233,18 @@ void resfile_load(struct sibuf *buf)
 {
 	mutex_lock(&gc_lock);
 	struct resfile *rf = buf->rf;
+	char workdir[PATH_MAX];
+	if (unlikely(si_current_workdir(workdir, PATH_MAX))) {
+		mutex_unlock(&gc_lock);
+		return;
+	}
+	if (unlikely(strncmp(rf->path, workdir, strlen(workdir)))) {
+		err_dbg(0, "Warning: resfile(%s) not in current workdir(%s)\n",
+				rf->path, workdir);
+		mutex_unlock(&gc_lock);
+		return;
+	}
+
 	if (rf->fd == -1) {
 		rf->fd = open(rf->path, O_RDWR);
 		if (rf->fd == -1)

@@ -263,19 +263,50 @@ static inline void get_type_name(void *addr, char *ret)
 	}
 }
 
-#if 0
-static inline void gen_type_name(void *addr, char *ret, expanded_location *xloc)
+/*
+ * FIXME: only generate name for UNION_TYPE RECORD_TYPE
+ * we use tree_code, the number of the children, max to 10 names of the fields,
+ * location to ident the type
+ */
+#define	FIELD_NAME_MAX	0x8
+static inline void gen_type_name(char *name, size_t namelen, tree node,
+				struct sinode *loc_file,
+				expanded_location *xloc)
 {
-	if (xloc && xloc->file) {
-		snprintf(ret, NAME_MAX, "_%08lx%d%d", (long)xloc->file,
-					xloc->line, xloc->column);
+	enum tree_code tc = TREE_CODE(node);
+	if ((tc != UNION_TYPE) && (tc != RECORD_TYPE))
 		return;
-	} else {
-		snprintf(ret, NAME_MAX, "_%08lx", (long)addr);
-		return;
+
+	int copied_cnt = 0;
+	int field_cnt = 0;
+	char tmp_name[NAME_MAX];
+	char *p = name;
+
+	tree fields = TYPE_FIELDS(node);
+	while (fields) {
+		field_cnt++;
+
+		if ((copied_cnt < FIELD_NAME_MAX) && DECL_NAME(fields)) {
+			memset(tmp_name, 0, NAME_MAX);
+			get_node_name(DECL_NAME(fields), tmp_name);
+			if (tmp_name[0]) {
+				memcpy(p, "__", 3);
+				p += 2;
+				memcpy(p, tmp_name, strlen(tmp_name)+1);
+				p += strlen(tmp_name);
+				copied_cnt++;
+			}
+		}
+		fields = DECL_CHAIN(fields);
 	}
+
+	snprintf(tmp_name, NAME_MAX, "__%d__%d__%ld__%d__%d",
+			(int)tc, field_cnt, (unsigned long)loc_file,
+			xloc->line, xloc->column);
+	memcpy(p, tmp_name, strlen(tmp_name)+1);
+
+	return;
 }
-#endif
 
 static inline void get_type_xnode(tree node, struct sinode **sn_ret,
 					struct type_node **tn_ret)
@@ -318,17 +349,23 @@ static inline void get_type_xnode(tree node, struct sinode **sn_ret,
 		return;
 	}
 
-	if (name[0] && xloc && xloc->file)
+	struct sinode *loc_file = NULL;
+	if (xloc && xloc->file) {
+		loc_file = analysis__sinode_search(TYPE_FILE, SEARCH_BY_SPEC,
+							(void *)xloc->file);
+		BUG_ON(!loc_file);
+	}
+
+	if (loc_file && (!name[0]))
+		gen_type_name(name, NAME_MAX, node, loc_file, xloc);
+
+	if (name[0] && loc_file)
 		type = TYPE_TYPE;
 	else
 		type = TYPE_NONE;
 
 	if (type == TYPE_TYPE) {
 		long args[4];
-		struct sinode *loc_file;
-		loc_file = analysis__sinode_search(TYPE_FILE, SEARCH_BY_SPEC,
-							(void *)xloc->file);
-		BUG_ON(!loc_file);
 		args[0] = (long)loc_file;
 		args[1] = xloc->line;
 		args[2] = xloc->column;

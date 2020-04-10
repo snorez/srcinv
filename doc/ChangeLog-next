@@ -1,3 +1,13 @@
+Fri Apr 10 12:04:21 HKT 2020
+	* hacking: fix load_sibuf_cb()
+	* analysis: parse_resfile() do not check sibuf->status
+	* analysis: parse_resfile() ignore resfile that not current handled
+	* analysis/gcc/c.cc: generate a name for a special type
+	* analysis:resfile_load(): warn if the resfile is not in current
+				   workdir.
+	* hacking: show_detail.cc test done
+	* NEW RELEASE: v0.6.2
+
 Thu Apr  9 11:44:35 HKT 2020
 	* hacking/show_detail.cc: output type
 	* hacking/show_detail.cc: support '*' for type output

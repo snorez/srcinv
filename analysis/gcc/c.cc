@@ -5210,8 +5210,9 @@ static void do_get_base(struct sibuf *buf)
 			}
 
 			get_type_name(obj_addr, name);
-			xloc = get_location(GET_LOC_TYPE,
-						buf->payload, (tree)obj_addr);
+			xloc = get_location(GET_LOC_TYPE, buf->payload,
+						(tree)obj_addr);
+
 			if (name[0] && xloc && xloc->file)
 				type = TYPE_TYPE;
 			else
@@ -5229,8 +5230,8 @@ static void do_get_base(struct sibuf *buf)
 				BUG();
 
 			get_function_name(obj_addr, name);
-			xloc = get_location(GET_LOC_FUNC,
-						buf->payload, (tree)obj_addr);
+			xloc = get_location(GET_LOC_FUNC, buf->payload,
+						(tree)obj_addr);
 		} else if (objs[obj_idx].is_global_var) {
 			flag = check_file_var((tree)obj_addr);
 			if ((flag == VAR_IS_EXTERN) ||
@@ -5245,8 +5246,8 @@ static void do_get_base(struct sibuf *buf)
 				BUG();
 
 			get_var_name(obj_addr, name);
-			xloc = get_location(GET_LOC_VAR,
-						buf->payload, (tree)obj_addr);
+			xloc = get_location(GET_LOC_VAR, buf->payload,
+						(tree)obj_addr);
 		} else {
 			continue;
 		}
@@ -5274,6 +5275,13 @@ static void do_get_base(struct sibuf *buf)
 						SINODE_INSERT_BH_NONE));
 
 step_1:
+		if ((type == TYPE_NONE) && loc_file && (!name[0])) {
+			gen_type_name(name, NAME_MAX,
+					(tree)obj_addr, loc_file, xloc);
+			if (name[0])
+				type = TYPE_TYPE;
+		}
+
 		if ((type == TYPE_FUNC_GLOBAL) || (type == TYPE_VAR_GLOBAL)) {
 			BUG_ON(!name[0]);
 			long args[3];
@@ -5297,8 +5305,7 @@ step_1:
 		} else if (type == TYPE_NONE) {
 			struct type_node *tn;
 			enum tree_code tc = TREE_CODE((tree)obj_addr);
-			tn = analysis__sibuf_typenode_search(buf,
-							     tc, obj_addr);
+			tn = analysis__sibuf_typenode_search(buf,tc,obj_addr);
 			if (tn)
 				goto next_loop;
 
@@ -5344,8 +5351,8 @@ step_1:
 				BUG();
 		}
 
-		sn_new = analysis__sinode_new(type, name,
-						strlen(name)+1, NULL, 0);
+		sn_new = analysis__sinode_new(type, name, strlen(name)+1,
+						NULL, 0);
 		BUG_ON(!sn_new);
 		sn_new->buf = buf;
 		sn_new->obj = &objs[obj_idx];
@@ -5356,8 +5363,7 @@ step_1:
 		}
 		if (type == TYPE_TYPE) {
 			struct type_node *tn;
-			tn = type_node_new(obj_addr,
-						TREE_CODE(tree(obj_addr)));
+			tn = type_node_new(obj_addr,TREE_CODE(tree(obj_addr)));
 			tn->type_name = sn_new->name;
 			sn_new->data = (char *)tn;
 			sn_new->datalen = sizeof(*tn);
@@ -8361,6 +8367,8 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 	struct file_content *fc = (struct file_content *)buf->load_addr;
 	if ((fc->gcc_ver_major != gcc_ver_major) ||
 		(fc->gcc_ver_minor != gcc_ver_minor)) {
+		err_dbg(0, "gcc version not match, need %d.%d",
+				fc->gcc_ver_major, fc->gcc_ver_minor);
 		CLIB_DBG_FUNC_EXIT();
 		return -1;
 	}

@@ -650,6 +650,15 @@ static inline struct path_list *path_list_new(void)
 
 #include "defdefine.h"
 
+static inline int si_current_workdir(char *p, size_t len)
+{
+	if (unlikely(!si))
+		return -1;
+
+	snprintf(p, len, "%s/%s/", DEF_TMPDIR, si->src_id);
+	return 0;
+}
+
 static inline int si_current_resfile(char *p, size_t len, char *name)
 {
 	if (unlikely(!si))

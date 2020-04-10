@@ -288,7 +288,6 @@ static int parse_resfile(char *path, int built_in, int step, int autoy)
 			status_str = "PHASE6";
 			break;
 		default:
-			BUG();
 			break;
 		}
 
@@ -381,6 +380,9 @@ redo1:
 			struct sibuf *tmp;
 			list_for_each_entry_reverse(tmp, &si->sibuf_head,
 							sibling) {
+				if (tmp->rf != newrf)
+					continue;
+
 				if (unlikely(!parse_sig_set)) {
 					parse_sig_set = 1;
 					signal(SIGQUIT, sigquit_hdl);
@@ -394,9 +396,6 @@ redo1:
 							"quit parsing");
 					break;
 				}
-
-				if (tmp->status >= step)
-					continue;
 
 				struct mt_parse *t;
 				while (1) {
@@ -433,7 +432,7 @@ redo2:
 		}
 		default:
 		{
-			BUG();
+			break;
 		}
 		}
 

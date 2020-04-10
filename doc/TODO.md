@@ -105,6 +105,7 @@
 	 */
 	```
 
++ We gen a name for a special type, what if the type from a expanded macro? e.g. DEFINE\_KFIFO.
 + rewrite parse\_resfile()
 + Update resfile and src.saved information once the target project get patched.
 + Update all function xrefs after parsing a new module
@@ -123,6 +124,5 @@
 + Given a path point, generate samples to trigger it.
 + Generate patches for some kind of bugs.
 + show\_detail.cc
-	- why `perf_raw_frag.*.next` used\_at list is empty?
-	- wired, I rewrite some code, it does get the used\_at as we want.
+	- some used at location still can not be found, like something used in `hlist_for_each_entry`
 + ...
