@@ -1,5 +1,6 @@
 Sat Apr 11 10:44:20 HKT 2020
 	* hacking: show_detail.cc: output used at pretty
+	* hacking: show_detail.cc: call resfile_load() before get_gimple_loc()
 
 Fri Apr 10 12:04:21 HKT 2020
 	* hacking: fix load_sibuf_cb()

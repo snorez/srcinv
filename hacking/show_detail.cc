@@ -187,6 +187,7 @@ static void output_used_at(struct list_head *head, char *name)
 
 		gimple_seq gs;
 		gs = (gimple_seq)tmp->gimple_stmt;
+		analysis__resfile_load(fsn->buf);
 		xloc = get_gimple_loc(fsn->buf->payload, &gs->location);
 		fprintf(stdout, "\t%s %d %d %p %ld\n",
 				fsn ? fsn->name : "NULL",
