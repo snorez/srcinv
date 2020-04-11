@@ -524,6 +524,16 @@ struct xxx {
 ```
 `show_detail xxx.*.list0 type used` will show the used-at results.
 
+Some used\_at locations still can not be found.
+> Example, hlist\_for\_each\_entry\_safe(x,n,head,xxlist):
+> the xxlist can not be found uses here because it is not used directly,
+> the xxlist.next is used instead.
+>
+> In analysis/gcc/c.cc, `__4_mark_gimple_op()`->`__4_mark_component_ref(op)`,
+> the first operand of op would be a COMPONENT\_REF while the second one is
+> a FIELD\_DECL(next in hlist\_node). Thus, the first COMPONENT\_REF is xxlist
+> which is a hlist\_node, we don't get that use here!
+
 Test result for clib
 ```c
 <1> hacking> show_detail clib_mm.* type

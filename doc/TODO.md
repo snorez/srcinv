@@ -123,6 +123,4 @@
 ### hacking
 + Given a path point, generate samples to trigger it.
 + Generate patches for some kind of bugs.
-+ show\_detail.cc
-	- some used at location still can not be found, like something used in `hlist_for_each_entry`
 + ...
