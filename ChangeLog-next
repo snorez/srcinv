@@ -1,3 +1,6 @@
+Sat Apr 11 14:13:06 HKT 2020
+	* srcinv: update Makefile(s) to use install to install binaries
+
 Sat Apr 11 10:44:20 HKT 2020
 	* hacking: show_detail.cc: output used at pretty
 	* hacking: show_detail.cc: call resfile_load() before get_gimple_loc()

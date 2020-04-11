@@ -26,6 +26,10 @@ CC1_SO = uninit.so \
 	 debuild.so \
 	 fuzz.so \
 	 test.so
+
+INSTALLS := $(addprefix $(OUTDIR0)/,$(OUTCORE)) \
+	$(addprefix $(OUTDIR1)/,$(CC0_SO)) \
+	$(addprefix $(OUTDIR1)/,$(CC1_SO))
 # ==============================================================================
 
 all: $(OUTCORE) $(CC0_SO) $(CC1_SO)
@@ -39,9 +43,10 @@ $(CC0_SO): %.so : %.c
 $(CC1_SO): %.so : %.cc
 	$(CC1) $(CC1_OPT) -I$(GCC_PLUGIN_INC) -I$(SRCINV_INC) -I$(CLIB_INC) $< -L$(CLIB_LIB) -l$(CLIB_SO) -lpthread -o $@ -Wl,-rpath $(CLIB_LIB)
 
-install:
-	@cp -v $(OUTCORE) $(OUTDIR0)/
-	@cp -v $(CC0_SO) $(CC1_SO) $(OUTDIR1)/
+install: $(INSTALLS)
+
+$(OUTDIR0)/% $(OUTDIR1)/%: %
+	install $< $@
 
 clean:
 	@rm -vf $(OUTCORE)

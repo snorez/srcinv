@@ -12,13 +12,17 @@ OBJS = collect.c
 CC = gcc
 CC_OPT = $(CFLAGS) -rdynamic -shared -fPIC -D_FILE_OFFSET_BITS=64
 
+INSTALLS := $(addprefix $(OUTDIR)/,$(OUTNAME))
+
 all: $(OUTNAME) $(dirs)
 
 $(OUTNAME): $(OBJS)
 	$(CC) $(CC_OPT) $(OBJS) -I$(CLIB_INC) -I$(SRCINV_INC) -L$(CLIB_LIB) -l$(CLIB_SO) -o $(OUTNAME) -Wl,-rpath $(CLIB_LIB)
 
-install: $(dirs)
-	@cp -v $(OUTNAME) $(OUTDIR)/
+install: $(INSTALLS)
+
+$(OUTDIR)/%: %
+	install $< $@
 
 clean: $(dirs)
 	@rm -vf $(OUTNAME)

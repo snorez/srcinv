@@ -20,6 +20,8 @@ OBJS = analysis.c \
        resfile.c \
        utils.c $(SMF)
 
+INSTALLS := $(addprefix $(OUTDIR)/,$(THIS_SO))
+
 CC=gcc
 CC_OPT=$(THIS_CFLAGS) -rdynamic -shared -fPIC -D_FILE_OFFSET_BITS=64
 
@@ -28,8 +30,10 @@ all: $(THIS_SO) $(dirs)
 $(THIS_SO): $(OBJS)
 	$(CC) $(CC_OPT) $(OBJS) -I$(CLIB_INC) -I$(SRCINV_INC) -L$(CLIB_LIB) -lpthread -l$(CLIB_SO) -o $@ -Wl,-rpath $(CLIB_LIB)
 
-install: $(dirs)
-	@cp -v $(THIS_SO) $(OUTDIR)/
+install: $(dirs) $(INSTALLS)
+
+$(OUTDIR)/%: %
+	install $< $@
 
 clean: $(dirs)
 	@rm -vf $(THIS_SO)

@@ -11,13 +11,17 @@ INFILE = si_core.c \
 	 si_module.c \
 	 si_src.c
 
+INSTALLS := $(addprefix $(OUTDIR)/,$(OUTFILE))
+
 all: $(OUTFILE)
 
 $(OUTFILE): $(INFILE)
 	$(CC) $(CC_OPT) -I$(SRCINV_INC) -I$(CLIB_INC) $(INFILE) -L$(CLIB_LIB) -ldl -l$(CLIB_SO) -o $(OUTFILE) -Wl,-rpath $(CLIB_LIB)
 
-install:
-	@cp $(OUTFILE) $(OUTDIR)/
+install: $(INSTALLS)
+
+$(OUTDIR)/%: %
+	install $< $@
 
 clean:
 	@rm -vf $(OUTFILE)

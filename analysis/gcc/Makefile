@@ -9,13 +9,17 @@ INFILE = c.cc
 LIBDIR = $(SRCINV_BIN)
 COMPILER_GCC_SO = compiler_gcc
 
+INSTALLS := $(addprefix $(OUTDIR)/,$(OUTFILE))
+
 all: $(OUTFILE)
 
 $(OUTFILE): $(INFILE)
 	$(CC) $(CC_OPT) -I$(GCC_PLUGIN_INC) -I$(CLIB_INC) -I$(SRCINV_INC) $(INFILE) -L$(CLIB_LIB) -L$(LIBDIR) -l$(CLIB_SO) -l$(COMPILER_GCC_SO) -o $(OUTFILE) -Wl,-rpath $(CLIB_LIB) -Wl,-rpath $(LIBDIR)
 
-install:
-	@cp -v $(OUTFILE) $(OUTDIR)/
+install: $(INSTALLS)
+
+$(OUTDIR)/%: %
+	install $< $@
 
 clean:
 	@rm -vf $(OUTFILE)
