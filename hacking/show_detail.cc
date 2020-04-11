@@ -173,6 +173,30 @@ static void output_func(struct sinode *sn)
 	}
 }
 
+static void output_used_at(struct list_head *head, char *name)
+{
+	fprintf(stdout, "Used at(%s):\n", name);
+
+	struct use_at_list *tmp;
+	list_for_each_entry(tmp, head, sibling) {
+		struct sinode *fsn;
+		expanded_location *xloc;
+
+		fsn = analysis__sinode_search(siid_type(&tmp->func_id),
+				SEARCH_BY_ID, &tmp->func_id);
+
+		gimple_seq gs;
+		gs = (gimple_seq)tmp->gimple_stmt;
+		xloc = get_gimple_loc(fsn->buf->payload, &gs->location);
+		fprintf(stdout, "\t%s %d %d %p %ld\n",
+				fsn ? fsn->name : "NULL",
+				xloc ? xloc->line : 0,
+				xloc ? xloc->column : 0,
+				tmp->gimple_stmt,
+				tmp->op_idx);
+	}
+}
+
 static void output_var(struct sinode *sn)
 {
 	int all;
@@ -186,18 +210,7 @@ static void output_var(struct sinode *sn)
 	}
 
 	if (vn && (all || (!strcmp(argv_opt, "used")))) {
-		fprintf(stdout, "Used at:\n");
-
-		struct use_at_list *tmp;
-		list_for_each_entry(tmp, &vn->used_at, sibling) {
-			struct sinode *fsn;
-			fsn = analysis__sinode_search(siid_type(&tmp->func_id),
-					SEARCH_BY_ID, &tmp->func_id);
-			fprintf(stdout, "\t%s %p %ld\n",
-					fsn ? fsn->name : "NULL",
-					tmp->gimple_stmt,
-					tmp->op_idx);
-		}
+		output_used_at(&vn->used_at, vn->name);
 	}
 }
 
@@ -269,19 +282,7 @@ static void output_type(struct sinode *sn)
 
 	if (!idx) {
 		/* ignore argv_opt, handle the used_at */
-		fprintf(stdout, "Used at:\n");
-
-		struct use_at_list *tmp;
-		list_for_each_entry(tmp, &tn->used_at, sibling) {
-			struct sinode *fsn;
-			fsn = analysis__sinode_search(siid_type(&tmp->func_id),
-					SEARCH_BY_ID, &tmp->func_id);
-			fprintf(stdout, "\t%s %p %ld\n",
-					fsn ? fsn->name : "NULL",
-					tmp->gimple_stmt,
-					tmp->op_idx);
-		}
-
+		output_used_at(&tn->used_at, tn->type_name);
 		return;
 	}
 
@@ -289,19 +290,7 @@ static void output_type(struct sinode *sn)
 		struct var_list *vl = vls[i];
 
 		if (all || (!strcmp(argv_opt, "used"))) {
-			fprintf(stdout, "Used at:\n");
-
-			struct use_at_list *tmp;
-			list_for_each_entry(tmp, &vl->var.used_at, sibling) {
-				struct sinode *fsn;
-				fsn = analysis__sinode_search(
-						siid_type(&tmp->func_id),
-						SEARCH_BY_ID, &tmp->func_id);
-				fprintf(stdout, "\t%s %p %ld\n",
-						fsn ? fsn->name : "NULL",
-						tmp->gimple_stmt,
-						tmp->op_idx);
-			}
+			output_used_at(&vl->var.used_at, vl->var.name);
 		}
 
 		if (all || (!strcmp(argv_opt, "offset"))) {

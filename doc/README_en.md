@@ -524,6 +524,95 @@ struct xxx {
 ```
 `show_detail xxx.*.list0 type used` will show the used-at results.
 
+Test result for clib
+```c
+<1> hacking> show_detail clib_mm.* type
+src: /home/zerons/workspace/clib/include/clib_mm.h 43 19
+Used at(sibling):
+	clib_mm_find 26 2 0x10075b7bbc 1
+	clib_mm_setup 187 2 0x10075905cc 1
+Offset:
+	0
+Size:
+	128
+Used at(desc):
+	clib_mm_find 27 8 0x10075b7154 1
+	clib_mm_setup 178 10 0x1007594088 1
+Offset:
+	128
+Size:
+	64
+Used at(fd):
+	clib_mm_init 51 8 0x10075b076f 0
+	clib_mm_dump 63 7 0x10075ae833 1
+	clib_mm_expand 120 9 0x10075a87a0 1
+Offset:
+	192
+Size:
+	32
+Used at(refcount):
+	clib_mm_find 28 15 0x10075b6604 1
+	clib_mm_put 142 26 0x100759f5de 1
+Offset:
+	256
+Size:
+	64
+Used at(mm_start):
+	clib_mm_init 52 14 0x10075b0837 0
+	clib_mm_expand 103 33 0x10075abb2c 1
+	clib_mm_expand 114 51 0x10075a7ce0 1
+	clib_mm_expand 120 54 0x10075a8888 1
+	clib_mm_cleanup 214 50 0x100757fad2 1
+Offset:
+	320
+Size:
+	64
+Used at(mm_head):
+	clib_mm_init 53 13 0x10075b08ff 0
+	clib_mm_dump 65 58 0x10075ae043 1
+Offset:
+	384
+Size:
+	64
+Used at(mm_cur):
+	clib_mm_init 54 12 0x10075b09c7 0
+	clib_mm_dump 65 46 0x10075adfd3 1
+	clib_mm_expand 76 21 0x10075a5042 1
+	clib_mm_get 246 16 0x1007572c43 1
+	clib_mm_get 247 12 0x1007572de3 0
+Offset:
+	448
+Size:
+	64
+Used at(mm_tail):
+	clib_mm_init 55 13 0x10075b0b07 0
+	clib_mm_expand 76 8 0x10075a53ca 1
+	clib_mm_expand 94 14 0x10075a4792 1
+	clib_mm_expand 94 14 0x10075a648a 0
+	clib_mm_expand 114 38 0x10075a7d50 1
+	clib_mm_cleanup 214 37 0x1007580582 1
+Offset:
+	512
+Size:
+	64
+Used at(mm_end):
+	clib_mm_init 56 12 0x10075b0c47 0
+	clib_mm_expand 82 8 0x10075a4ce2 1
+	clib_mm_expand 120 44 0x10075a88f8 1
+Offset:
+	576
+Size:
+	64
+Used at(expandable):
+	clib_mm_init 57 16 0x10075b0d87 0
+	clib_mm_expand 97 7 0x10075ac054 1
+	clib_mm_expand 121 7 0x10075a89d8 1
+Offset:
+	640
+Size:
+	8
+```
+
 [Back to Contents](#0)
 
 
