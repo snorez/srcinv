@@ -1,5 +1,10 @@
 Sun Apr 12 10:46:38 HKT 2020
 	* hacking: show_detail: fix a SIGSEGV issue
+	* analysis/gcc/c.cc: call_addr_expr(): use gimple_call_addr_fndecl() to get the function_decl
+	* analysis/gcc/c.cc: redo phase4, all done in do_tree()
+	* analysis/gcc/c.cc: redo __4_mark_mem_ref()
+	* analysis/gcc/c.cc: properly use node_lock_*/node_unlock_*
+	* srcinv: do NOT access a tls var in liba while it stored in libb.
 
 Sat Apr 11 14:13:06 HKT 2020
 	* srcinv: update Makefile(s) to use install to install binaries

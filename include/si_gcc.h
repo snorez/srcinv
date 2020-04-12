@@ -736,11 +736,6 @@ static inline tree si_get_containing_scope(const_tree t)
 
 C_SYM histogram_value si_gimple_histogram_value(struct function *, gimple *);
 
-C_SYM __thread tree si_global_trees[];
-C_SYM __thread tree si_integer_types[];
-C_SYM __thread tree si_sizetype_tab[];
-C_SYM __thread tree si_current_function_decl;
-
 C_SYM tree si_build1(enum tree_code code, tree type, tree node);
 static inline tree si_build1_loc(location_t loc, enum tree_code code,
 				tree type, tree arg1)

@@ -210,13 +210,3 @@ histogram_value si_gimple_histogram_value(struct function *f,
 	return (histogram_value)si_htab_find_with_hash(VALUE_HISTOGRAMS(f),
 						gs, si_htab_hash_pointer(gs));
 }
-
-/*
- * ************************************************************************
- * for building tree nodes
- * ************************************************************************
- */
-__thread tree si_global_trees[TI_MAX];
-__thread tree si_integer_types[itk_none];
-__thread tree si_sizetype_tab[(int)stk_type_kind_last];
-__thread tree si_current_function_decl;
