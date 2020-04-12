@@ -299,12 +299,12 @@ static void output_type(struct sinode *sn)
 		if (all || (!strcmp(argv_opt, "offset"))) {
 			fprintf(stdout, "Offset:\n");
 
-			analysis__resfile_load(sn->buf);
-
 			unsigned long offset;
 			tree field;
 
 			field = (tree)vl->var.node;
+			analysis__resfile_load(find_target_sibuf(field));
+
 			offset = get_field_offset(field);
 
 			fprintf(stdout, "\t%ld\n", offset);

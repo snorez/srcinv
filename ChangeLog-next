@@ -1,3 +1,6 @@
+Sun Apr 12 10:46:38 HKT 2020
+	* hacking: show_detail: fix a SIGSEGV issue
+
 Sat Apr 11 14:13:06 HKT 2020
 	* srcinv: update Makefile(s) to use install to install binaries
 	* doc: figure out uses not found in hlist_for_each_entry(). Update
