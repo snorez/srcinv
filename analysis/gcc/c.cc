@@ -6984,7 +6984,7 @@ static void __4_mark_bit_field_ref(tree op)
 		 *	} some_type;
 		 */
 		tn = find_type_node(TREE_TYPE(t0));
-		if (tn->type_code == INTEGER_TYPE)
+		if (tn && (tn->type_code == INTEGER_TYPE))
 			tn = NULL;
 		break;
 	}
