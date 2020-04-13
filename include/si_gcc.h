@@ -281,6 +281,7 @@ static inline void gen_type_name(char *name, size_t namelen, tree node,
 	int field_cnt = 0;
 	char tmp_name[NAME_MAX];
 	char *p = name;
+	const char *sep = "_";
 
 	tree fields = TYPE_FIELDS(node);
 	while (fields) {
@@ -290,8 +291,8 @@ static inline void gen_type_name(char *name, size_t namelen, tree node,
 			memset(tmp_name, 0, NAME_MAX);
 			get_node_name(DECL_NAME(fields), tmp_name);
 			if (tmp_name[0]) {
-				memcpy(p, "__", 3);
-				p += 2;
+				memcpy(p, sep, strlen(sep)+1);
+				p += strlen(sep);
 				memcpy(p, tmp_name, strlen(tmp_name)+1);
 				p += strlen(tmp_name);
 				copied_cnt++;
@@ -300,9 +301,10 @@ static inline void gen_type_name(char *name, size_t namelen, tree node,
 		fields = DECL_CHAIN(fields);
 	}
 
-	snprintf(tmp_name, NAME_MAX, "__%d__%d__%ld__%d__%d",
-			(int)tc, field_cnt, (unsigned long)loc_file,
-			xloc->line, xloc->column);
+	snprintf(tmp_name, NAME_MAX, "%s%d%s%d%s%ld%s%d%s%d",
+			sep, (int)tc, sep, field_cnt,
+			sep, (unsigned long)loc_file,
+			sep, xloc->line, sep, xloc->column);
 	memcpy(p, tmp_name, strlen(tmp_name)+1);
 
 	return;
@@ -320,7 +322,10 @@ static inline void get_type_xnode(tree node, struct sinode **sn_ret,
 	*tn_ret = NULL;
 
 	struct sibuf *b = find_target_sibuf((void *)node);
-	BUG_ON(!b);
+	if (unlikely(!b)) {
+		si_log("target_sibuf not found, %p\n", node);
+		return;
+	}
 	analysis__resfile_load(b);
 
 	memset(name, 0, NAME_MAX);
@@ -330,15 +335,21 @@ static inline void get_type_xnode(tree node, struct sinode **sn_ret,
 	int flag;
 	flag = check_file_type(node);
 	if (flag == TYPE_CANONICALED) {
-		node = TYPE_CANONICAL(node);
+		tree tmp_node = TYPE_CANONICAL(node);
 
-		b = find_target_sibuf((void *)node);
-		BUG_ON(!b);
-		analysis__resfile_load(b);
+		b = find_target_sibuf((void *)tmp_node);
+		if (unlikely(!b)) {
+			si_log("target_sibuf not found, %p\n", tmp_node);
+			/* FIXME: should we fall through or just return? */
+			return;
+		} else {
+			node = tmp_node;
+			analysis__resfile_load(b);
 
-		memset(name, 0, NAME_MAX);
-		get_type_name((void *)node, name);
-		xloc = get_location(GET_LOC_TYPE, b->payload, node);
+			memset(name, 0, NAME_MAX);
+			get_type_name((void *)node, name);
+			xloc = get_location(GET_LOC_TYPE, b->payload, node);
+		}
 	} else if (flag == TYPE_UNDEFINED) {
 #if 0
 		BUG_ON(!name[0]);

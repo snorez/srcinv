@@ -1,3 +1,6 @@
+2020-04-13
+	* include/si_gcc.h: cleanup some BUG_ONs
+
 Sun Apr 12 10:46:38 HKT 2020
 	* hacking: show_detail: fix a SIGSEGV issue
 	* analysis/gcc/c.cc: call_addr_expr(): use gimple_call_addr_fndecl() to get the function_decl
