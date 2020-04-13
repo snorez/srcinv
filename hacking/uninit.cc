@@ -250,19 +250,20 @@ static void do_uninit_check_func(void *arg, struct clib_rw_pool *pool)
 			if (pool_avail->tid)
 				pthread_join(pool_avail->tid, NULL);
 
-			int err;
-			pool_avail->arg[0] = (long)fsn;
-			pool_avail->arg[1] = (long)pool;
-			pool_avail->arg[2] = (long)single_cp;
-			pool_avail->arg[3] = (long)pool_avail;
-			pool_avail->arg[4] = (long)paths_read;
-			err = pthread_create(&pool_avail->tid, NULL,
+			int err = 0;
+			do {
+				if (unlikely(err))
+					err_dbg(0, "pthread_create err");
+
+				pool_avail->arg[0] = (long)fsn;
+				pool_avail->arg[1] = (long)pool;
+				pool_avail->arg[2] = (long)single_cp;
+				pool_avail->arg[3] = (long)pool_avail;
+				pool_avail->arg[4] = (long)paths_read;
+				err = pthread_create(&pool_avail->tid, NULL,
 						__do_uninit_check_func,
 						(void *)pool_avail->arg);
-			if (err) {
-				err_dbg(1, "pthread_create err");
-				BUG();
-			}
+			} while (err);
 		}
 	}
 

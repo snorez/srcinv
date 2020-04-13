@@ -44,7 +44,6 @@ void debuild_type(struct type_node *type)
 	case METHOD_TYPE:
 	case LANG_TYPE:
 	default:
-		BUG();
 		break;
 	case BOOLEAN_TYPE:
 	{

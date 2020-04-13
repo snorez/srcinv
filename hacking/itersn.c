@@ -198,7 +198,10 @@ static void sinode_print(struct sinode *sin)
 		sinode_print_codep(sin);
 		break;
 	default:
-		BUG();
+	{
+		si_log2_todo("type not support: %d\n", sinode_idtype(sin));
+		break;
+	}
 	}
 
 	return;

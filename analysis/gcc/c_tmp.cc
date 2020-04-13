@@ -333,7 +333,7 @@ static void do_histogram_value_phase4(histogram_value hist)
 	case HIST_TYPE_MAX:
 	default:
 	{
-		BUG();
+		break;
 	}
 	}
 
@@ -485,7 +485,7 @@ static void do_phase4_mark_var_func(struct sinode *sn)
 		FOR_EACH_BB_FN(bb, f)
 			do_bb_phase4(bb);
 	} else {
-		BUG();
+		si_log1("todo\n");
 	}
 
 	CLIB_DBG_FUNC_EXIT();

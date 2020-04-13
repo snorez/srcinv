@@ -141,7 +141,7 @@ static void do_check(struct callf_list *cf, int flag)
 				expanded_location *xloc;
 				xloc = get_gimple_loc(cur_sn->buf->payload,
 							&gs->location);
-				si_log2("kern_copyuser BUG: %s %d %d\n", xloc->file,
+				si_log2("kern_copyuser: %s %d %d\n", xloc->file,
 						xloc->line, xloc->column);
 			}
 		} else {
@@ -154,7 +154,7 @@ static void do_check(struct callf_list *cf, int flag)
 				expanded_location *xloc;
 				xloc = get_gimple_loc(cur_sn->buf->payload,
 							&gs->location);
-				si_log2("kern_copyuser BUG: %s %d %d\n", xloc->file,
+				si_log2("kern_copyuser: %s %d %d\n", xloc->file,
 						xloc->line, xloc->column);
 			}
 		}

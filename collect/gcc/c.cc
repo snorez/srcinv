@@ -2716,7 +2716,6 @@ static void do_exp(tree node, int flag)
 	do_location(node0->locus);
 	do_typed((tree)&node0->typed, 0);
 	if (TREE_CODE_CLASS(TREE_CODE(node)) == tcc_vl_exp) {
-		WARN_ON(!VL_EXP_OPERAND_LENGTH(node));
 		for (int i = 0; i < VL_EXP_OPERAND_LENGTH(node); i++)
 			do_tree(node0->operands[i]);
 	} else {
