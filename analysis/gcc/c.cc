@@ -5706,7 +5706,7 @@ static void _get_type_detail(struct type_node *tn)
 	struct type_node *new_type = NULL;
 
 	__get_type_detail(&new_type, NULL, NULL, node);
-	if ((long)tn != (long)new_type) {
+	if (unlikely((long)tn != (long)new_type)) {
 		BUG();
 	}
 

@@ -1,5 +1,8 @@
 ### srcinv
 + performance optimization
++ why crash when `si_global_trees` defined in `compiler_gcc.cc`? It seems that
+the `si_global_trees` memory area overlaps with the thread stack.
++ why can't I skip over STEP1?
 
 ### collect
 + gcc/c.cc

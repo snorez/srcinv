@@ -47,6 +47,10 @@ Run `make` and `make install`
 specific module. e.g. you code a new module for hacking, you should add it
 into config/module.conf file before running it.
 
+I **HIGHLY RECOMMEND** you to do all the six steps, till you get the
+`src.saved` file. I still can not figure out why it fails when I try
+to skip over STEP1. So I just put it on TODO lists.
+
 - **collect**: Do this in the target project root directory, not srcinv root.
 	- Each `make` should generate only ONE executable file.
 	- For a project that may generate more than one executable file, you need to modify the Makefile(s), and generate them one by one.

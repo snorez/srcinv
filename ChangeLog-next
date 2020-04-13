@@ -2,6 +2,8 @@
 	* include/si_gcc.h: cleanup some BUG_ONs
 	* srcinv: delete some BUG()s
 	* analysis/gcc/c.cc: check return value of find_type_node().
+	* NEW RELEASE: v0.6.3: show_detail can output more information now,
+	like uses in atomic_set().
 
 Sun Apr 12 10:46:38 HKT 2020
 	* hacking: show_detail: fix a SIGSEGV issue
