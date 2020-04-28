@@ -107,6 +107,7 @@ EXPORTED_CONST enum gimple_statement_structure_enum gss_for_code_[] = {
 #endif
 
 #ifdef FOR_CPP
+#if __GNUC__ < 9
 #define DEFTREECODE(SYM, STRING, TYPE, NARGS)   			    \
   (unsigned char)							    \
   ((TYPE) == tcc_unary ? GIMPLE_UNARY_RHS				    \
@@ -136,6 +137,36 @@ EXPORTED_CONST enum gimple_statement_structure_enum gss_for_code_[] = {
       || (SYM) == WITH_SIZE_EXPR					    \
       || (SYM) == SSA_NAME) ? GIMPLE_SINGLE_RHS				    \
    : GIMPLE_INVALID_RHS),
+#else
+#define DEFTREECODE(SYM, STRING, TYPE, NARGS)   			    \
+  (unsigned char)							    \
+  ((TYPE) == tcc_unary ? GIMPLE_UNARY_RHS				    \
+   : ((TYPE) == tcc_binary						    \
+      || (TYPE) == tcc_comparison) ? GIMPLE_BINARY_RHS   		    \
+   : ((TYPE) == tcc_constant						    \
+      || (TYPE) == tcc_declaration					    \
+      || (TYPE) == tcc_reference) ? GIMPLE_SINGLE_RHS			    \
+   : ((SYM) == TRUTH_AND_EXPR						    \
+      || (SYM) == TRUTH_OR_EXPR						    \
+      || (SYM) == TRUTH_XOR_EXPR) ? GIMPLE_BINARY_RHS			    \
+   : (SYM) == TRUTH_NOT_EXPR ? GIMPLE_UNARY_RHS				    \
+   : ((SYM) == COND_EXPR						    \
+      || (SYM) == WIDEN_MULT_PLUS_EXPR					    \
+      || (SYM) == WIDEN_MULT_MINUS_EXPR					    \
+      || (SYM) == DOT_PROD_EXPR						    \
+      || (SYM) == SAD_EXPR						    \
+      || (SYM) == REALIGN_LOAD_EXPR					    \
+      || (SYM) == VEC_COND_EXPR						    \
+      || (SYM) == VEC_PERM_EXPR                                             \
+      || (SYM) == BIT_INSERT_EXPR) ? GIMPLE_TERNARY_RHS			    \
+   : ((SYM) == CONSTRUCTOR						    \
+      || (SYM) == OBJ_TYPE_REF						    \
+      || (SYM) == ASSERT_EXPR						    \
+      || (SYM) == ADDR_EXPR						    \
+      || (SYM) == WITH_SIZE_EXPR					    \
+      || (SYM) == SSA_NAME) ? GIMPLE_SINGLE_RHS				    \
+   : GIMPLE_INVALID_RHS),
+#endif
 #define END_OF_BASE_TREE_CODES (unsigned char) GIMPLE_INVALID_RHS,
 const unsigned char gimple_rhs_class_table[] = {
 #include "all-tree.def"

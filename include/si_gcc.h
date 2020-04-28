@@ -90,7 +90,7 @@
 
 DECL_BEGIN
 
-#if __GNUC__ == 8
+#if __GNUC__ >= 8
 struct GTY(()) sorted_fields_type {
 	int len;
 	tree GTY((length("%h.len"))) elts[1];

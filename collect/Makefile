@@ -19,7 +19,7 @@ all: $(OUTNAME) $(dirs)
 $(OUTNAME): $(OBJS)
 	$(CC) $(CC_OPT) $(OBJS) -I$(CLIB_INC) -I$(SRCINV_INC) -L$(CLIB_LIB) -l$(CLIB_SO) -o $(OUTNAME) -Wl,-rpath $(CLIB_LIB)
 
-install: $(INSTALLS)
+install: $(dirs) $(INSTALLS)
 
 $(OUTDIR)/%: %
 	install $< $@

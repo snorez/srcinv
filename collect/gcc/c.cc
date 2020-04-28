@@ -572,6 +572,7 @@ static void do_cpp_token(struct cpp_token *node, int flag)
 	}
 }
 
+#if __GNUC__ < 9
 struct GTY(()) cpp_macro { /* libcpp/include/cpp-id-data.h */
 	cpp_hashnode **GTY((nested_ptr(union tree_node,
 			"%h?CPP_HASHNODE(GCC_IDENT_TO_HT_IDENT(%h)):NULL",
@@ -628,6 +629,44 @@ static void __maybe_unused do_cpp_macro(struct cpp_macro *node, int flag)
 		BUG();
 	}
 }
+#else
+static void __maybe_unused do_cpp_macro(struct cpp_macro *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+	if (flag)
+		mem_write((void *)node, sizeof(*node));
+	do_location(node->line);
+	if (node->kind == cmk_assert) {
+		do_cpp_macro(node->parm.next, 1);
+	} else {
+		cpp_hashnode **addr = node->parm.params;
+		if (addr && !is_obj_checked(addr)) {
+			mem_write((void *)addr, node->paramc*sizeof(addr[1]));
+			for (unsigned short i = 0; i < node->paramc; i++) {
+				do_cpp_hashnode(addr[i], 1);
+			}
+		}
+	}
+	if (node->kind == cmk_traditional) {
+		/* FIXME, the text looks like an address */
+		if (!is_obj_checked((void *)(node->exp.text)))
+			mem_write((void *)node->exp.text,
+				strlen((const char *)(node->exp.text))+1);
+	} else {
+		if (node->exp.tokens && !is_obj_checked(node->exp.tokens)) {
+			mem_write((void *)node->exp.tokens,
+				sizeof(struct cpp_token) * node->count);
+			struct cpp_token *addr = node->exp.tokens;
+			for (unsigned int i = 0; i < node->count; i++) {
+				do_cpp_token(&addr[i], 0);
+			}
+		}
+	}
+}
+#endif
 
 struct GTY(()) answer {
 	struct answer *next;

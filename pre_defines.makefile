@@ -9,8 +9,11 @@ SELF_CFLAGS+=-DCONFIG_ANALYSIS_THREAD=0x10
 SELF_CFLAGS+=-DCONFIG_DEBUG_MODE=1
 SELF_CFLAGS+=-DHAVE_CLIB_DBG_FUNC
 #SELF_CFLAGS+=-DUSE_NCURSES
+
 #SELF_CFLAGS+=-Wno-packed-not-aligned
 #SELF_CFLAGS+=-fno-omit-frame-pointer
+# For gcc 9, disable address-of-packed-member
+SELF_CFLAGS+=-Wno-address-of-packed-member
 
 #SELF_CFLAGS+=-DCONFIG_THREAD_STACKSZ=0x20*1024*1024
 

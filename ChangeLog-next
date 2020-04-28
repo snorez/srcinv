@@ -1,3 +1,6 @@
+2020-04-28
+	* srcinv: update for gcc 9
+
 2020-04-13
 	* include/si_gcc.h: cleanup some BUG_ONs
 	* srcinv: delete some BUG()s

@@ -40,7 +40,9 @@ void debuild_type(struct type_node *type)
 	case NULLPTR_TYPE:
 	case FIXED_POINT_TYPE:
 	case QUAL_UNION_TYPE:
+#if __GNUC__ < 9
 	case POINTER_BOUNDS_TYPE:
+#endif
 	case METHOD_TYPE:
 	case LANG_TYPE:
 	default:

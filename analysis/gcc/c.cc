@@ -832,6 +832,7 @@ static void do_cpp_token(struct cpp_token *node, int flag)
 	}
 }
 
+#if __GNUC__ < 9
 struct GTY(()) cpp_macro { /* libcpp/include/cpp-id-data.h */
 	cpp_hashnode **GTY((nested_ptr(union tree_node,
 			"%h?CPP_HASHNODE(GCC_IDENT_TO_HT_IDENT(%h)):NULL",
@@ -905,6 +906,60 @@ static void __maybe_unused do_cpp_macro(struct cpp_macro *node, int flag)
 		BUG();
 	}
 }
+#else
+static void __maybe_unused do_cpp_macro(struct cpp_macro *node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		do_location(&node->line);
+		if (node->kind == cmk_assert) {
+			do_real_addr(&node->parm.next,
+					do_cpp_macro(node->parm.next, 1));
+		} else {
+			cpp_hashnode **addr = node->parm.params;
+			if (addr) {
+				do_real_addr(&node->parm.params,
+						is_obj_checked(addr));
+				unsigned short i = 0;
+				for (i = 0; i < node->paramc; i++) {
+					do_real_addr(&addr[i],
+						do_cpp_hashnode(addr[i], 1));
+				}
+			}
+		}
+		if (node->kind == cmk_traditional) {
+			if (node->exp.text)
+				do_real_addr(&node->exp.text,
+						is_obj_checked((void *)
+							node->exp.text));
+		} else {
+			if (node->exp.tokens) {
+				do_real_addr(&node->exp.tokens,
+					is_obj_checked(node->exp.tokens));
+				struct cpp_token *addr = node->exp.tokens;
+				for (unsigned int i = 0;i < node->count;i++)
+					do_cpp_token(&addr[i], 0);
+			}
+		}
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		return;
+	}
+	default:
+		BUG();
+	}
+}
+#endif
 
 struct GTY(()) answer {
 	struct answer *next;
@@ -5471,7 +5526,10 @@ static void __get_type_detail(struct type_node **base, struct list_head *head,
 					TREE_TYPE(node));
 		break;
 	}
+#if __GNUC__ < 9
+	/* removed in gcc-9 */
 	case POINTER_BOUNDS_TYPE:
+#endif
 	case BOOLEAN_TYPE:
 	case VOID_TYPE:
 	{
