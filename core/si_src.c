@@ -36,22 +36,20 @@ static void buf_restore(void);
 static int buf_expanded(size_t expand_len);
 void *src_buf_get(size_t len);
 static void do_flush_outfile(void);
-static __maybe_unused int src_eh_do_load(int signo, siginfo_t *si, void *arg);
+static int src_modified = 1;
 
 static char cmd0[] = "load_srcfile";
 static char cmd1[] = "flush_srcfile";
+static char cmd_readmode_name[] = "readmode";
 static void cmd0_usage(void);
 static long cmd0_cb(int argc, char *argv[]);
 static void cmd1_usage(void);
 static long cmd1_cb(int argc, char *argv[]);
+static void cmd_readmode_usage(void);
+static long cmd_readmode_cb(int argc, char *argv[]);
 
 int si_src_setup(void)
 {
-	struct eh_list *new_eh;
-	new_eh = eh_list_new(src_eh_do_load, SIGSEGV, 1, 1);
-	set_eh_mode(1);
-	set_eh(new_eh);
-
 	int err;
 	err = clib_cmd_ac_add(cmd0, cmd0_cb, cmd0_usage);
 	if (err == -1) {
@@ -62,18 +60,25 @@ int si_src_setup(void)
 	err = clib_cmd_ac_add(cmd1, cmd1_cb, cmd1_usage);
 	if (err == -1) {
 		err_msg("clib_cmd_ac_add err");
-		goto err0;
+		goto out_del0;
+	}
+
+	err = clib_cmd_ac_add(cmd_readmode_name, cmd_readmode_cb,
+				cmd_readmode_usage);
+	if (err == -1) {
+		err_msg("clib_cmd_ac_add err");
+		goto out_del1;
 	}
 
 	if (unlikely(si)) {
 		err_msg("si has been assigned");
-		goto err1;
+		goto out_del2;
 	}
 
 	buf_cur = buf_start;
 	if (buf_expanded(SRC_BUF_BLKSZ)) {
 		err_msg("buf_expanded err");
-		goto err1;
+		goto out_del2;
 	}
 
 	si = src_buf_get(sizeof(*si));
@@ -118,9 +123,11 @@ int si_src_setup(void)
 err2:
 	buf_restore();
 	si = NULL;
-err1:
+out_del2:
+	clib_cmd_ac_del(cmd_readmode_name);
+out_del1:
 	clib_cmd_ac_del(cmd1);
-err0:
+out_del0:
 	clib_cmd_ac_del(cmd0);
 	return -1;
 }
@@ -157,12 +164,15 @@ static long do_load_srcfile(char *id)
 	if (unlikely(readlen >= (SRC_BUF_END-SRC_BUF_START)))
 		BUG();
 
+	mutex_lock(&src_buf_lock);
 	buf_restore();
 	BUG_ON(buf_expanded(readlen));
+
 	err = clib_read(fd, buf_start, readlen);
 	if (err == -1) {
 		err_sys("clib_read err");
 		close(fd);
+		mutex_unlock(&src_buf_lock);
 		return -1;
 	}
 
@@ -186,6 +196,16 @@ static long do_load_srcfile(char *id)
 	atomic_set(&si->sibuf_mem_usage, 0);
 
 	close(fd);
+#if 0
+	/* There are rwlocks in si, we can not do this now. */
+	if (mprotect(buf_start, buf_total_size, PROT_READ)) {
+		err_sys("mprotect err");
+		src_modified = 1;
+	} else {
+		src_modified = 0;
+	}
+#endif
+	mutex_unlock(&src_buf_lock);
 	return 0;
 }
 static void cmd0_usage(void)
@@ -221,6 +241,10 @@ static void do_flush_outfile(void)
 		rmdir(buf);
 		return;
 	}
+
+	if (!src_modified)
+		return;
+
 	char buf[PATH_MAX];
 	snprintf(buf, PATH_MAX, "%s/%s/%s", DEF_TMPDIR, si->src_id, SAVED_SRC);
 
@@ -242,23 +266,6 @@ static void do_flush_outfile(void)
 	return;
 }
 
-/*
- * while we met a SIGSEGV signal, we check the addr,
- * load the memory if we need.
- */
-static int src_eh_do_load(int signo, siginfo_t *si, void *arg)
-{
-	if (unlikely(signo != SIGSEGV))
-		return -1;
-
-	struct sibuf *b;
-	b = find_target_sibuf((void *)si->si_addr);
-	if (!b)
-		return -1;	/* let the original signal handler handle it */
-	analysis__resfile_load(b);
-	return 0;
-}
-
 static void cmd1_usage(void)
 {
 	fprintf(stdout, "\tWrite current src info to srcfile\n");
@@ -272,6 +279,21 @@ static long cmd1_cb(int argc, char *argv[])
 	}
 
 	do_flush_outfile();
+	return 0;
+}
+
+static void cmd_readmode_usage(void)
+{
+	fprintf(stdout, "\tManually set read mode\n");
+}
+
+static long cmd_readmode_cb(int argc, char *argv[])
+{
+	fprintf(stdout, "\tPrevious mode: %s\n",
+			src_modified ? "Read/Write" : "Read ONLY");
+	src_modified = !src_modified;
+	fprintf(stdout, "\tCurrent mode: %s\n",
+			src_modified ? "Read/Write" : "Read ONLY");
 	return 0;
 }
 
@@ -309,6 +331,26 @@ void *src_buf_get(size_t len)
 	buf_cur += len;
 	/* XXX: important, aligned 0x4 */
 	buf_cur = (void *)clib_round_up((unsigned long)buf_cur, sizeof(long));
+	if (!src_modified)
+		src_modified = 1;
 	mutex_unlock(&src_buf_lock);
 	return ret;
+}
+
+int src_buf_fix(void *fault_addr)
+{
+	int err = 0;
+
+	mutex_lock(&src_buf_lock);
+	if ((fault_addr >= buf_start) &&
+		(fault_addr < (buf_start + buf_total_size))) {
+		err = mprotect(buf_start, buf_total_size, PROT_READ | PROT_WRITE);
+		if (err == -1)
+			err_sys("mprotect err");
+		else
+			src_modified = 1;
+	}
+	mutex_unlock(&src_buf_lock);
+
+	return err;
 }

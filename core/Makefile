@@ -9,7 +9,8 @@ INFILE = si_core.c \
 	 si_cmd.c \
 	 si_conf.c \
 	 si_module.c \
-	 si_src.c
+	 si_src.c \
+	 si_signal.c
 
 INSTALLS := $(addprefix $(OUTDIR)/,$(OUTFILE))
 

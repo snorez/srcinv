@@ -1,3 +1,6 @@
+2020-05-04
+	* si_core: add readmode command to exit process immediately.
+
 2020-04-28
 	* srcinv: update for gcc 9
 

@@ -45,6 +45,7 @@ C_SYM int si_config(void);
 C_SYM int si_cmd_setup(void);
 C_SYM int si_module_setup(void);
 C_SYM int si_src_setup(void);
+C_SYM int si_signal_setup(void);
 static int si_init(void)
 {
 	int err;
@@ -79,6 +80,12 @@ static int si_init(void)
 		return -1;
 	}
 
+	err = si_signal_setup();
+	if (err) {
+		err_msg("si_signal_setup err");
+		return -1;
+	}
+
 	return 0;
 }
 
@@ -104,7 +111,8 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	set_dbg_mode(DEBUG_MODE);
+	if (DEBUG_MODE)
+		enable_dbg_mode();
 
 	int err0 = tmp_close_std(STDOUT_FILENO);
 
