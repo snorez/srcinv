@@ -21,6 +21,7 @@ This document still needs to be perfected.
 	- [4.4 - PHASE4](#4.4)
 	- [4.5 - PHASE5](#4.5)
 	- [4.6 - PHASE6](#4.6)
+	- [4.7 - Debug](#4.7)
 - [5 - Use the information to do something](#5)
 	- [5.1 - show\_detail](#5.1)
 - [6 - Future work](#6)
@@ -464,6 +465,25 @@ NOTE, we are dealing with tree\_ssa\_name now.
 <span id="4.6"></span>
 ### 4.6 - PHASE6
 Nothing to do here, do phase5 again.
+
+[Back to Contents](#0)
+
+
+
+<span id="4.7"></span>
+### 4.7 - Debug
+This section will discuss some efficient steps help to locate bugs.
+
+Do the STEP one by one, and backup the resfile/src.saved files to resfile.x/src.saved.x(x is the step number). So we can restore them while the parsing crashed.
+
+If `HAVE_CLIB_DBG_FUNC` is enabled, the stack trace message shows which thread
+has crashed. With this, we can find the source file the thread is parsing.
+
+Then, edit `pre_defines.makefile`, use `O0`, and recompile.
+
+In PARSE mode, we provide a command `one_sibuf`, it is used to parse only one
+source file. Thus, we can do `one_sibuf /path/to/the/file STEP 1` to
+reproduce the crash.
 
 [Back to Contents](#0)
 

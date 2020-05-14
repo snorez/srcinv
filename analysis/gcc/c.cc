@@ -6811,6 +6811,8 @@ static struct var_list *calculate_field_offset(struct type_node *tn,
 	off = get_field_offset(field);
 
 	if (((off + *base_off) < target_offset) &&
+		/* Fix: napi_struct_extended_rh structure is empty */
+		tmp->var.type &&
 		(off + *base_off + tmp->var.type->ofsize) > target_offset) {
 		switch (__check_field(tmp)) {
 		case 0:
