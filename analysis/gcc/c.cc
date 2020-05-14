@@ -7113,8 +7113,13 @@ static void __4_mark_bit_field_ref(tree op)
 		case BIT_AND_EXPR:
 		case EQ_EXPR:
 		{
-			BUG_ON((TREE_CODE(ops[2]) != INTEGER_CST) &&
-				(TREE_CODE(ops[1]) != INTEGER_CST));
+			if (unlikely((TREE_CODE(ops[2]) != INTEGER_CST) &&
+				(TREE_CODE(ops[1]) != INTEGER_CST))) {
+				si_log1_todo("miss %s %s\n",
+					tree_code_name[TREE_CODE(ops[1])],
+					tree_code_name[TREE_CODE(ops[2])]);
+				break;
+			}
 
 			tree intcst;
 			if (TREE_CODE(ops[1]) == INTEGER_CST)

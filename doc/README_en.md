@@ -476,6 +476,8 @@ This section will discuss some efficient steps help to locate bugs.
 
 Do the STEP one by one, and backup the resfile/src.saved files to resfile.x/src.saved.x(x is the step number). So we can restore them while the parsing crashed.
 
+I suggest you to backup resfile/src.saved after STEP1 and STEP3.
+
 If `HAVE_CLIB_DBG_FUNC` is enabled, the stack trace message shows which thread
 has crashed. With this, we can find the source file the thread is parsing.
 
