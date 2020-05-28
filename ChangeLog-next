@@ -1,3 +1,6 @@
+2020-05-28
+	* analysis: create parse.c for parse/one_sibuf commands
+
 2020-05-14
 	* analysis/gcc/c.cc: fix a null-deref
 	* analysis/gcc/c.cc: __4_mark_bit_field_ref(): use si_log1_todo()

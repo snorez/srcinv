@@ -18,6 +18,7 @@ OBJS = analysis.c \
        sinode.c \
        sibuf.c \
        resfile.c \
+       parse.c \
        utils.c $(SMF)
 
 INSTALLS := $(addprefix $(OUTDIR)/,$(THIS_SO))
