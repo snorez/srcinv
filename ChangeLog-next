@@ -2,6 +2,7 @@
 	* analysis: create parse.c for parse/one_sibuf commands
 	* srcinv: detect kern/os type automatically
 	* collect: do not set si_type.kernel to SI_TYPE_BOTH
+	* analysis: add mark_entry
 
 2020-05-14
 	* analysis/gcc/c.cc: fix a null-deref
