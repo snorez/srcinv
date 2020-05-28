@@ -23,6 +23,7 @@ static struct plugin_info this_plugin_info = {
 	.version = "0.1",
 	.help = "collect the .s .S .asm file information",
 };
+static char *plugin_name = NULL;
 
 static int gcc_ver = __GNUC__;
 static int gcc_ver_minor = __GNUC_MINOR__;
@@ -52,7 +53,6 @@ static int prepare_outfile(void)
 	return 0;
 }
 
-static char objfile[PATH_MAX];
 static int get_compiling_args(void)
 {
 	/*
@@ -103,7 +103,7 @@ static int get_compiling_args(void)
 		cmd = (char *)fc_cmdptr((void *)nodes_mem);
 		char *cur = ptr;
 		char *end;
-		int objflag = 0;
+		int __maybe_unused objflag = 0;
 		while (1) {
 			if (!*cur)
 				break;
@@ -119,6 +119,10 @@ static int get_compiling_args(void)
 			end = strchr(cur+1, '\'');
 			memcpy(cmd, cur, end+1-cur);
 
+#if 0
+			/*
+			 * kernel kbuild generate a temporary file
+			 */
 			if (objflag) {
 				memcpy(objfile, cur, end+1-cur);
 				objflag = 0;
@@ -127,6 +131,7 @@ static int get_compiling_args(void)
 			if (!strncmp(cur, "'-o'", end+1-cur)) {
 				objflag = 1;
 			}
+#endif
 
 			memcpy(cmd+(end+1-cur), " ", 1);
 
@@ -156,40 +161,67 @@ static void flush(int fd)
 		BUG();
 }
 
+static char objfile[PATH_MAX];
+C_SYM FILE *asm_out_file;
 static void finish(void *gcc_data, void *user_data)
 {
-	int fd = open(objfile, O_RDONLY);
-	if (fd == -1) {
-		fprintf(stderr, "Open %s err\n", objfile);
-		close(outfd);
-		return;
-	}
+	/*
+	 * the objfile may not exists at the moment, so
+	 * we use a child process to wait for the objfile
+	 */
+	int pid;
+	if ((pid = fork()) < 0) {
+		fprintf(stderr, "fork err\n");
+		goto out;
+	} else if (pid == 0) {
+		int fd = -1;
+		int maxtry = 9000;	/* total time: 9s */
+		while (fd == -1) {
+			if (!maxtry)
+				break;
+			fd = open(objfile, O_RDONLY);
+			usleep(1000);
+			maxtry--;
+		}
+		if (fd == -1) {
+			fprintf(stderr, "Open %s err\n", objfile);
+			close(outfd);
+			exit(0);
+		}
 
-	struct stat st;
-	int err = fstat(fd, &st);
-	if (err == -1) {
-		fprintf(stderr, "fstat err\n");
+		struct stat st;
+		int err = fstat(fd, &st);
+		if (err == -1) {
+			fprintf(stderr, "fstat err\n");
+			close(fd);
+			close(outfd);
+			exit(0);
+		}
+
+		size_t len = st.st_size;
+		if ((mem_ptr + len) > ((char *)nodes_mem + sizeof(nodes_mem)))
+			BUG();
+		ssize_t rlen = read(fd, mem_ptr, len);
+		if (rlen != (ssize_t)len) {
+			fprintf(stderr, "read err, %ld bytes read\n", rlen);
+			close(fd);
+			close(outfd);
+			exit(0);
+		}
+
+		mem_ptr += len;
 		close(fd);
-		close(outfd);
-		return;
+
+		flush(outfd);
+		fprintf(stderr, "%s: child[%d] write res done\n", plugin_name,
+				getpid());
+		exit(0);
 	}
 
-	size_t len = st.st_size;
-	if ((mem_ptr + len) > ((char *)nodes_mem + sizeof(nodes_mem)))
-		BUG();
-	ssize_t rlen = read(fd, mem_ptr, len);
-	if (rlen != (ssize_t)len) {
-		fprintf(stderr, "read err, %ld bytes read\n", rlen);
-		close(fd);
-		close(outfd);
-		return;
-	}
-
-	mem_ptr += len;
-	close(fd);
-
-	flush(outfd);
+	fprintf(stderr, "%s: child[%d] wait to write res\n", plugin_name, pid);
+out:
 	close(outfd);
+	return;
 }
 
 int plugin_init(struct plugin_name_args *plugin_info,
@@ -209,15 +241,17 @@ int plugin_init(struct plugin_name_args *plugin_info,
 		return -1;
 	}
 
+	plugin_name = plugin_info->base_name;
+
 	if (plugin_info->argc != 2) {
 		fprintf(stderr, "plugin %s usage:\n"
 				" -fplugin=.../%s.so"
 				" -fplugin-arg-%s-outpath=..."
 				" -fplugin-arg-%s-kernel=[0|1]\n",
-				plugin_info->base_name,
-				plugin_info->base_name,
-				plugin_info->base_name,
-				plugin_info->base_name);
+				plugin_name,
+				plugin_name,
+				plugin_name,
+				plugin_name);
 		return -1;
 	}
 	outpath = plugin_info->argv[0].value;
@@ -235,6 +269,10 @@ int plugin_init(struct plugin_name_args *plugin_info,
 			strcmp(file+strlen(file)-2, ".S"))
 			return 0;
 	}
+	char *last_dot_pos = strrchr((char *)file, '.');
+	BUG_ON(!last_dot_pos);
+	memcpy(objfile, file, last_dot_pos - file);
+	memcpy(objfile + (last_dot_pos - file), ".o", 3);
 
 	err = get_compiling_args();
 	if (err) {
@@ -259,15 +297,11 @@ int plugin_init(struct plugin_name_args *plugin_info,
 		return -1;
 	}
 
-	register_callback(plugin_info->base_name, PLUGIN_INFO, NULL,
+	register_callback(plugin_name, PLUGIN_INFO, NULL,
 				&this_plugin_info);
 
-#if 0
-	register_callback(plugin_info->base_name, PLUGIN_PRAGMAS, todo, NULL);
-#endif
-
 	/* collect data, flush data to file */
-	register_callback(plugin_info->base_name, PLUGIN_FINISH, finish, NULL);
+	register_callback(plugin_name, PLUGIN_FINISH, finish, NULL);
 
 	return 0;
 }
