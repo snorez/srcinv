@@ -6,6 +6,7 @@
 	* si_type_match: fix
 	* srcinv: add gcc_asm module to collect .s/.S/.asm files
 	* gcc_asm: collect test done on CentOS 8
+	* gcc_asm: remove some dead code
 
 2020-05-14
 	* analysis/gcc/c.cc: fix a null-deref

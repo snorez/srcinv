@@ -103,7 +103,6 @@ static int get_compiling_args(void)
 		cmd = (char *)fc_cmdptr((void *)nodes_mem);
 		char *cur = ptr;
 		char *end;
-		int __maybe_unused objflag = 0;
 		while (1) {
 			if (!*cur)
 				break;
@@ -118,21 +117,6 @@ static int get_compiling_args(void)
 			}
 			end = strchr(cur+1, '\'');
 			memcpy(cmd, cur, end+1-cur);
-
-#if 0
-			/*
-			 * kernel kbuild generate a temporary file
-			 */
-			if (objflag) {
-				memcpy(objfile, cur, end+1-cur);
-				objflag = 0;
-			}
-
-			if (!strncmp(cur, "'-o'", end+1-cur)) {
-				objflag = 1;
-			}
-#endif
-
 			memcpy(cmd+(end+1-cur), " ", 1);
 
 			cmd += end+1-cur+1;
@@ -162,7 +146,6 @@ static void flush(int fd)
 }
 
 static char objfile[PATH_MAX];
-C_SYM FILE *asm_out_file;
 static void finish(void *gcc_data, void *user_data)
 {
 	/*
