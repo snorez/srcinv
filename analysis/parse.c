@@ -39,6 +39,13 @@ static int parse_sibuf(struct sibuf *buf, int step, int force)
 	if (unlikely((!force) && (buf->status != (step - 1))))
 		return 0;
 
+	si_lock_w();
+	if (unlikely(si->type.kernel != fc->type.kernel)) {
+		si->type.kernel = fc->type.kernel;
+		si->type.os_type = fc->type.os_type;
+	}
+	si_unlock_w();
+
 	err = ops->callback(buf, step);
 	if (unlikely(clib_dbg_func_check())) {
 		si_log1("CLIB_DBG_FUNC_ENTER/CLIB_DBG_FUNC_EXIT not paired\n");

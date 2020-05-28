@@ -1,5 +1,6 @@
 2020-05-28
 	* analysis: create parse.c for parse/one_sibuf commands
+	* srcinv: detect kern/os type automatically
 
 2020-05-14
 	* analysis/gcc/c.cc: fix a null-deref

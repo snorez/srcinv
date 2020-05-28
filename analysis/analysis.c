@@ -25,7 +25,7 @@ C_SYM int parse_resfile(char *path, int built_in, int step, int autoy);
 static char parse_cmdname[] = "parse";
 static void parse_usage(void)
 {
-	fprintf(stdout, "\t(resfile) (kernel) (builtin) (step) (auto_Y)\n"
+	fprintf(stdout, "\t(resfile) (builtin) (step) (auto_Y)\n"
 			"\tGet information of resfile, steps are:\n"
 			"\t\t0 Get all information\n"
 			"\t\t1 Get information adjusted\n"
@@ -40,7 +40,7 @@ static long parse_cb(int argc, char *argv[])
 	int err;
 	char respath[PATH_MAX];
 
-	if ((argc != 5) && (argc != 6)) {
+	if ((argc != 4) && (argc != 5)) {
 		parse_usage();
 		err_dbg(0, "argc invalid");
 		return -1;
@@ -51,20 +51,17 @@ static long parse_cb(int argc, char *argv[])
 		return -1;
 	}
 
-	int kernel = atoi(argv[2]);
-	int builtin = atoi(argv[3]);
-	int step = atoi(argv[4]);
+	int builtin = atoi(argv[2]);
+	int step = atoi(argv[3]);
 	int autoy = 0;
-	if (argc == 6)
-		autoy = atoi(argv[5]);
+	if (argc == 5)
+		autoy = atoi(argv[4]);
 
 	err = parse_resfile(respath, builtin, step, autoy);
 	if (err) {
 		err_dbg(0, "parse_resfile err");
 		return -1;
 	}
-
-	si->is_kernel = kernel;
 
 	return 0;
 }

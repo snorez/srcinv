@@ -268,8 +268,13 @@ struct src {
 
 	char			src_id[SRC_ID_LEN];
 
-	unsigned int		is_kernel: 1;
-	unsigned int		padding: 31;
+	/* 
+	 * unsigned int		is_kernel: 1;
+	 * unsigned int		padding: 31;
+	 *
+	 * add type for src, actually, we only concern the KERN & OS
+	 */
+	struct si_type		type;
 
 	rwlock_t		lock;
 };
