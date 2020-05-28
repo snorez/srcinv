@@ -7,19 +7,21 @@ CC=g++
 CC_OPT=$(CPPFLAGS) -shared -fPIC -rdynamic -Wno-literal-suffix -D_FILE_OFFSET_BITS=64 -fno-rtti
 
 OUTDIR=$(SRCINV_BIN)/collect
-C_OUTNAME=gcc_c.so
-C_INNAME=c.cc
+TMPOUT=c.so \
+	  asm.so \
+	  test.so
 
-TEST_OUTNAME=test.so
-TEST_INNAME=test.cc
+OUTFILES=$(addprefix gcc_,$(TMPOUT))
 
-INSTALLS := $(addprefix $(OUTDIR)/,$(C_OUTNAME))
+INSTALLS := $(addprefix $(OUTDIR)/,$(OUTFILES))
 
-all: $(C_OUTNAME)
+all: $(OUTFILES)
 
-$(C_OUTNAME): $(C_INNAME)
-	$(CC) $(CC_OPT) -I$(GCC_PLUGIN_INC) -I$(CLIB_INC) -I$(SRCINV_INC) $(C_INNAME) -L$(CLIB_LIB) -l$(CLIB_SO) -o $(C_OUTNAME) -Wl,-rpath $(CLIB_LIB)
-	$(CC) $(CC_OPT) -I$(GCC_PLUGIN_INC) -I$(CLIB_INC) -I$(SRCINV_INC) $(TEST_INNAME) -L$(CLIB_LIB) -l$(CLIB_SO) -o $(TEST_OUTNAME) -Wl,-rpath $(CLIB_LIB)
+$(OUTFILES): $(TMPOUT)
+
+$(TMPOUT): %.so: %.cc
+	$(CC) $(CC_OPT) -I$(GCC_PLUGIN_INC) -I$(CLIB_INC) -I$(SRCINV_INC) $< -L$(CLIB_LIB) -l$(CLIB_SO) -o $@ -Wl,-rpath $(CLIB_LIB)
+	@cp $@ gcc_$@
 
 install: $(INSTALLS)
 
@@ -27,8 +29,8 @@ $(OUTDIR)/%: %
 	install $< $@
 
 clean:
-	@rm -vf $(C_OUTNAME)
-	@rm -vf $(TEST_OUTNAME)
+	@rm -vf $(TMPOUT)
+	@rm -vf $(OUTFILES)
 
 distclean: clean
-	@rm -vf $(OUTDIR)/$(C_OUTNAME)
+	@rm -vf $(INSTALLS)

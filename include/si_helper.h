@@ -229,15 +229,17 @@ static inline void sibuf_unlock_w(struct sibuf *b)
 		write_unlock(&____node->lock);\
 	} while (0)
 
-static inline int si_type_match(struct si_type *t0, struct si_type *t1)
+static inline int si_type_match(struct si_type *wider, struct si_type *smaller)
 {
-	if (!(t0->binary && t1->binary))
+	if (!(wider->binary & smaller->binary))
 		return 0;
-	if (!(t0->kernel && t1->kernel))
+	if (!(wider->kernel & smaller->kernel))
 		return 0;
-	if (!(t0->os_type && t1->os_type))
+	if ((wider->os_type != SI_TYPE_OS_ANY) &&
+		(wider->os_type != smaller->os_type))
 		return 0;
-	if (!(t0->type_more && t1->type_more))
+	if ((wider->type_more != SI_TYPE_MORE_ANY) &&
+		(wider->type_more != smaller->type_more))
 		return 0;
 	return 1;
 }

@@ -14,6 +14,8 @@ This document still needs to be perfected.
 	- [1.3 - The target](#1.3)
 - [2 - Usage of this framework](#2)
 - [3 - Collect information of the target project](#3)
+	- [3.1 - gcc-c](#3.1)
+	- [3.2 - gcc-asm](#3.2)
 - [4 - Parse the data](#4)
 	- [4.1 - ADJUST](#4.1)
 	- [4.2 - GET BASE](#4.2)
@@ -346,6 +348,28 @@ take this var as a non-local variable.
 
 The test is for ubuntu 18.04 linux-5.3.y, gcc 8.3.0. The size of the data we
 collect is about 30G.
+
+[Back to Contents](#0)
+
+
+
+<span id="3.1"></span>
+### 3.1 - gcc-c
+Check [Chapter 3](#3)
+
+[Back to Contents](#0)
+
+
+
+<span id="3.2"></span>
+### 3.2 - gcc-asm
+Please add new `si_type` in `include/si_core.h`, do not forget to modify
+`config/module.conf` and `si_module.c`.
+
+For linux kernel, `EXTRA_AFLAGS` is needed while run `make`.
+
+Note that, we can not set a `file_content.si_type.*` to BOTH/ANY value, the
+BOTH/ANY values are for modules in collect/analysis.
 
 [Back to Contents](#0)
 

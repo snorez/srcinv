@@ -77,6 +77,7 @@ enum si_type_os {
 };
 enum si_type_more {
 	SI_TYPE_MORE_GCC_C = 1,
+	SI_TYPE_MORE_GCC_ASM,
 	SI_TYPE_MORE_X86,
 	SI_TYPE_MORE_X8664,
 	SI_TYPE_MORE_ARM,

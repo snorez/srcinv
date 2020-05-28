@@ -3,6 +3,8 @@
 	* srcinv: detect kern/os type automatically
 	* collect: do not set si_type.kernel to SI_TYPE_BOTH
 	* analysis: add mark_entry
+	* si_type_match: fix
+	* srcinv: add gcc_asm module to collect .s/.S/.asm files
 
 2020-05-14
 	* analysis/gcc/c.cc: fix a null-deref

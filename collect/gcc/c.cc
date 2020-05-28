@@ -29,7 +29,7 @@
 
 #include "si_gcc.h"
 
-struct plugin_info this_plugin_info = {
+static struct plugin_info this_plugin_info = {
 	.version = "0.1",
 	.help = "collect function Abstract Syntax Tree at ALL_IPA_PASSES_END",
 };
@@ -134,8 +134,7 @@ static int get_compiling_args(void)
 		}
 		write_ctx->cmd_len += 1;	/* the last null byte */
 	}
-	mem_ptr_start =
-		(char *)fc_pldptr((void *)nodes_mem);
+	mem_ptr_start = (char *)fc_pldptr((void *)nodes_mem);
 	mem_ptr = mem_ptr_start;
 	return 0;
 }

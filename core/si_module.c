@@ -140,6 +140,8 @@ int si_module_str_to_type(struct si_type *type, char *string)
 	len = strlen(pos_s);
 	if (!strncasecmp(pos_s, "GCC_C", len)) {
 		type->type_more = SI_TYPE_MORE_GCC_C;
+	} else if (!strncasecmp(pos_s, "GCC_ASM", len)) {
+		type->type_more = SI_TYPE_MORE_GCC_ASM;
 	} else if (!strncasecmp(pos_s, "ANY", len)) {
 		type->type_more = SI_TYPE_MORE_ANY;
 	} else {
@@ -197,7 +199,7 @@ struct si_module **si_module_find_by_type(struct si_type *type,struct list_head 
 	int cnt = 1;
 	struct si_module *tmp;
 	list_for_each_entry(tmp, head, sibling) {
-		if (si_type_match(type, &tmp->type))
+		if (si_type_match(&tmp->type, type))
 			cnt++;
 	}
 
@@ -211,7 +213,7 @@ struct si_module **si_module_find_by_type(struct si_type *type,struct list_head 
 	ret[cnt-1] = NULL;
 	int i = 0;
 	list_for_each_entry(tmp, head, sibling) {
-		if (si_type_match(type, &tmp->type))
+		if (si_type_match(&tmp->type, type))
 			ret[i++] = tmp;
 	}
 
