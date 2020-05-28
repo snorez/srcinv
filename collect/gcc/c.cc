@@ -50,6 +50,7 @@ static char *mem_ptr = NULL;
 static struct file_content *write_ctx;
 
 static const char *outpath = "/tmp/c_ast";
+static int is_kernel = 0;
 static int outfd = -1;
 static int prepare_outfile(void)
 {
@@ -63,9 +64,16 @@ static int prepare_outfile(void)
 
 static int get_compiling_args(void)
 {
+	/*
+	 * UPDATE:
+	 * for file_content, the kernel can not be SI_TYPE_BOTH
+	 */
 	write_ctx = (struct file_content *)nodes_mem;
 	write_ctx->type.binary = SI_TYPE_SRC;
-	write_ctx->type.kernel = SI_TYPE_BOTH;
+	if (is_kernel)
+		write_ctx->type.kernel = SI_TYPE_KERN;
+	else
+		write_ctx->type.kernel = SI_TYPE_USER;
 	write_ctx->type.os_type = SI_TYPE_OS_LINUX;
 	write_ctx->type.type_more = SI_TYPE_MORE_GCC_C;
 	write_ctx->gcc_ver_major = gcc_ver;
@@ -3417,15 +3425,19 @@ int plugin_init(struct plugin_name_args *plugin_info,
 		return -1;
 	}
 
-	if (plugin_info->argc != 1) {
-		fprintf(stderr, "plugin %s usage: -fplugin=.../%s.so"
-				" -fplugin-arg-%s-outpath=...\n",
+	if (plugin_info->argc != 2) {
+		fprintf(stderr, "plugin %s usage:\n"
+				" -fplugin=.../%s.so"
+				" -fplugin-arg-%s-outpath=..."
+				" -fplugin-arg-%s-kernel=[0|1]\n",
+				plugin_info->base_name,
 				plugin_info->base_name,
 				plugin_info->base_name,
 				plugin_info->base_name);
 		return -1;
 	}
 	outpath = plugin_info->argv[0].value;
+	is_kernel = !!atoi(plugin_info->argv[1].value);
 
 	if (tree_code_size(IDENTIFIER_NODE) != 0x50)
 		BUG();
