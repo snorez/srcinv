@@ -1,3 +1,6 @@
+2020-05-29
+	* NEW RELEASE: v0.6.6: gcc_asm collect done
+
 2020-05-28
 	* analysis: create parse.c for parse/one_sibuf commands
 	* srcinv: detect kern/os type automatically
