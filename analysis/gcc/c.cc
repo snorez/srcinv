@@ -8485,12 +8485,14 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 		return 0;
 	}
 
+	char *sp_path = fc->path + fc->srcroot_len;
+
 	switch (mode) {
 	case MODE_ADJUST:
 	{
 		get_real_obj_cnt();
 		show_progress_arg[0] = (long)"ADJUST";
-		show_progress_arg[1] = (long)fc->path;
+		show_progress_arg[1] = (long)sp_path;
 		show_progress_arg[2] = (long)&obj_adjusted;
 		show_progress_arg[3] = (long)&obj_cnt;
 		show_progress_arg[4] = (long)pthread_self();
@@ -8534,7 +8536,7 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 	{
 		get_real_obj_cnt();
 		show_progress_arg[0] = (long)"GETBASE";
-		show_progress_arg[1] = (long)fc->path;
+		show_progress_arg[1] = (long)sp_path;
 		show_progress_arg[2] = (long)&obj_idx;
 		show_progress_arg[3] = (long)&real_obj_cnt;
 		show_progress_arg[4] = (long)pthread_self();
@@ -8552,7 +8554,7 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 	{
 		get_real_obj_cnt();
 		show_progress_arg[0] = (long)"GETDETAIL";
-		show_progress_arg[1] = (long)fc->path;
+		show_progress_arg[1] = (long)sp_path;
 		show_progress_arg[2] = (long)&obj_idx;
 		show_progress_arg[3] = (long)&real_obj_cnt;
 		show_progress_arg[4] = (long)pthread_self();
@@ -8571,7 +8573,7 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 	{
 		get_real_obj_cnt();
 		show_progress_arg[0] = (long)"GETSTEP4";
-		show_progress_arg[1] = (long)fc->path;
+		show_progress_arg[1] = (long)sp_path;
 		show_progress_arg[2] = (long)&obj_idx;
 		show_progress_arg[3] = (long)&real_obj_cnt;
 		show_progress_arg[4] = (long)pthread_self();
@@ -8594,7 +8596,7 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 	case MODE_GETINDCFG1:
 	{
 		show_progress_arg[0] = (long)"GETINDCFG1";
-		show_progress_arg[1] = (long)fc->path;
+		show_progress_arg[1] = (long)sp_path;
 		show_progress_arg[2] = (long)&obj_idx;
 		show_progress_arg[3] = (long)&obj_cnt;
 		show_progress_arg[4] = (long)pthread_self();
@@ -8611,7 +8613,7 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 	case MODE_GETINDCFG2:
 	{
 		show_progress_arg[0] = (long)"GETINDCFG2";
-		show_progress_arg[1] = (long)fc->path;
+		show_progress_arg[1] = (long)sp_path;
 		show_progress_arg[2] = (long)&obj_idx;
 		show_progress_arg[3] = (long)&obj_cnt;
 		show_progress_arg[4] = (long)pthread_self();

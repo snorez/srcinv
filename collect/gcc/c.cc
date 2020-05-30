@@ -96,6 +96,7 @@ static int get_compiling_args(void)
 
 	if (filepath[dir_len-1] != '/')
 		filepath[dir_len] = '/';
+	write_ctx->srcroot_len = strlen(filepath);
 
 	/* XXX, the compiling file */
 	memcpy(filepath+strlen(filepath), main_input_filename,
