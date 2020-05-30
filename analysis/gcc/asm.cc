@@ -137,6 +137,7 @@ static void getbase(void)
 			struct var_node *vn;
 			vn = var_node_new(tmp->load_addr);
 			vn->name = sn_new->name;
+			vn->size = tmp->size;
 			sn_new->data = (char *)vn;
 			sn_new->datalen = sizeof(*vn);
 		} else if ((type == TYPE_FUNC_GLOBAL) ||
@@ -144,6 +145,7 @@ static void getbase(void)
 			struct func_node *fn = NULL;
 			fn = func_node_new((void *)tmp->load_addr);
 			fn->name = sn_new->name;
+			fn->size = tmp->size;
 			sn_new->data = (char *)fn;
 			sn_new->datalen = sizeof(*fn);
 		}

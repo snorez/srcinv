@@ -461,6 +461,9 @@ struct var_node {
 
 	unsigned int		detailed: 1;
 	unsigned int		padding: 31;
+
+	/* the memory size of this var */
+	unsigned int		size;
 } __attribute__((packed));
 
 struct code_path {
@@ -508,6 +511,9 @@ struct func_node {
 
 	unsigned int		detailed: 1;
 	unsigned int		padding: 31;
+
+	/* the memory size of this function, useful in asm mode */
+	unsigned int		size;
 } __attribute__((packed));
 
 struct sibuf_typenode {
