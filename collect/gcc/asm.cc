@@ -40,6 +40,7 @@ static char *mem_ptr_start = NULL;
 static char *mem_ptr = NULL;
 static struct file_content *write_ctx;
 
+static int is_prep = 0;		/* check if this is a preprocessor */
 static const char *outpath = "/tmp/c_ast";
 static int is_kernel = 0;
 static int outfd = -1;
@@ -118,6 +119,14 @@ static int get_compiling_args(void)
 			}
 			end = strchr(cur+1, '\'');
 			memcpy(cmd, cur, end+1-cur);
+
+			/*
+			 * XXX: linux kernel compile .S file twice
+			 * first -E and later no -E
+			 */
+			if (!strncmp(cmd, "'-E'", end+1-cur))
+				is_prep = 1;
+
 			memcpy(cmd+(end+1-cur), " ", 1);
 
 			cmd += end+1-cur+1;
@@ -263,6 +272,8 @@ int plugin_init(struct plugin_name_args *plugin_info,
 		fprintf(stderr, "get_compiling_args err\n");
 		return -1;
 	}
+	if (is_prep)
+		return 0;
 
 	/* kicking out some folders */
 	const char *exclude_folders[] = {
