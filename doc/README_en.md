@@ -384,7 +384,7 @@ This is implemented in analysis/analysis.c and analysis/gcc/c.cc(for GCC c
 project).
 
 For a better experience, the framework use ncurses to show the parse status
-(check pre\_defines.makefile).
+(check the main Makefile).
 
 To parse the data, we need to load the resfile into memory.
 However, the resfile for linux-5.3.y is about 30G. We can not load it all.

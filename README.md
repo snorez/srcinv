@@ -14,7 +14,7 @@ Dependencies to build this project:
 +	[clib: use the latest version](https://github.com/snorez/clib/)
 +	gcc-plugin, test gcc/g++ 8.3.0
 
-About pre\_defines.makefile:
+About SELF\_CFLAGS in the main Makefile:
 - `CLIB_PATH`: path to clib
 - `SRCINV_ROOT`: path to srcinv
 - `GCC_PLUGIN_INC`: path to gcc plugin headers folder
