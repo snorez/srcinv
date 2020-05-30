@@ -4,6 +4,7 @@
 	* collect/gcc_asm: check if this is a preprocess
 	* analysis: disable debug output while callback get called
 	* srcinv: modify Makefiles, linux kernel output style
+	* analysis/gcc/: update gcc version check
 
 2020-05-29
 	* NEW RELEASE: v0.6.6: gcc_asm collect done

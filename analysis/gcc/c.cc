@@ -8465,8 +8465,8 @@ static int c_callback(struct sibuf *buf, int parse_mode)
 
 	struct file_content *fc = (struct file_content *)buf->load_addr;
 	if ((fc->gcc_ver_major != gcc_ver_major) ||
-		(fc->gcc_ver_minor != gcc_ver_minor)) {
-		err_dbg(0, "gcc version not match, need %d.%d",
+		(fc->gcc_ver_minor > gcc_ver_minor)) {
+		si_log1_emer("gcc version not match, need %d.%d\n",
 				fc->gcc_ver_major, fc->gcc_ver_minor);
 		CLIB_DBG_FUNC_EXIT();
 		return -1;

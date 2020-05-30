@@ -2,6 +2,7 @@
 .ycm_extra_conf.py
 .gdb_history
 Makefile
+*.o
 doc/design.txt
 doc/README_zh.md
 doc/gimple_to_cfg.txt
