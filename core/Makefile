@@ -1,31 +1,45 @@
-include ../pre_defines.makefile
-
-CC = gcc
-CC_OPT =$(CFLAGS) -rdynamic -fPIC -D_FILE_OFFSET_BITS=64
-
+RELDIR=$(subst $(TOPDIR)/, "", $(shell pwd))
 OUTDIR = $(SRCINV_BIN)
-OUTFILE = si_core
-INFILE = si_core.c \
+
+CC_SRCS = si_core.c \
 	 si_cmd.c \
 	 si_conf.c \
 	 si_module.c \
 	 si_src.c \
 	 si_signal.c
 
-INSTALLS := $(addprefix $(OUTDIR)/,$(OUTFILE))
+CC_OBJS = $(CC_SRCS:.c=.o)
 
-all: $(OUTFILE)
+OUTLIBS = si_core
 
-$(OUTFILE): $(INFILE)
-	$(CC) $(CC_OPT) -I$(SRCINV_INC) -I$(CLIB_INC) $(INFILE) -L$(CLIB_LIB) -ldl -l$(CLIB_SO) -o $(OUTFILE) -Wl,-rpath $(CLIB_LIB)
+INSTALLS = $(addprefix $(OUTDIR)/,$(OUTLIBS))
+
+CFLAGS += \
+	  -fPIC \
+	  -rdynamic \
+	  -D_FILE_OFFSET_BITS=64
+
+all: $(OUTLIBS)
+
+$(OUTLIBS): $(CC_OBJS)
+	@echo $(LD_ECHO) $(RELDIR)/$(OUTLIBS) $(SRC_ECHO) $(RELDIR)/{$(CC_OBJS)}
+	$(Q)$(CC) $(CFLAGS) $(CC_OBJS) -L$(CLIB_LIB) -ldl -l$(CLIB_SO) -o $(OUTLIBS) -Wl,-rpath $(CLIB_LIB)
+
+$(CC_OBJS): %.o: %.c
+	@echo $(CC_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<
+	$(Q)$(CC) $(CFLAGS) -I$(SRCINV_INC) -I$(CLIB_INC) -c -o $@ $<
 
 install: $(INSTALLS)
 
 $(OUTDIR)/%: %
-	install $< $@
+	@echo $(INSTALL_ECHO) $(subst $(TOPDIR)/,"",$@) $(SRC_ECHO) $(RELDIR)/$<
+	$(Q)$(INSTALL) $< $@
 
 clean:
-	@rm -vf $(OUTFILE)
+	@echo $(CLEAN_ECHO) $(RELDIR)/
+	$(Q)$(RM) $(CC_OBJS)
+	$(Q)$(RM) $(OUTLIBS)
 
 distclean: clean
-	@rm -vf $(OUTDIR)/$(OUTFILE)
+	@echo $(CLEAN_ECHO) $(subst $(TOPDIR)/, "", $(INSTALLS))
+	$(Q)$(RM) $(INSTALLS)

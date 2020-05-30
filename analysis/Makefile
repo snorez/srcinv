@@ -1,20 +1,14 @@
-include ../pre_defines.makefile
-
-TARGETS = all install clean distclean
+RELDIR=$(subst $(TOPDIR)/, "", $(shell pwd))
 dirs = gcc
-
-.PHONY: $(dirs)
-
 OUTDIR = $(SRCINV_BIN)
-THIS_SO = analysis.so
+
 SMF_TEST=sm.c
 SMF=
-THIS_CFLAGS=$(CFLAGS)
 ifeq ($(SMF_TEST), $(wildcard $(SMF_TEST)))
 	SMF=$(SMF_TEST)
-	THIS_CFLAGS+=-DHAS_SM
+	CFLAGS += -DHAS_SM
 endif
-OBJS = analysis.c \
+CC_SRCS = analysis.c \
        sinode.c \
        sibuf.c \
        resfile.c \
@@ -22,26 +16,44 @@ OBJS = analysis.c \
        mark-entry.c \
        utils.c $(SMF)
 
-INSTALLS := $(addprefix $(OUTDIR)/,$(THIS_SO))
+CC_OBJS = $(CC_SRCS:%.c=%.o)
 
-CC=gcc
-CC_OPT=$(THIS_CFLAGS) -rdynamic -shared -fPIC -D_FILE_OFFSET_BITS=64
+OUTLIBS = analysis.so
 
-all: $(THIS_SO) $(dirs)
+INSTALLS = $(addprefix $(OUTDIR)/,$(OUTLIBS))
 
-$(THIS_SO): $(OBJS)
-	$(CC) $(CC_OPT) $(OBJS) -I$(CLIB_INC) -I$(SRCINV_INC) -L$(CLIB_LIB) -lpthread -l$(CLIB_SO) -o $@ -Wl,-rpath $(CLIB_LIB)
+CFLAGS += \
+	  -fPIC \
+	  -shared \
+	  -rdynamic \
+	  -D_FILE_OFFSET_BITS=64
+
+.PHONY: $(dirs)
+
+all: $(OUTLIBS) $(dirs)
+
+$(OUTLIBS): $(CC_OBJS)
+	@echo $(LD_ECHO) $(RELDIR)/$(OUTLIBS) $(SRC_ECHO) $(RELDIR)/{$(CC_OBJS)}
+	$(Q)$(CC) $(CFLAGS) -L$(CLIB_LIB) -lpthread -l$(CLIB_SO) -o $(OUTLIBS) $(CC_OBJS) -Wl,-rpath $(CLIB_LIB)
+
+$(CC_OBJS): %.o: %.c
+	@echo $(CC_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<
+	$(Q)$(CC) $(CFLAGS) -I$(CLIB_INC) -I$(SRCINV_INC) -c -o $@ $<
 
 install: $(dirs) $(INSTALLS)
 
 $(OUTDIR)/%: %
-	install $< $@
+	@echo $(INSTALL_ECHO) $(subst $(TOPDIR)/,"",$@) $(SRC_ECHO) $(RELDIR)/$<
+	$(Q)$(INSTALL) $< $@
 
 clean: $(dirs)
-	@rm -vf $(THIS_SO)
+	@echo $(CLEAN_ECHO) $(RELDIR)/
+	$(Q)$(RM) $(CC_OBJS)
+	$(Q)$(RM) $(OUTLIBS)
 
 distclean: clean
-	@rm -vf $(OUTDIR)/$(THIS_SO)
+	@echo $(CLEAN_ECHO) $(subst $(TOPDIR)/, "", $(INSTALLS))
+	$(Q)$(RM) $(INSTALLS)
 
 $(dirs):
-	@make -C $@ $(MAKECMDGOALS)
+	$(Q)$(MAKE) -C $@ $(MAKECMDGOALS)

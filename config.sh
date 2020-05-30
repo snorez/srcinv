@@ -15,13 +15,31 @@ gen_file()
 {
 	TFILE=$4
 
-	CONTENT=$'CLIB_PATH='$1$'\n'
-	CONTENT+=$'SRCINV_ROOT='$2$'\n'
+	CONTENT=$''
+
+	CONTENT+=$'export MAKE_OPT := -s --no-print-directory\n'
+	CONTENT+=$'export Q := @\n'
+	CONTENT+=$'export CC = gcc\n'
+	CONTENT+=$'export CXX = g++\n'
+	CONTENT+=$'export MAKE = make\n'
+	CONTENT+=$'export RM = rm -f\n'
+	CONTENT+=$'export INSTALL = install\n'
+	CONTENT+=$'export CC_ECHO = 	"  CC   "\n'
+	CONTENT+=$'export CXX_ECHO = 	"  CXX  "\n'
+	CONTENT+=$'export LD_ECHO = 	"  LD   "\n'
+	CONTENT+=$'export GEN_ECHO = 	"  GEN  "\n'
+	CONTENT+=$'export CLEAN_ECHO = 	" CLEAN "\n'
+	CONTENT+=$'export INSTALL_ECHO = 	"INSTALL"\n'
+	CONTENT+=$'export SRC_ECHO = 	" <== "\n'
+	CONTENT+=$'\n'
+
+	CONTENT+=$'export CLIB_PATH='$1$'\n'
+	CONTENT+=$'export SRCINV_ROOT='$2$'\n'
 	CONTENT+=$'\n'
 
 	CONTENT+=$'GCC_VER_MAJ:=$(shell expr `gcc -dumpversion | cut -f1 -d.`)\n'
 	CONTENT+=$'GCC_PLUGIN_BASE='$3$'\n'
-	CONTENT+=$'GCC_PLUGIN_INC=$(GCC_PLUGIN_BASE)/$(GCC_VER_MAJ)/plugin/include\n'
+	CONTENT+=$'export GCC_PLUGIN_INC=$(GCC_PLUGIN_BASE)/$(GCC_VER_MAJ)/plugin/include\n'
 	CONTENT+=$'\n'
 
 	CONTENT+=$'SELF_CFLAGS=-g -Wall -O2\n'
@@ -65,16 +83,46 @@ gen_file()
 	CONTENT+=$'#SELF_CFLAGS+=-DGCC_CONTAIN_FREE_SSANAMES\n'
 	CONTENT+=$'\n'
 
-	CONTENT+=$'CFLAGS=-std=gnu11 $(SELF_CFLAGS) $(EXTRA_CFLAGS)\n'
-	CONTENT+=$'CPPFLAGS=-std=gnu++11 $(SELF_CFLAGS) $(EXTRA_CFLAGS)\n'
+	CONTENT+=$'export CFLAGS=-std=gnu11 $(SELF_CFLAGS) $(EXTRA_CFLAGS)\n'
+	CONTENT+=$'export CXXFLAGS=-std=gnu++11 $(SELF_CFLAGS) $(EXTRA_CFLAGS)\n'
 	CONTENT+=$'\n'
 
-	CONTENT+=$'ARCH=$(shell getconf LONG_BIT)\n'
-	CONTENT+=$'CLIB_INC=$(CLIB_PATH)/include\n'
-	CONTENT+=$'CLIB_LIB=$(CLIB_PATH)/lib\n'
-	CONTENT+=$'CLIB_SO=clib$(ARCH)\n'
-	CONTENT+=$'SRCINV_BIN=$(SRCINV_ROOT)/bin\n'
-	CONTENT+=$'SRCINV_INC=$(SRCINV_ROOT)/include\n'
+	CONTENT+=$'export ARCH=$(shell getconf LONG_BIT)\n'
+	CONTENT+=$'export CLIB_INC=$(CLIB_PATH)/include\n'
+	CONTENT+=$'export CLIB_LIB=$(CLIB_PATH)/lib\n'
+	CONTENT+=$'export CLIB_SO=clib$(ARCH)\n'
+	CONTENT+=$'export SRCINV_BIN=$(SRCINV_ROOT)/bin\n'
+	CONTENT+=$'export SRCINV_INC=$(SRCINV_ROOT)/include\n'
+	CONTENT+=$'export TOPDIR=$(SRCINV_ROOT)\n'
+	CONTENT+=$'\n'
+
+	CONTENT+=$'TARGETS = all install clean distclean\n'
+	CONTENT+=$'dirs = include core lib collect analysis hacking\n'
+	CONTENT+=$'\n'
+
+	CONTENT+=$'MAKECMDGOALS ?= all\n'
+	CONTENT+=$'ifeq (, $(filter $(TARGETS), $(MAKECMDGOALS)))\n'
+	CONTENT+=$'MAKECMDGOALS=all\n'
+	CONTENT+=$'endif\n'
+	CONTENT+=$'\n'
+
+	CONTENT+=$'GCC_VER_MATCH := $(shell expr `gcc -dumpversion | cut -f1 -d.` \== `g++ -dumpversion | cut -f1 -d.`)\n'
+	CONTENT+=$'ifeq "$(GCC_VER_MATCH)" "0"\n'
+	CONTENT+=$'$(error gcc version not match g++ version)\n'
+	CONTENT+=$'endif\n'
+	CONTENT+=$'\n'
+
+	CONTENT+=$'.PHONY: $(dirs)\n'
+	CONTENT+=$'\n'
+
+	CONTENT+=$'$(TARGETS): $(dirs)\n'
+	CONTENT+=$'\n'
+
+	CONTENT+=$'prepare: include\n'
+	CONTENT+=$'\n'
+
+	CONTENT+=$'$(dirs):\n'
+	CONTENT+=$'\t$(Q)$(MAKE) $(MAKE_OPT) -C $@ $(MAKECMDGOALS)'
 
 	echo "$CONTENT" > $TFILE
 }
@@ -86,19 +134,19 @@ main()
 		exit 1
 	fi
 
-	CLIB_PATH=$1
-	SRCINV_ROOT=$2
+	CLIB_PATH=$(realpath $1)
+	SRCINV_ROOT=$(realpath $2)
 	GCC_PLUGIN_BASE=$DEF_GCC_PLUGIN_BASE
-	TFILE=pre_defines.makefile
+	TFILE=Makefile
 
 	if [[ $# == 3 ]]; then
 		GCC_PLUGIN_BASE=$3
 	fi
 
 	echo "Using"
-	echo "    CLIB_PATH=$1"
-	echo "    SRCINV_ROOT=$2"
-	echo "    GCC_PLUGIN_BASE=$3"
+	echo "    CLIB_PATH=$CLIB_PATH"
+	echo "    SRCINV_ROOT=$SRCINV_ROOT"
+	echo "    GCC_PLUGIN_BASE=$GCC_PLUGIN_BASE"
 	echo "to generate $TFILE..."
 	gen_file $CLIB_PATH $SRCINV_ROOT $GCC_PLUGIN_BASE $TFILE
 	echo "$TFILE ready."

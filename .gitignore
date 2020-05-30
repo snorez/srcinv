@@ -1,7 +1,7 @@
 .gitignore.addtion
 .ycm_extra_conf.py
 .gdb_history
-pre_defines.makefile
+Makefile
 doc/design.txt
 doc/README_zh.md
 doc/gimple_to_cfg.txt

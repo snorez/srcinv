@@ -505,7 +505,7 @@ I suggest you to backup resfile/src.saved after STEP1 and STEP3.
 If `HAVE_CLIB_DBG_FUNC` is enabled, the stack trace message shows which thread
 has crashed. With this, we can find the source file the thread is parsing.
 
-Then, edit `pre_defines.makefile`, use `O0`, and recompile.
+Then, edit `Makefile`, use `O0`, and recompile.
 
 In PARSE mode, we provide a command `one_sibuf`, it is used to parse only one
 source file. Thus, we can do `one_sibuf /path/to/the/file STEP 1` to

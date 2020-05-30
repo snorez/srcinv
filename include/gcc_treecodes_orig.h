@@ -19,7 +19,7 @@
 #ifndef TREE_CODES_H_3GN2AKZB
 #define TREE_CODES_H_3GN2AKZB
 
-#ifndef FOR_CPP
+#ifndef FOR_CXX
 enum tree_code_class {
   tcc_exceptional, /* An exceptional code (fits no category).  */
   tcc_constant,    /* A constant.  */
@@ -38,7 +38,7 @@ enum tree_code_class {
 };
 #endif
 
-#ifndef FOR_CPP
+#ifndef FOR_CXX
 #define DEFTREECODE(SYM, NAME, TYPE, LENGTH) SYM,
 #define END_OF_BASE_TREE_CODES LAST_AND_UNUSED_TREE_CODE,
 enum tree_code {
@@ -73,7 +73,7 @@ static const char *const tree_code_name[] = {
 #undef DEFTREECODE
 #undef END_OF_BASE_TREE_CODES
 
-#ifdef FOR_CPP
+#ifdef FOR_CXX
 #define DEFGSSTRUCT(SYM, STRUCT, HAS_TREE_OP) \
 	(HAS_TREE_OP ? sizeof (struct STRUCT) - sizeof (tree) : 0),
 EXPORTED_CONST size_t gimple_ops_offset_[] = {
@@ -82,7 +82,7 @@ EXPORTED_CONST size_t gimple_ops_offset_[] = {
 #undef DEFGSSTRUCT
 #endif
 
-#ifdef FOR_CPP
+#ifdef FOR_CXX
 #define DEFGSSTRUCT(SYM, STRUCT, HAS_TREE_OP) sizeof (struct STRUCT),
 static const size_t gsstruct_code_size[] = {
 #include "gsstruct.def"
@@ -90,7 +90,7 @@ static const size_t gsstruct_code_size[] = {
 #undef DEFGSSTRUCT
 #endif
 
-#ifdef FOR_CPP
+#ifdef FOR_CXX
 #define DEFGSCODE(SYM, NAME, GSSCODE)	NAME,
 const char *const gimple_code_name[] = {
 #include "gimple.def"
@@ -98,7 +98,7 @@ const char *const gimple_code_name[] = {
 #undef DEFGSCODE
 #endif
 
-#ifdef FOR_CPP
+#ifdef FOR_CXX
 #define DEFGSCODE(SYM, NAME, GSSCODE)	GSSCODE,
 EXPORTED_CONST enum gimple_statement_structure_enum gss_for_code_[] = {
 #include "gimple.def"
@@ -106,7 +106,7 @@ EXPORTED_CONST enum gimple_statement_structure_enum gss_for_code_[] = {
 #undef DEFGSCODE
 #endif
 
-#ifdef FOR_CPP
+#ifdef FOR_CXX
 #if __GNUC__ < 9
 #define DEFTREECODE(SYM, STRING, TYPE, NARGS)   			    \
   (unsigned char)							    \

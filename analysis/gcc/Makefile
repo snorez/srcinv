@@ -1,34 +1,54 @@
-include ../../pre_defines.makefile
-
-CC = g++
-CC_OPT = $(CPPFLAGS) -shared -fPIC -rdynamic -Wno-literal-suffix -fno-rtti -D_FILE_OFFSET_BITS=64
+RELDIR=$(subst $(TOPDIR)/, "", $(shell pwd))
+OUTDIR = $(SRCINV_BIN)/analysis
 
 LIBDIR = $(SRCINV_BIN)
 COMPILER_GCC_SO = compiler_gcc
 
-OUTDIR = $(SRCINV_BIN)/analysis
-TMPOUT=c.so \
-       asm.so
+CXX_SRCS = c.cc \
+	   asm.cc
 
-OUTFILES=$(addprefix gcc_,$(TMPOUT))
-INSTALLS := $(addprefix $(OUTDIR)/,$(OUTFILES))
+CXX_OBJS = $(CXX_SRCS:%.cc=%.o)
 
-all: $(OUTFILES)
+CXX_SO = $(CXX_SRCS:%.cc=%.so)
 
-$(OUTFILES): $(TMPOUT)
+OUTLIBS = $(addprefix gcc_,$(CXX_SO))
 
-$(TMPOUT): %.so: %.cc
-	$(CC) $(CC_OPT) -I$(GCC_PLUGIN_INC) -I$(CLIB_INC) -I$(SRCINV_INC) $< -L$(CLIB_LIB) -L$(LIBDIR) -l$(CLIB_SO) -l$(COMPILER_GCC_SO) -o $@ -Wl,-rpath $(CLIB_LIB) -Wl,-rpath $(LIBDIR)
-	@cp $@ gcc_$@
+INSTALLS = $(addprefix $(OUTDIR)/,$(OUTLIBS))
+
+CXXFLAGS += \
+	    -fPIC \
+	    -shared \
+	    -rdynamic \
+	    -fno-rtti \
+	    -Wno-literal-suffix \
+	    -D_FILE_OFFSET_BITS=64
+
+all: $(OUTLIBS)
+
+gcc_%: %
+	@echo $(GEN_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<
+	$(Q)cp $< $@
+
+$(CXX_SO): %.so: %.o
+	@echo $(LD_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<
+	$(Q)$(CXX) $(CXXFLAGS) -L$(CLIB_LIB) -L$(LIBDIR) -l$(CLIB_SO) -l$(COMPILER_GCC_SO) -o $@ $< -Wl,-rpath $(CLIB_LIB) -Wl,-rpath $(LIBDIR)
+
+$(CXX_OBJS): %.o: %.cc
+	@echo $(CXX_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<
+	$(Q)$(CXX) $(CXXFLAGS) -I$(GCC_PLUGIN_INC) -I$(CLIB_INC) -I$(SRCINV_INC) -c -o $@ $<
 
 install: $(INSTALLS)
 
 $(OUTDIR)/%: %
-	install $< $@
+	@echo $(INSTALL_ECHO) $(subst $(TOPDIR)/,"",$@) $(SRC_ECHO) $(RELDIR)/$<
+	$(Q)$(INSTALL) $< $@
 
 clean:
-	@rm -vf $(TMPOUT)
-	@rm -vf $(OUTFILES)
+	@echo $(CLEAN_ECHO) $(RELDIR)/
+	$(Q)$(RM) $(CXX_OBJS)
+	$(Q)$(RM) $(CXX_SO)
+	$(Q)$(RM) $(OUTLIBS)
 
 distclean: clean
-	@rm -vf $(INSTALLS)
+	@echo $(CLEAN_ECHO) $(subst $(TOPDIR)/, "", $(INSTALLS))
+	$(Q)$(RM) $(INSTALLS)

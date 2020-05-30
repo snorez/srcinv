@@ -1,34 +1,47 @@
-include ../pre_defines.makefile
-
-TARGETS = all install clean distclean
+RELDIR=$(subst $(TOPDIR)/, "", $(shell pwd))
 dirs = gcc
+OUTDIR = $(SRCINV_BIN)
+
+CC_SRCS = collect.c
+
+CC_OBJS = $(CC_SRCS:%.c=%.o)
+
+CC_SO = $(CC_SRCS:%.c=%.so)
+
+INSTALLS = $(addprefix $(OUTDIR)/,$(CC_SO))
+
+CFLAGS += \
+	  -fPIC \
+	  -shared \
+	  -rdynamic \
+	  -D_FILE_OFFSET_BITS=64
 
 .PHONY: $(dirs)
 
-OUTDIR = $(SRCINV_BIN)
-OUTNAME = collect.so
-OBJS = collect.c
+all: $(CC_SO) $(dirs)
 
-CC = gcc
-CC_OPT = $(CFLAGS) -rdynamic -shared -fPIC -D_FILE_OFFSET_BITS=64
+$(CC_SO): %.so: %.o
+	@echo $(LD_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<
+	$(Q)$(CC) $(CFLAGS) -L$(CLIB_LIB) -l$(CLIB_SO) -o $@ $< -Wl,-rpath $(CLIB_LIB)
 
-INSTALLS := $(addprefix $(OUTDIR)/,$(OUTNAME))
-
-all: $(OUTNAME) $(dirs)
-
-$(OUTNAME): $(OBJS)
-	$(CC) $(CC_OPT) $(OBJS) -I$(CLIB_INC) -I$(SRCINV_INC) -L$(CLIB_LIB) -l$(CLIB_SO) -o $(OUTNAME) -Wl,-rpath $(CLIB_LIB)
+$(CC_OBJS): %.o: %.c
+	@echo $(CC_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<
+	$(Q)$(CC) $(CFLAGS) -I$(CLIB_INC) -I$(SRCINV_INC) -c -o $@ $<
 
 install: $(dirs) $(INSTALLS)
 
 $(OUTDIR)/%: %
-	install $< $@
+	@echo $(INSTALL_ECHO) $(subst $(TOPDIR)/,"",$@) $(SRC_ECHO) $(RELDIR)/$<
+	$(Q)$(INSTALL) $< $@
 
 clean: $(dirs)
-	@rm -vf $(OUTNAME)
+	@echo $(CLEAN_ECHO) $(RELDIR)/
+	$(Q)$(RM) $(CC_OBJS)
+	$(Q)$(RM) $(CC_SO)
 
 distclean: clean $(dirs)
-	@rm -vf $(OUTDIR)/$(OUTNAME)
+	@echo $(CLEAN_ECHO) $(subst $(TOPDIR)/, "", $(INSTALLS))
+	$(Q)$(RM) $(INSTALLS)
 
 $(dirs):
-	@make -C $@ $(MAKECMDGOALS)
+	$(Q)$(MAKE) -C $@ $(MAKECMDGOALS)

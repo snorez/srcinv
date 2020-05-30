@@ -1,57 +1,75 @@
-include ../pre_defines.makefile
-
-TARGETS = all install clean distclean
-
-# ==============================================================================
+RELDIR=$(subst $(TOPDIR)/, "", $(shell pwd))
 OUTDIR0 = $(SRCINV_BIN)
-OUTCORE = hacking.so
-INFILE = hacking.c \
-	 itersn.c
-
 OUTDIR1 = $(SRCINV_BIN)/hacking
-# ==============================================================================
-CC0 = gcc
-CC0_OPT = $(CFLAGS) -rdynamic -shared -fPIC -D_FILE_OFFSET_BITS=64
 
-CC1 = g++
-CC1_OPT=$(CPPFLAGS) -rdynamic -shared -fPIC -Wno-literal-suffix -fno-rtti -D_FILE_OFFSET_BITS=64
-# ==============================================================================
-CC0_SO =
+CC_SRCS = hacking.c \
+	  itersn.c
 
-CC1_SO = uninit.so \
-	 kern_copyuser.so \
-	 gensample.so \
-	 list_function.so \
-	 show_detail.so \
-	 debuild.so \
-	 fuzz.so \
-	 test.so
+CC_OBJS = $(CC_SRCS:%.c=%.o)
 
-INSTALLS := $(addprefix $(OUTDIR0)/,$(OUTCORE)) \
-	$(addprefix $(OUTDIR1)/,$(CC0_SO)) \
-	$(addprefix $(OUTDIR1)/,$(CC1_SO))
-# ==============================================================================
+CC_SO = hacking.so
 
-all: $(OUTCORE) $(CC0_SO) $(CC1_SO)
+CXX_SRCS = uninit.cc \
+	   kern_copyuser.cc \
+	   gensample.cc \
+	   list_function.cc \
+	   show_detail.cc \
+	   debuild.cc \
+	   fuzz.cc \
+	   test.cc
 
-$(OUTCORE): $(INFILE)
-	$(CC0) $(CC0_OPT) $(INFILE) -I$(CLIB_INC) -I$(SRCINV_INC) -L$(CLIB_LIB) -l$(CLIB_SO) -o $(OUTCORE) -Wl,-rpath $(CLIB_LIB)
+CXX_OBJS = $(CXX_SRCS:%.cc=%.o)
 
-$(CC0_SO): %.so : %.c
-	$(CC0) $(CC0_OPT) -I$(SRCINV_INC) -I$(CLIB_INC) $< -L$(CLIB_LIB) -l$(CLIB_SO) -lpthread -o $@ -Wl,-rpath $(CLIB_LIB)
+CXX_SO = $(CXX_SRCS:%.cc=%.so)
 
-$(CC1_SO): %.so : %.cc
-	$(CC1) $(CC1_OPT) -I$(GCC_PLUGIN_INC) -I$(SRCINV_INC) -I$(CLIB_INC) $< -L$(CLIB_LIB) -l$(CLIB_SO) -lpthread -o $@ -Wl,-rpath $(CLIB_LIB)
+INSTALLS := $(addprefix $(OUTDIR0)/,$(CC_SO)) \
+	$(addprefix $(OUTDIR1)/,$(CXX_SO))
+
+CFLAGS += \
+	  -fPIC \
+	  -shared \
+	  -rdynamic \
+	  -D_FILE_OFFSET_BITS=64
+
+CXXFLAGS += \
+	    -fPIC \
+	    -shared \
+	    -rdynamic \
+	    -fno-rtti \
+	    -Wno-literal-suffix \
+	    -D_FILE_OFFSET_BITS=64
+
+all: $(CC_SO) $(CXX_SO)
+
+$(CC_SO): $(CC_OBJS)
+	@echo $(LD_ECHO) $(RELDIR)/$(CC_SO) $(SRC_ECHO) $(RELDIR)/{$(CC_OBJS)}
+	$(Q)$(CC) $(CFLAGS) -L$(CLIB_LIB) -l$(CLIB_SO) -o $(CC_SO) $(CC_OBJS) -Wl,-rpath $(CLIB_LIB)
+
+$(CC_OBJS): %.o: %.c
+	@echo $(CC_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<
+	$(Q)$(CC) $(CFLAGS) -I$(CLIB_INC) -I$(SRCINV_INC) -c -o $@ $<
+
+$(CXX_SO): %.so : %.o
+	@echo $(LD_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<
+	$(Q)$(CXX) $(CXXFLAGS) -L$(CLIB_LIB) -l$(CLIB_SO) -lpthread -o $@ $< -Wl,-rpath $(CLIB_LIB)
+
+$(CXX_OBJS): %.o: %.cc
+	@echo $(CXX_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<
+	$(Q)$(CXX) $(CXXFLAGS) -I$(GCC_PLUGIN_INC) -I$(SRCINV_INC) -I$(CLIB_INC) -c -o $@ $<
 
 install: $(INSTALLS)
 
 $(OUTDIR0)/% $(OUTDIR1)/%: %
-	install $< $@
+	@echo $(INSTALL_ECHO) $(subst $(TOPDIR)/,"",$@) $(SRC_ECHO) $(RELDIR)/$<
+	$(Q)$(INSTALL) $< $@
 
 clean:
-	@rm -vf $(OUTCORE)
-	@rm -vf $(CC0_SO) $(CC1_SO)
+	@echo $(CLEAN_ECHO) $(RELDIR)/
+	$(Q)$(RM) $(CC_OBJS)
+	$(Q)$(RM) $(CC_SO)
+	$(Q)$(RM) $(CXX_OBJS)
+	$(Q)$(RM) $(CXX_SO)
 
 distclean: clean
-	@rm -vf $(OUTDIR0)/$(OUTCORE)
-	@rm -vf $(OUTDIR1)/*.so
+	@echo $(CLEAN_ECHO) $(subst $(TOPDIR)/, "", $(INSTALLS))
+	$(Q)$(RM) $(INSTALLS)
