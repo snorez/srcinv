@@ -833,3 +833,11 @@ void add_callee(struct sinode *caller_fsn, struct sinode *callee_fsn,void *where
 	if (callee_fn)
 		add_caller(callee_fsn, caller_fsn, add_caller_alias);
 }
+
+void add_possible(struct var_node *vn, unsigned long value_flag,
+			unsigned long value)
+{
+	node_lock_w(vn);
+	(void)__add_possible(&vn->possible_values, value_flag, value);
+	node_unlock_w(vn);
+}

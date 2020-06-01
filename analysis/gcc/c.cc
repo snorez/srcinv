@@ -5478,15 +5478,9 @@ static void __get_type_detail(struct type_node **base, struct list_head *head,
 			memcpy(_new_var->var.name, name, strlen(name)+1);
 			long value;
 			value = (long)TREE_INT_CST_LOW(TREE_VALUE(enum_list));
-			struct possible_list *pv = NULL;
-			if (!possible_list_find(&_new_var->var.possible_values,
-						VALUE_IS_INT_CST, value)) {
-				pv = possible_list_new();
-				pv->value_flag = VALUE_IS_INT_CST;
-				pv->value = value;
-				list_add_tail(&pv->sibling,
-					      &_new_var->var.possible_values);
-			}
+			analysis__add_possible(&_new_var->var,
+						VALUE_IS_INT_CST,
+						value);
 			list_add_tail(&_new_var->sibling, &new_type->children);
 
 			enum_list = TREE_CHAIN(enum_list);
@@ -6273,52 +6267,19 @@ static void do_init_value(struct var_node *vn, tree init_tree)
 	case INTEGER_CST:
 	{
 		long value = TREE_INT_CST_LOW(init_tree);
-		struct possible_list *pv = NULL;
-		node_lock_w(vn);
-		pv = possible_list_find(&vn->possible_values,
-					VALUE_IS_INT_CST,
-					value);
-		if (!pv) {
-			pv = possible_list_new();
-			pv->value_flag = VALUE_IS_INT_CST;
-			pv->value = value;
-			list_add_tail(&pv->sibling, &vn->possible_values);
-		}
-		node_unlock_w(vn);
+		analysis__add_possible(vn, VALUE_IS_INT_CST, value);
 		break;
 	}
 	case REAL_CST:
 	{
 		long value = (long)init_tree;
-		struct possible_list *pv = NULL;
-		node_lock_w(vn);
-		pv = possible_list_find(&vn->possible_values,
-					VALUE_IS_REAL_CST,
-					value);
-		if (!pv) {
-			pv = possible_list_new();
-			pv->value_flag = VALUE_IS_REAL_CST;
-			pv->value = value;
-			list_add_tail(&pv->sibling, &vn->possible_values);
-		}
-		node_unlock_w(vn);
+		analysis__add_possible(vn, VALUE_IS_REAL_CST, value);
 		break;
 	}
 	case STRING_CST:
 	{
 		long value = (long)((struct tree_string *)init_tree)->str;
-		struct possible_list *pv = NULL;
-		node_lock_w(vn);
-		pv = possible_list_find(&vn->possible_values,
-					VALUE_IS_STR_CST,
-					value);
-		if (!pv) {
-			pv = possible_list_new();
-			pv->value_flag = VALUE_IS_STR_CST;
-			pv->value = value;
-			list_add_tail(&pv->sibling, &vn->possible_values);
-		}
-		node_unlock_w(vn);
+		analysis__add_possible(vn, VALUE_IS_STR_CST, value);
 		break;
 	}
 	case ADDR_EXPR:
@@ -6333,84 +6294,24 @@ static void do_init_value(struct var_node *vn, tree init_tree)
 			if (!fsn) {
 				/* FIXME, this function not found yet */
 				long value = (long)addr;
-				struct possible_list *pv = NULL;
-				node_lock_w(vn);
-				pv = possible_list_find(&vn->possible_values,
-							VALUE_IS_TREE,
-							value);
-				if (!pv) {
-					pv = possible_list_new();
-					pv->value_flag = VALUE_IS_TREE;
-					pv->value = value;
-					list_add_tail(&pv->sibling,
-							&vn->possible_values);
-				}
-				node_unlock_w(vn);
+				analysis__add_possible(vn,VALUE_IS_TREE,value);
 			} else {
 				/* long value = fsn->node_id.id.id1; */
 				long value;
 				value = sinode_id_all(fsn);
-				struct possible_list *pv = NULL;
-				node_lock_w(vn);
-				pv = possible_list_find(&vn->possible_values,
-							VALUE_IS_FUNC,
-							value);
-				if (!pv) {
-					pv = possible_list_new();
-					pv->value_flag = VALUE_IS_FUNC;
-					pv->value = value;
-					list_add_tail(&pv->sibling,
-							&vn->possible_values);
-				}
-				node_unlock_w(vn);
+				analysis__add_possible(vn,VALUE_IS_FUNC,value);
 			}
 		} else if (TREE_CODE(addr) == VAR_DECL) {
 			long value = (long)init_tree;
-			struct possible_list *pv = NULL;
-			node_lock_w(vn);
-			pv = possible_list_find(&vn->possible_values,
-						VALUE_IS_VAR_ADDR,
-						value);
-			if (!pv) {
-				pv = possible_list_new();
-				pv->value_flag = VALUE_IS_VAR_ADDR;
-				pv->value = value;
-				list_add_tail(&pv->sibling,
-						&vn->possible_values);
-			}
-			node_unlock_w(vn);
+			analysis__add_possible(vn, VALUE_IS_VAR_ADDR, value);
 		} else if (TREE_CODE(addr) == STRING_CST) {
 			do_init_value(vn, addr);
 		} else if (TREE_CODE(addr) == COMPONENT_REF) {
 			long value = (long)init_tree;
-			struct possible_list *pv = NULL;
-			node_lock_w(vn);
-			pv = possible_list_find(&vn->possible_values,
-						VALUE_IS_VAR_ADDR,
-						value);
-			if (!pv) {
-				pv = possible_list_new();
-				pv->value_flag = VALUE_IS_VAR_ADDR;
-				pv->value = value;
-				list_add_tail(&pv->sibling,
-						&vn->possible_values);
-			}
-			node_unlock_w(vn);
+			analysis__add_possible(vn, VALUE_IS_VAR_ADDR, value);
 		} else if (TREE_CODE(addr) == ARRAY_REF) {
 			long value = (long)init_tree;
-			struct possible_list *pv = NULL;
-			node_lock_w(vn);
-			pv = possible_list_find(&vn->possible_values,
-						VALUE_IS_EXPR,
-						value);
-			if (!pv) {
-				pv = possible_list_new();
-				pv->value_flag = VALUE_IS_EXPR;
-				pv->value = value;
-				list_add_tail(&pv->sibling,
-						&vn->possible_values);
-			}
-			node_unlock_w(vn);
+			analysis__add_possible(vn, VALUE_IS_EXPR, value);
 		} else if (TREE_CODE(addr) == COMPOUND_LITERAL_EXPR) {
 			tree vd = COMPOUND_LITERAL_EXPR_DECL(addr);
 			BUG_ON(!vd);
@@ -6432,18 +6333,7 @@ static void do_init_value(struct var_node *vn, tree init_tree)
 	case PLUS_EXPR:
 	{
 		long value = (long)init_tree;
-		struct possible_list *pv = NULL;
-		node_lock_w(vn);
-		pv = possible_list_find(&vn->possible_values,
-					VALUE_IS_EXPR,
-					value);
-		if (!pv) {
-			pv = possible_list_new();
-			pv->value_flag = VALUE_IS_EXPR;
-			pv->value = value;
-			list_add_tail(&pv->sibling, &vn->possible_values);
-		}
-		node_unlock_w(vn);
+		analysis__add_possible(vn, VALUE_IS_EXPR, value);
 		break;
 	}
 	default:
@@ -7461,18 +7351,8 @@ static void __func_assigned(struct sinode *n, struct sinode *fsn, tree op)
 		vn = get_target_var_node(fsn, op);
 		if (!vn)
 			break;
-		struct possible_list *pv;
-		node_lock_w(vn);
-		if (!possible_list_find(&vn->possible_values,
-					VALUE_IS_FUNC,
-					n->node_id.id.id1)) {
-			pv = possible_list_new();
-			pv->value_flag = VALUE_IS_FUNC;
-			pv->value = n->node_id.id.id1;
-			list_add_tail(&pv->sibling,
-					&vn->possible_values);
-		}
-		node_unlock_w(vn);
+
+		analysis__add_possible(vn, VALUE_IS_FUNC, n->node_id.id.id1);
 		break;
 	}
 	case PARM_DECL:
@@ -7482,18 +7362,7 @@ static void __func_assigned(struct sinode *n, struct sinode *fsn, tree op)
 		if (!vn)
 			break;
 
-		struct possible_list *pv;
-		node_lock_w(vn);
-		if (!possible_list_find(&vn->possible_values,
-					VALUE_IS_FUNC,
-					n->node_id.id.id1)) {
-			pv = possible_list_new();
-			pv->value_flag = VALUE_IS_FUNC;
-			pv->value = n->node_id.id.id1;
-			list_add_tail(&pv->sibling,
-					&vn->possible_values);
-		}
-		node_unlock_w(vn);
+		analysis__add_possible(vn, VALUE_IS_FUNC, n->node_id.id.id1);
 		break;
 	}
 	case COMPONENT_REF:
@@ -7503,18 +7372,8 @@ static void __func_assigned(struct sinode *n, struct sinode *fsn, tree op)
 		if (!vnl)
 			break;
 
-		struct possible_list *pv;
-		node_lock_w(&vnl->var);
-		if (!possible_list_find(&vnl->var.possible_values,
-					VALUE_IS_FUNC,
-					n->node_id.id.id1)) {
-			pv = possible_list_new();
-			pv->value_flag = VALUE_IS_FUNC;
-			pv->value = n->node_id.id.id1;
-			list_add_tail(&pv->sibling,
-					&vnl->var.possible_values);
-		}
-		node_unlock_w(&vnl->var);
+		analysis__add_possible(&vnl->var, VALUE_IS_FUNC,
+					n->node_id.id.id1);
 		break;
 	}
 	case ARRAY_REF:
@@ -7582,7 +7441,8 @@ static void __do_func_used_at(struct sinode *sn, struct func_node *fn)
 	return;
 }
 
-static void gcc_c_add_caller(struct sinode *callee, struct sinode *caller)
+static void callee_alias_add_caller(struct sinode *callee,
+				    struct sinode *caller)
 {
 	CLIB_DBG_FUNC_ENTER();
 
@@ -7641,7 +7501,8 @@ static void gcc_c_add_caller(struct sinode *callee, struct sinode *caller)
 		new_callee = analysis__sinode_search(TYPE_FUNC_GLOBAL,
 							SEARCH_BY_SPEC,
 							(void *)args);
-		analysis__add_caller(new_callee, caller, gcc_c_add_caller);
+		analysis__add_caller(new_callee, caller,
+					callee_alias_add_caller);
 	}
 
 	CLIB_DBG_FUNC_EXIT();
@@ -7675,7 +7536,8 @@ static void call_func_decl(struct sinode *sn, struct func_node *fn,
 
 	/* FIXME, what if call_fn_sn has no data? */
 	if (!val_flag)
-		analysis__add_caller(call_fn_sn, sn, gcc_c_add_caller);
+		analysis__add_caller(call_fn_sn, sn,
+					callee_alias_add_caller);
 
 	CLIB_DBG_FUNC_EXIT();
 	return;
@@ -7703,7 +7565,7 @@ static void add_possible_callee(struct sinode *caller_fsn,
 
 			BUG_ON(!callee_fsn);
 			analysis__add_callee(caller_fsn, callee_fsn, gs,
-						gcc_c_add_caller);
+						callee_alias_add_caller);
 			break;
 		}
 		default:

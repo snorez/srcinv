@@ -643,10 +643,9 @@ static inline struct possible_list *possible_list_new(void)
 	return _new;
 }
 
-static inline
-struct possible_list *possible_list_find(struct list_head *head,
-						unsigned long val_flag,
-						unsigned long value)
+static inline struct possible_list *possible_list_find(struct list_head *head,
+							unsigned long val_flag,
+							unsigned long value)
 {
 	struct possible_list *tmp;
 	list_for_each_entry(tmp, head, sibling) {
@@ -654,6 +653,22 @@ struct possible_list *possible_list_find(struct list_head *head,
 			return tmp;
 	}
 	return NULL;
+}
+
+static inline struct possible_list *__add_possible(struct list_head *head,
+							unsigned long val_flag,
+							unsigned long value)
+{
+	struct possible_list *pv;
+	pv = possible_list_find(head, val_flag, value);
+	if (!pv) {
+		pv = possible_list_new();
+		pv->value_flag = val_flag;
+		pv->value = value;
+		list_add_tail(&pv->sibling, head);
+	}
+
+	return pv;
 }
 
 static inline struct sibuf_typenode *sibuf_typenode_new(void)
