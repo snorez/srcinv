@@ -133,7 +133,7 @@ int trace_var(struct sinode *fsn, void *var_parm,
 							fsn->node_id.id.id1);
 			BUG_ON(!caller_target_cfl);
 
-			struct callf_gs_list *call_gs_list;
+			struct callf_stmt_list *call_gs_list;
 			list_for_each_entry(call_gs_list,
 						&caller_target_cfl->gimple_stmts,
 						sibling) {

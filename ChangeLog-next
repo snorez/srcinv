@@ -1,5 +1,6 @@
 2020-06-01
 	*srcinv: reset use_at_list structure
+	*srcinv: reset callf_gs_list structure
 
 2020-05-30
 	* analysis: short the output

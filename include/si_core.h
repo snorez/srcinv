@@ -547,18 +547,19 @@ struct callf_list {
 	/* 0: siid, 1: tree */
 	unsigned long		value_flag;
 	/* for callee, check whether the function has a body or not */
-	struct list_head	gimple_stmts;
+	struct list_head	stmts;
 	unsigned long		body_missing: 1;
 } __attribute__((packed));
 
-struct callf_gs_list {
+struct callf_stmt_list {
 	struct list_head	sibling;
-	void			*gimple_stmt;
+	void			*where;
+	int			type;
 } __attribute__((packed));
 
-enum use_at_type {
-	USE_AT_TYPE_GIMPLE = 1,
-	USE_AT_TYPE_ASM,
+enum where_type {
+	WHERE_TYPE_GIMPLE = 1,
+	WHERE_TYPE_ASM,
 };
 struct use_at_list {
 	struct list_head	sibling;

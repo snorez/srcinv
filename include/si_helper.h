@@ -527,7 +527,7 @@ static inline struct callf_list *callf_list_new(void)
 	struct callf_list *_new;
 	_new = (struct callf_list *)src_buf_get(sizeof(*_new));
 	memset(_new, 0, sizeof(*_new));
-	INIT_LIST_HEAD(&_new->gimple_stmts);
+	INIT_LIST_HEAD(&_new->stmts);
 	return _new;
 }
 
@@ -544,34 +544,35 @@ static inline struct callf_list *callf_list_find(struct list_head *head,
 }
 
 static inline
-struct callf_gs_list *callf_gs_list_new(void)
+struct callf_stmt_list *callf_stmt_list_new(void)
 {
-	struct callf_gs_list *_new;
-	_new = (struct callf_gs_list *)src_buf_get(sizeof(*_new));
+	struct callf_stmt_list *_new;
+	_new = (struct callf_stmt_list *)src_buf_get(sizeof(*_new));
 	memset(_new, 0, sizeof(*_new));
 	return _new;
 }
 
-static inline int callf_gs_list_exist(struct list_head *head,
-							void *gimple)
+static inline int callf_stmt_list_exist(struct list_head *head, int type,
+					void *where)
 {
-	struct callf_gs_list *tmp;
+	struct callf_stmt_list *tmp;
 	list_for_each_entry(tmp, head, sibling) {
-		if (tmp->gimple_stmt == gimple)
+		if ((tmp->type == type) && (tmp->where == where))
 			return 1;
 	}
 	return 0;
 }
 
-static inline void callf_gs_list_add(struct list_head *head,
-							void *gimple)
+static inline void callf_stmt_list_add(struct list_head *head, int type,
+					void *where)
 {
-	if (callf_gs_list_exist(head, gimple))
+	if (callf_stmt_list_exist(head, type, where))
 		return;
 
-	struct callf_gs_list *_new;
-	_new = callf_gs_list_new();
-	_new->gimple_stmt = gimple;
+	struct callf_stmt_list *_new;
+	_new = callf_stmt_list_new();
+	_new->where = where;
+	_new->type = type;
 	list_add_tail(&_new->sibling, head);
 }
 

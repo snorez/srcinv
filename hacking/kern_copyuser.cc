@@ -72,9 +72,14 @@ static int check_address_space(struct list_head *head)
 static struct sinode *cur_sn;
 static void do_check(struct callf_list *cf, int flag)
 {
-	struct callf_gs_list *tmp;
-	list_for_each_entry(tmp, &cf->gimple_stmts, sibling) {
-		gimple_seq gs = (gimple_seq)tmp->gimple_stmt;
+	struct callf_stmt_list *tmp;
+	list_for_each_entry(tmp, &cf->stmts, sibling) {
+		if (tmp->type != WHERE_TYPE_GIMPLE) {
+			/* TODO */
+			continue;
+		}
+
+		gimple_seq gs = (gimple_seq)tmp->where;
 		tree *ops = gimple_ops(gs);
 		long op_cnt = gimple_num_ops(gs);
 		/* flag: 0 copy_to_user, 1 copy_from_user */

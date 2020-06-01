@@ -4264,13 +4264,13 @@ static void do_result_decl(tree node, int flag)
 		if (vnl->var.type) {
 			analysis__type_add_use_at(vnl->var.type,
 						  cur_fsn->node_id.id,
-						  USE_AT_TYPE_GIMPLE,
+						  WHERE_TYPE_GIMPLE,
 						  cur_gimple,
 						  cur_gimple_op_idx);
 		}
 
 		analysis__var_add_use_at(&vnl->var, cur_fsn->node_id.id,
-					 USE_AT_TYPE_GIMPLE,
+					 WHERE_TYPE_GIMPLE,
 					 cur_gimple, cur_gimple_op_idx);
 
 		CLIB_DBG_FUNC_EXIT();
@@ -4314,13 +4314,13 @@ static void do_parm_decl(tree node, int flag)
 		if (vnl->var.type) {
 			analysis__type_add_use_at(vnl->var.type,
 						  cur_fsn->node_id.id,
-						  USE_AT_TYPE_GIMPLE,
+						  WHERE_TYPE_GIMPLE,
 						  cur_gimple,
 						  cur_gimple_op_idx);
 		}
 
 		analysis__var_add_use_at(&vnl->var, cur_fsn->node_id.id,
-					 USE_AT_TYPE_GIMPLE,
+					 WHERE_TYPE_GIMPLE,
 					 cur_gimple, cur_gimple_op_idx);
 
 		CLIB_DBG_FUNC_EXIT();
@@ -4410,13 +4410,13 @@ static void do_var_decl_phase4(tree n)
 		if (gvn->type) {
 			analysis__type_add_use_at(gvn->type,
 						  cur_fsn->node_id.id,
-						  USE_AT_TYPE_GIMPLE,
+						  WHERE_TYPE_GIMPLE,
 						  cur_gimple,
 						  cur_gimple_op_idx);
 		}
 
 		analysis__var_add_use_at(gvn, cur_fsn->node_id.id,
-					 USE_AT_TYPE_GIMPLE,
+					 WHERE_TYPE_GIMPLE,
 					 cur_gimple, cur_gimple_op_idx);
 
 		goto out;
@@ -4455,13 +4455,13 @@ static void do_var_decl_phase4(tree n)
 		if (newlv->var.type) {
 			analysis__type_add_use_at(newlv->var.type,
 						  cur_fsn->node_id.id,
-						  USE_AT_TYPE_GIMPLE,
+						  WHERE_TYPE_GIMPLE,
 						  cur_gimple,
 						  cur_gimple_op_idx);
 		}
 
 		analysis__var_add_use_at(&newlv->var, cur_fsn->node_id.id,
-					 USE_AT_TYPE_GIMPLE,
+					 WHERE_TYPE_GIMPLE,
 					 cur_gimple, cur_gimple_op_idx);
 
 		if (TREE_STATIC(n) || DECL_INITIAL(n)) {
@@ -4654,7 +4654,7 @@ static void do_function_decl(tree node, int flag)
 			goto out;
 
 		analysis__func_add_use_at(fn, cur_fsn->node_id.id,
-					  USE_AT_TYPE_GIMPLE,
+					  WHERE_TYPE_GIMPLE,
 					  cur_gimple, cur_gimple_op_idx);
 
 out:
@@ -6868,13 +6868,13 @@ static void __4_mark_component_ref(tree op)
 	if (target_vnl->var.type) {
 		analysis__type_add_use_at(target_vnl->var.type,
 					  cur_fsn->node_id.id,
-					  USE_AT_TYPE_GIMPLE,
+					  WHERE_TYPE_GIMPLE,
 					  cur_gimple,
 					  cur_gimple_op_idx);
 	}
 
 	analysis__var_add_use_at(&target_vnl->var, cur_fsn->node_id.id,
-				 USE_AT_TYPE_GIMPLE,
+				 WHERE_TYPE_GIMPLE,
 				 cur_gimple, cur_gimple_op_idx);
 
 out:
@@ -7074,13 +7074,13 @@ static void __4_mark_bit_field_ref(tree op)
 	if (target_vnl->var.type) {
 		analysis__type_add_use_at(target_vnl->var.type,
 					  cur_fsn->node_id.id,
-					  USE_AT_TYPE_GIMPLE,
+					  WHERE_TYPE_GIMPLE,
 					  cur_gimple,
 					  cur_gimple_op_idx);
 	}
 
 	analysis__var_add_use_at(&target_vnl->var, cur_fsn->node_id.id,
-				 USE_AT_TYPE_GIMPLE,
+				 WHERE_TYPE_GIMPLE,
 				 cur_gimple, cur_gimple_op_idx);
 
 out:
@@ -7227,13 +7227,13 @@ static void __4_mark_mem_ref(tree op)
 		}
 
 		analysis__var_add_use_at(&vl->var, cur_fsn->node_id.id,
-					 USE_AT_TYPE_GIMPLE,
+					 WHERE_TYPE_GIMPLE,
 					 cur_gimple, cur_gimple_op_idx);
 
 		if (vl->var.type) {
 			analysis__type_add_use_at(vl->var.type,
 						  cur_fsn->node_id.id,
-						  USE_AT_TYPE_GIMPLE,
+						  WHERE_TYPE_GIMPLE,
 						  cur_gimple,
 						  cur_gimple_op_idx);
 		}
@@ -7257,7 +7257,7 @@ static void __4_mark_array_ref(tree op)
 		goto out;
 
 	analysis__type_add_use_at(tn, cur_fsn->node_id.id,
-				  USE_AT_TYPE_GIMPLE,
+				  WHERE_TYPE_GIMPLE,
 				  cur_gimple, cur_gimple_op_idx);
 
 out:
@@ -7555,7 +7555,7 @@ static void __do_func_used_at(struct sinode *sn, struct func_node *fn)
 		BUG_ON(!fsn);
 		analysis__resfile_load(fsn->buf);
 
-		if (tmp_ua->type == USE_AT_TYPE_GIMPLE) {
+		if (tmp_ua->type == WHERE_TYPE_GIMPLE) {
 			gimple_seq gs = (gimple_seq)tmp_ua->where;
 			enum gimple_code gc = gimple_code(gs);
 			if (gc == GIMPLE_ASSIGN) {
@@ -7695,7 +7695,7 @@ static void call_func_decl(struct sinode *sn, struct func_node *fn,
 		list_add_tail(&_newc->sibling, &fn->callees);
 	}
 	node_unlock_w(fn);
-	callf_gs_list_add(&_newc->gimple_stmts, (void *)gs);
+	callf_stmt_list_add(&_newc->stmts, WHERE_TYPE_GIMPLE, (void *)gs);
 
 	/* FIXME, what if call_fn_sn has no data? */
 	if (!val_flag)
@@ -7724,7 +7724,7 @@ static void add_callee(struct sinode *caller_fsn, gimple_seq gs,
 			_newc->body_missing = 1;
 		list_add_tail(&_newc->sibling, &caller_fn->callees);
 	}
-	callf_gs_list_add(&_newc->gimple_stmts, gs);
+	callf_stmt_list_add(&_newc->stmts, WHERE_TYPE_GIMPLE, gs);
 	if (called_fn)
 		add_caller(called_fsn, caller_fsn);
 
@@ -8096,7 +8096,7 @@ static void __trace_call_gs(struct sinode *sn, struct func_node *fn,
 			_newc->body_missing = 1;
 			list_add_tail(&_newc->sibling, &fn->callees);
 		}
-		callf_gs_list_add(&_newc->gimple_stmts, (void *)gs);
+		callf_stmt_list_add(&_newc->stmts, WHERE_TYPE_GIMPLE, gs);
 		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
