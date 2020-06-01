@@ -1,5 +1,7 @@
 /*
- * TODO
+ * method we handle sinode and its data
+ * so, we add methods for func_node/var_node/type_node here.
+ *
  * Copyright (C) 2018  zerons
  *
  * This program is free software: you can redistribute it and/or modify
@@ -770,4 +772,43 @@ void sinode_match(char *type, int (*match)(struct sinode *),
 	}
 
 	return;
+}
+
+static void __add_use_at(struct list_head *head, union siid id, int type,
+			void *where, unsigned long extra_info)
+{
+	struct use_at_list *newua;
+	newua = use_at_list_find(head, type, where, extra_info);
+	if (!newua) {
+		newua = use_at_list_new();
+		newua->func_id = id;
+		newua->type = type;
+		newua->where = where;
+		newua->extra_info = extra_info;
+		list_add_tail(&newua->sibling, head);
+	}
+}
+
+void func_add_use_at(struct func_node *fn, union siid id, int type,
+			void *where, unsigned long extra_info)
+{
+	node_lock_w(fn);
+	__add_use_at(&fn->used_at, id, type, where, extra_info);
+	node_unlock_w(fn);
+}
+
+void var_add_use_at(struct var_node *vn, union siid id, int type,
+			void *where, unsigned long extra_info)
+{
+	node_lock_w(vn);
+	__add_use_at(&vn->used_at, id, type, where, extra_info);
+	node_unlock_w(vn);
+}
+
+void type_add_use_at(struct type_node *tn, union siid id, int type,
+			void *where, unsigned long extra_info)
+{
+	node_lock_w(tn);
+	__add_use_at(&tn->used_at, id, type, where, extra_info);
+	node_unlock_w(tn);
 }

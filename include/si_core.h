@@ -556,11 +556,16 @@ struct callf_gs_list {
 	void			*gimple_stmt;
 } __attribute__((packed));
 
+enum use_at_type {
+	USE_AT_TYPE_GIMPLE = 1,
+	USE_AT_TYPE_ASM,
+};
 struct use_at_list {
 	struct list_head	sibling;
 	union siid		func_id;
-	void			*gimple_stmt;
-	unsigned long		op_idx;
+	void			*where;
+	unsigned long		extra_info;
+	int			type;
 } __attribute__((packed));
 
 #define	CALL_LEVEL_DEEP		64

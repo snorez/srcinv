@@ -584,13 +584,15 @@ static inline struct use_at_list *use_at_list_new(void)
 }
 
 static inline struct use_at_list *use_at_list_find(struct list_head *head,
-							void *gimple_stmt,
-							unsigned long op_idx)
+							int type,
+							void *where,
+							unsigned long extra_info)
 {
 	struct use_at_list *tmp;
 	list_for_each_entry(tmp, head, sibling) {
-		if ((tmp->gimple_stmt == gimple_stmt) &&
-			(tmp->op_idx == op_idx))
+		if ((tmp->type == type) &&
+			(tmp->where == where) &&
+			(tmp->extra_info == extra_info))
 			return tmp;
 	}
 	return NULL;

@@ -1,3 +1,6 @@
+2020-06-01
+	*srcinv: reset use_at_list structure
+
 2020-05-30
 	* analysis: short the output
 	* srcinv: compile with O2, not O3

@@ -4238,8 +4238,6 @@ static void do_result_decl(tree node, int flag)
 
 		char name[NAME_MAX];
 		struct var_list *vnl;
-		struct use_at_list *newua_type;
-		struct use_at_list *newua_var;
 		if (unlikely(si_is_global_var(n, NULL))) {
 			si_log1("in func: %s\n", cur_fsn->name);
 			CLIB_DBG_FUNC_EXIT();
@@ -4264,33 +4262,16 @@ static void do_result_decl(tree node, int flag)
 						TREE_TYPE(n));
 
 		if (vnl->var.type) {
-			node_lock_w(vnl->var.type);
-			newua_type = use_at_list_find(&vnl->var.type->used_at,
-							cur_gimple,
-							cur_gimple_op_idx);
-			if (!newua_type) {
-				newua_type = use_at_list_new();
-				newua_type->func_id = cur_fsn->node_id.id;
-				newua_type->gimple_stmt = (void *)cur_gimple;
-				newua_type->op_idx = cur_gimple_op_idx;
-				list_add_tail(&newua_type->sibling,
-						&vnl->var.type->used_at);
-			}
-			node_unlock_w(vnl->var.type);
+			analysis__type_add_use_at(vnl->var.type,
+						  cur_fsn->node_id.id,
+						  USE_AT_TYPE_GIMPLE,
+						  cur_gimple,
+						  cur_gimple_op_idx);
 		}
 
-		node_lock_w(&vnl->var);
-		newua_var = use_at_list_find(&vnl->var.used_at,
-						cur_gimple,
-						cur_gimple_op_idx);
-		if (!newua_var) {
-			newua_var = use_at_list_new();
-			newua_var->func_id = cur_fsn->node_id.id;
-			newua_var->gimple_stmt = (void *)cur_gimple;
-			newua_var->op_idx = cur_gimple_op_idx;
-			list_add_tail(&newua_var->sibling, &vnl->var.used_at);
-		}
-		node_unlock_w(&vnl->var);
+		analysis__var_add_use_at(&vnl->var, cur_fsn->node_id.id,
+					 USE_AT_TYPE_GIMPLE,
+					 cur_gimple, cur_gimple_op_idx);
 
 		CLIB_DBG_FUNC_EXIT();
 		return;
@@ -4323,8 +4304,6 @@ static void do_parm_decl(tree node, int flag)
 		CLIB_DBG_FUNC_ENTER();
 
 		struct var_list *vnl;
-		struct use_at_list *newua_type;
-		struct use_at_list *newua_var;
 
 		vnl = var_list_find(&cur_fn->args, n);
 		if (!vnl) {
@@ -4333,33 +4312,16 @@ static void do_parm_decl(tree node, int flag)
 		}
 
 		if (vnl->var.type) {
-			node_lock_w(vnl->var.type);
-			newua_type = use_at_list_find(&vnl->var.type->used_at,
-							cur_gimple,
-							cur_gimple_op_idx);
-			if (!newua_type) {
-				newua_type = use_at_list_new();
-				newua_type->func_id = cur_fsn->node_id.id;
-				newua_type->gimple_stmt = (void *)cur_gimple;
-				newua_type->op_idx = cur_gimple_op_idx;
-				list_add_tail(&newua_type->sibling,
-						&vnl->var.type->used_at);
-			}
-			node_unlock_w(vnl->var.type);
+			analysis__type_add_use_at(vnl->var.type,
+						  cur_fsn->node_id.id,
+						  USE_AT_TYPE_GIMPLE,
+						  cur_gimple,
+						  cur_gimple_op_idx);
 		}
 
-		node_lock_w(&vnl->var);
-		newua_var = use_at_list_find(&vnl->var.used_at,
-						cur_gimple,
-						cur_gimple_op_idx);
-		if (!newua_var) {
-			newua_var = use_at_list_new();
-			newua_var->func_id = cur_fsn->node_id.id;
-			newua_var->gimple_stmt = (void *)cur_gimple;
-			newua_var->op_idx = cur_gimple_op_idx;
-			list_add_tail(&newua_var->sibling, &vnl->var.used_at);
-		}
-		node_unlock_w(&vnl->var);
+		analysis__var_add_use_at(&vnl->var, cur_fsn->node_id.id,
+					 USE_AT_TYPE_GIMPLE,
+					 cur_gimple, cur_gimple_op_idx);
 
 		CLIB_DBG_FUNC_EXIT();
 		return;
@@ -4422,8 +4384,6 @@ static void do_var_decl_phase4(tree n)
 		struct id_list *newgv = NULL;
 		long value;
 		long val_flag;
-		struct use_at_list *newua_type = NULL;
-		struct use_at_list *newua_var = NULL;
 
 		get_var_sinode(n, &global_var_sn, 1);
 		if (!global_var_sn) {
@@ -4448,37 +4408,16 @@ static void do_var_decl_phase4(tree n)
 			goto out;
 
 		if (gvn->type) {
-			node_lock_w(gvn->type);
-			newua_type = use_at_list_find(
-					&gvn->type->used_at,
-					cur_gimple,
-					cur_gimple_op_idx);
-			if (!newua_type) {
-				newua_type = use_at_list_new();
-				newua_type->func_id =
-						cur_fsn->node_id.id;
-				newua_type->gimple_stmt =
-						(void *)cur_gimple;
-				newua_type->op_idx = cur_gimple_op_idx;
-				list_add_tail(&newua_type->sibling,
-						&gvn->type->used_at);
-			}
-			node_unlock_w(gvn->type);
+			analysis__type_add_use_at(gvn->type,
+						  cur_fsn->node_id.id,
+						  USE_AT_TYPE_GIMPLE,
+						  cur_gimple,
+						  cur_gimple_op_idx);
 		}
 
-		node_lock_w(gvn);
-		newua_var = use_at_list_find(&gvn->used_at,
-						cur_gimple,
-						cur_gimple_op_idx);
-		if (!newua_var) {
-			newua_var = use_at_list_new();
-			newua_var->func_id = cur_fsn->node_id.id;
-			newua_var->gimple_stmt = (void *)cur_gimple;
-			newua_var->op_idx = cur_gimple_op_idx;
-			list_add_tail(&newua_var->sibling,
-					&gvn->used_at);
-		}
-		node_unlock_w(gvn);
+		analysis__var_add_use_at(gvn, cur_fsn->node_id.id,
+					 USE_AT_TYPE_GIMPLE,
+					 cur_gimple, cur_gimple_op_idx);
 
 		goto out;
 	}
@@ -4491,8 +4430,6 @@ static void do_var_decl_phase4(tree n)
 		/* current function local vars */
 		char name[NAME_MAX];
 		struct var_list *newlv = NULL;
-		struct use_at_list *newua_type = NULL;
-		struct use_at_list *newua_var = NULL;
 
 		newlv = var_list_find(&cur_fn->local_vars,
 					(void *)n);
@@ -4516,31 +4453,16 @@ static void do_var_decl_phase4(tree n)
 						TREE_TYPE(n));
 
 		if (newlv->var.type) {
-			newua_type = use_at_list_find(
-					&newlv->var.type->used_at,
-					cur_gimple,
-					cur_gimple_op_idx);
-			if (!newua_type) {
-				newua_type = use_at_list_new();
-				newua_type->func_id = cur_fsn->node_id.id;
-				newua_type->gimple_stmt = (void *)cur_gimple;
-				newua_type->op_idx = cur_gimple_op_idx;
-				list_add_tail(&newua_type->sibling,
-					&newlv->var.type->used_at);
-			}
+			analysis__type_add_use_at(newlv->var.type,
+						  cur_fsn->node_id.id,
+						  USE_AT_TYPE_GIMPLE,
+						  cur_gimple,
+						  cur_gimple_op_idx);
 		}
 
-		newua_var = use_at_list_find(&newlv->var.used_at,
-						cur_gimple,
-						cur_gimple_op_idx);
-		if (!newua_var) {
-			newua_var = use_at_list_new();
-			newua_var->func_id = cur_fsn->node_id.id;
-			newua_var->gimple_stmt = (void *)cur_gimple;
-			newua_var->op_idx = cur_gimple_op_idx;
-			list_add_tail(&newua_var->sibling,
-					&newlv->var.used_at);
-		}
+		analysis__var_add_use_at(&newlv->var, cur_fsn->node_id.id,
+					 USE_AT_TYPE_GIMPLE,
+					 cur_gimple, cur_gimple_op_idx);
 
 		if (TREE_STATIC(n) || DECL_INITIAL(n)) {
 			do_init_value(&newlv->var, DECL_INITIAL(n));
@@ -4731,18 +4653,9 @@ static void do_function_decl(tree node, int flag)
 		if (!fn)
 			goto out;
 
-		struct use_at_list *newua;
-		node_lock_w(fn);
-		newua = use_at_list_find(&fn->used_at, cur_gimple,
-						cur_gimple_op_idx);
-		if (!newua) {
-			newua = use_at_list_new();
-			newua->func_id = cur_fsn->node_id.id;
-			newua->gimple_stmt = (void *)cur_gimple;
-			newua->op_idx = cur_gimple_op_idx;
-			list_add_tail(&newua->sibling, &fn->used_at);
-		}
-		node_unlock_w(fn);
+		analysis__func_add_use_at(fn, cur_fsn->node_id.id,
+					  USE_AT_TYPE_GIMPLE,
+					  cur_gimple, cur_gimple_op_idx);
 
 out:
 		CLIB_DBG_FUNC_EXIT();
@@ -6947,35 +6860,22 @@ static void __4_mark_component_ref(tree op)
 	CLIB_DBG_FUNC_ENTER();
 
 	struct var_list *target_vnl;
-	struct use_at_list *newua_type = NULL, *newua_var = NULL;
 
 	target_vnl = get_component_ref_vnl(op);
 	if (!target_vnl)
 		goto out;
 
 	if (target_vnl->var.type) {
-		newua_type = use_at_list_find(&target_vnl->var.type->used_at,
-						cur_gimple,
-						cur_gimple_op_idx);
-		if (!newua_type) {
-			newua_type = use_at_list_new();
-			newua_type->func_id = cur_fsn->node_id.id;
-			newua_type->gimple_stmt = (void *)cur_gimple;
-			newua_type->op_idx = cur_gimple_op_idx;
-			list_add_tail(&newua_type->sibling,
-					&target_vnl->var.type->used_at);
-		}
+		analysis__type_add_use_at(target_vnl->var.type,
+					  cur_fsn->node_id.id,
+					  USE_AT_TYPE_GIMPLE,
+					  cur_gimple,
+					  cur_gimple_op_idx);
 	}
 
-	newua_var = use_at_list_find(&target_vnl->var.used_at, cur_gimple,
-					cur_gimple_op_idx);
-	if (!newua_var) {
-		newua_var = use_at_list_new();
-		newua_var->func_id = cur_fsn->node_id.id;
-		newua_var->gimple_stmt = (void *)cur_gimple;
-		newua_var->op_idx = cur_gimple_op_idx;
-		list_add_tail(&newua_var->sibling, &target_vnl->var.used_at);
-	}
+	analysis__var_add_use_at(&target_vnl->var, cur_fsn->node_id.id,
+				 USE_AT_TYPE_GIMPLE,
+				 cur_gimple, cur_gimple_op_idx);
 
 out:
 	CLIB_DBG_FUNC_EXIT();
@@ -6993,7 +6893,6 @@ static void __4_mark_bit_field_ref(tree op)
 	struct var_list *target_vnl = NULL;
 	gimple_seq next_gs;
 	unsigned long target_offset = 0;
-	struct use_at_list *newua_type = NULL, *newua_var = NULL;
 
 	CLIB_DBG_FUNC_ENTER();
 
@@ -7173,32 +7072,16 @@ static void __4_mark_bit_field_ref(tree op)
 	}
 
 	if (target_vnl->var.type) {
-		node_lock_w(target_vnl->var.type);
-		newua_type = use_at_list_find(&target_vnl->var.type->used_at,
-						cur_gimple,
-						cur_gimple_op_idx);
-		if (!newua_type) {
-			newua_type = use_at_list_new();
-			newua_type->func_id = cur_fsn->node_id.id;
-			newua_type->gimple_stmt = (void *)cur_gimple;
-			newua_type->op_idx = cur_gimple_op_idx;
-			list_add_tail(&newua_type->sibling,
-					&target_vnl->var.type->used_at);
-		}
-		node_unlock_w(target_vnl->var.type);
+		analysis__type_add_use_at(target_vnl->var.type,
+					  cur_fsn->node_id.id,
+					  USE_AT_TYPE_GIMPLE,
+					  cur_gimple,
+					  cur_gimple_op_idx);
 	}
 
-	node_lock_w(&target_vnl->var);
-	newua_var = use_at_list_find(&target_vnl->var.used_at, cur_gimple,
-					cur_gimple_op_idx);
-	if (!newua_var) {
-		newua_var = use_at_list_new();
-		newua_var->func_id = cur_fsn->node_id.id;
-		newua_var->gimple_stmt = (void *)cur_gimple;
-		newua_var->op_idx = cur_gimple_op_idx;
-		list_add_tail(&newua_var->sibling, &target_vnl->var.used_at);
-	}
-	node_unlock_w(&target_vnl->var);
+	analysis__var_add_use_at(&target_vnl->var, cur_fsn->node_id.id,
+				 USE_AT_TYPE_GIMPLE,
+				 cur_gimple, cur_gimple_op_idx);
 
 out:
 	CLIB_DBG_FUNC_EXIT();
@@ -7343,36 +7226,17 @@ static void __4_mark_mem_ref(tree op)
 			goto out;
 		}
 
-		node_lock_w(&vl->var);
-		struct use_at_list *ua;
-		ua = use_at_list_find(&vl->var.used_at,
-					cur_gimple,
-					cur_gimple_op_idx);
-		if (!ua) {
-			ua = use_at_list_new();
-			ua->func_id = cur_fsn->node_id.id;
-			ua->gimple_stmt = (void *)cur_gimple;
-			ua->op_idx = cur_gimple_op_idx;
-			list_add_tail(&ua->sibling, &vl->var.used_at);
-		}
-		node_unlock_w(&vl->var);
+		analysis__var_add_use_at(&vl->var, cur_fsn->node_id.id,
+					 USE_AT_TYPE_GIMPLE,
+					 cur_gimple, cur_gimple_op_idx);
 
-		if (!vl->var.type) {
-			goto out;
+		if (vl->var.type) {
+			analysis__type_add_use_at(vl->var.type,
+						  cur_fsn->node_id.id,
+						  USE_AT_TYPE_GIMPLE,
+						  cur_gimple,
+						  cur_gimple_op_idx);
 		}
-
-		node_lock_w(vl->var.type);
-		ua = use_at_list_find(&vl->var.type->used_at,
-					cur_gimple,
-					cur_gimple_op_idx);
-		if (!ua) {
-			ua = use_at_list_new();
-			ua->func_id = cur_fsn->node_id.id;
-			ua->gimple_stmt = (void *)cur_gimple;
-			ua->op_idx = cur_gimple_op_idx;
-			list_add_tail(&ua->sibling, &vl->var.type->used_at);
-		}
-		node_unlock_w(vl->var.type);
 	}
 
 out:
@@ -7384,7 +7248,6 @@ static void __4_mark_array_ref(tree op)
 {
 	struct tree_exp *exp;
 	struct type_node *tn;
-	struct use_at_list *ua = NULL;
 
 	CLIB_DBG_FUNC_ENTER();
 
@@ -7393,16 +7256,9 @@ static void __4_mark_array_ref(tree op)
 	if (!tn)
 		goto out;
 
-	node_lock_w(tn);
-	ua = use_at_list_find(&tn->used_at, cur_gimple, cur_gimple_op_idx);
-	if (!ua) {
-		ua = use_at_list_new();
-		ua->func_id = cur_fsn->node_id.id;
-		ua->gimple_stmt = (void *)cur_gimple;
-		ua->op_idx = cur_gimple_op_idx;
-		list_add_tail(&ua->sibling, &tn->used_at);
-	}
-	node_unlock_w(tn);
+	analysis__type_add_use_at(tn, cur_fsn->node_id.id,
+				  USE_AT_TYPE_GIMPLE,
+				  cur_gimple, cur_gimple_op_idx);
 
 out:
 	CLIB_DBG_FUNC_EXIT();
@@ -7699,24 +7555,26 @@ static void __do_func_used_at(struct sinode *sn, struct func_node *fn)
 		BUG_ON(!fsn);
 		analysis__resfile_load(fsn->buf);
 
-		gimple_seq gs = (gimple_seq)tmp_ua->gimple_stmt;
-		enum gimple_code gc = gimple_code(gs);
-		if (gc == GIMPLE_ASSIGN) {
-			BUG_ON(tmp_ua->op_idx == 0);
-			if (unlikely(gimple_num_ops(gs) != 2))
-				continue;
-			tree *ops = gimple_ops(gs);
-			tree lhs = ops[0];
-			__func_assigned(sn, fsn, lhs);
-		} else if (gc == GIMPLE_CALL) {
-			BUG_ON(tmp_ua->op_idx <= 1);
-		} else if (gc == GIMPLE_COND) {
-			/* FIXME: we do nothing here */
-		} else if (gc == GIMPLE_ASM) {
-			/* TODO */
-			si_log1_todo("GIMPLE_ASM in phase5\n");
-		} else {
-			si_log1("miss %s\n", gimple_code_name[gc]);
+		if (tmp_ua->type == USE_AT_TYPE_GIMPLE) {
+			gimple_seq gs = (gimple_seq)tmp_ua->where;
+			enum gimple_code gc = gimple_code(gs);
+			if (gc == GIMPLE_ASSIGN) {
+				BUG_ON(tmp_ua->extra_info == 0);
+				if (unlikely(gimple_num_ops(gs) != 2))
+					continue;
+				tree *ops = gimple_ops(gs);
+				tree lhs = ops[0];
+				__func_assigned(sn, fsn, lhs);
+			} else if (gc == GIMPLE_CALL) {
+				BUG_ON(tmp_ua->extra_info <= 1);
+			} else if (gc == GIMPLE_COND) {
+				/* FIXME: we do nothing here */
+			} else if (gc == GIMPLE_ASM) {
+				/* TODO */
+				si_log1_todo("GIMPLE_ASM in phase5\n");
+			} else {
+				si_log1("miss %s\n", gimple_code_name[gc]);
+			}
 		}
 	}
 

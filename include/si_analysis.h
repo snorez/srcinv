@@ -46,6 +46,21 @@ CLIB_MODULE_CALL_FUNC(analysis, sinode_match, void,
 		 void (*cb)(struct sinode *)),
 		3, type, match, cb);
 
+CLIB_MODULE_CALL_FUNC(analysis, func_add_use_at, void,
+		(struct func_node *fn, union siid id, int type,
+		 void *where, unsigned long extra_info),
+		5, fn, id, where, extra_info);
+
+CLIB_MODULE_CALL_FUNC(analysis, var_add_use_at, void,
+		(struct var_node *vn, union siid id, int type,
+		 void *where, unsigned long extra_info),
+		5, vn, id, type, where, extra_info);
+
+CLIB_MODULE_CALL_FUNC(analysis, type_add_use_at, void,
+		(struct type_node *tn, union siid id, int type,
+		 void *where, unsigned long extra_info),
+		5, tn, id, type, where, extra_info);
+
 CLIB_MODULE_CALL_FUNC0(analysis, sibuf_new, struct sibuf *);
 
 CLIB_MODULE_CALL_FUNC(analysis, sibuf_insert, void,
