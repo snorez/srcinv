@@ -34,7 +34,7 @@ all: $(OUTLIBS) $(dirs)
 
 $(OUTLIBS): $(CC_OBJS)
 	@echo $(LD_ECHO) $(RELDIR)/$(OUTLIBS) $(SRC_ECHO) $(RELDIR)/{$(CC_OBJS)}
-	$(Q)$(CC) $(CFLAGS) -L$(CLIB_LIB) -lpthread -l$(CLIB_SO) -o $(OUTLIBS) $(CC_OBJS) -Wl,-rpath $(CLIB_LIB)
+	$(Q)$(CC) $(CFLAGS) $(CC_OBJS) -L$(CLIB_LIB) -lpthread -l$(CLIB_SO) -o $(OUTLIBS) -Wl,-rpath $(CLIB_LIB)
 
 $(CC_OBJS): %.o: %.c
 	@echo $(CC_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<

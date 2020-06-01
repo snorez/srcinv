@@ -43,7 +43,7 @@ all: $(CC_SO) $(CXX_SO)
 
 $(CC_SO): $(CC_OBJS)
 	@echo $(LD_ECHO) $(RELDIR)/$(CC_SO) $(SRC_ECHO) $(RELDIR)/{$(CC_OBJS)}
-	$(Q)$(CC) $(CFLAGS) -L$(CLIB_LIB) -l$(CLIB_SO) -o $(CC_SO) $(CC_OBJS) -Wl,-rpath $(CLIB_LIB)
+	$(Q)$(CC) $(CFLAGS) $(CC_OBJS) -L$(CLIB_LIB) -l$(CLIB_SO) -o $(CC_SO) -Wl,-rpath $(CLIB_LIB)
 
 $(CC_OBJS): %.o: %.c
 	@echo $(CC_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<
@@ -51,7 +51,7 @@ $(CC_OBJS): %.o: %.c
 
 $(CXX_SO): %.so : %.o
 	@echo $(LD_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<
-	$(Q)$(CXX) $(CXXFLAGS) -L$(CLIB_LIB) -l$(CLIB_SO) -lpthread -o $@ $< -Wl,-rpath $(CLIB_LIB)
+	$(Q)$(CXX) $(CXXFLAGS) $< -L$(CLIB_LIB) -l$(CLIB_SO) -lpthread -o $@ -Wl,-rpath $(CLIB_LIB)
 
 $(CXX_OBJS): %.o: %.cc
 	@echo $(CXX_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<

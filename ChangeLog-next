@@ -1,6 +1,8 @@
 2020-06-01
-	*srcinv: reset use_at_list structure
-	*srcinv: reset callf_gs_list structure
+	* srcinv: reset use_at_list structure
+	* srcinv: reset callf_gs_list structure
+	* srcinv: modify Makefiles
+	* analysis: move add_caller/add_callee into sinode.c
 
 2020-05-30
 	* analysis: short the output

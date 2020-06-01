@@ -29,7 +29,7 @@ gcc_%: %
 
 $(CXX_SO): %.so: %.o
 	@echo $(LD_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<
-	$(Q)$(CXX) $(CXXFLAGS) -L$(CLIB_LIB) -l$(CLIB_SO) -o $@ $< -Wl,-rpath $(CLIB_LIB)
+	$(Q)$(CXX) $(CXXFLAGS) $< -L$(CLIB_LIB) -l$(CLIB_SO) -o $@ -Wl,-rpath $(CLIB_LIB)
 
 $(CXX_OBJS): %.o: %.cc
 	@echo $(CXX_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<

@@ -22,7 +22,7 @@ all: $(CC_SO) $(dirs)
 
 $(CC_SO): %.so: %.o
 	@echo $(LD_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<
-	$(Q)$(CC) $(CFLAGS) -L$(CLIB_LIB) -l$(CLIB_SO) -o $@ $< -Wl,-rpath $(CLIB_LIB)
+	$(Q)$(CC) $(CFLAGS) $< -L$(CLIB_LIB) -l$(CLIB_SO) -o $@ -Wl,-rpath $(CLIB_LIB)
 
 $(CC_OBJS): %.o: %.c
 	@echo $(CC_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<

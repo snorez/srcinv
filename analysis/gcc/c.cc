@@ -7582,84 +7582,67 @@ static void __do_func_used_at(struct sinode *sn, struct func_node *fn)
 	return;
 }
 
-static void add_caller(struct sinode *callee, struct sinode *caller)
+static void gcc_c_add_caller(struct sinode *callee, struct sinode *caller)
 {
 	CLIB_DBG_FUNC_ENTER();
 
-	struct func_node *callee_func_node;
-	callee_func_node = (struct func_node *)callee->data;
-	if (unlikely(!callee_func_node)) {
-		/* XXX, check if this function has an alias attribute */
-		struct attr_list *tmp;
-		int found = 0;
-		int no_ins = 0;
-		list_for_each_entry(tmp, &callee->attributes, sibling) {
-			if (!strcmp(tmp->attr_name, "alias")) {
-				found = 1;
-				break;
-			} else if (!strcmp(tmp->attr_name,
-						"no_instrument_function")) {
-				no_ins = 1;
-			}
-		}
+	struct func_node *callee_fn;
+	callee_fn = (struct func_node *)callee->data;
+	BUG_ON(callee_fn);
 
-		if (!found) {
-			CLIB_DBG_FUNC_EXIT();
-			if (no_ins)
-				return;
+	/* XXX, check if this function has an alias attribute */
+	struct attr_list *tmp;
+	int found = 0;
+	int no_ins = 0;
+	list_for_each_entry(tmp, &callee->attributes, sibling) {
+		if (!strcmp(tmp->attr_name, "alias")) {
+			found = 1;
+			break;
+		} else if (!strcmp(tmp->attr_name,
+					"no_instrument_function")) {
+			no_ins = 1;
+		}
+	}
+
+	if (!found) {
+		CLIB_DBG_FUNC_EXIT();
+		if (no_ins)
 			return;
-		}
-
-		char name[NAME_MAX];
-		struct attrval_list *tmp2;
-		list_for_each_entry(tmp2, &tmp->values, sibling) {
-			memset(name, 0, NAME_MAX);
-			tree node = (tree)tmp2->node;
-			if (!node)
-				continue;
-
-			struct sibuf *b = find_target_sibuf(node);
-			analysis__resfile_load(b);
-			if (TREE_CODE(node) == IDENTIFIER_NODE) {
-				get_node_name(node, name);
-			} else if (TREE_CODE(node) == STRING_CST) {
-				struct tree_string *tstr;
-				tstr = (struct tree_string *)node;
-				BUG_ON(tstr->length >= NAME_MAX);
-				memcpy(name, tstr->str, tstr->length);
-			} else {
-				BUG();
-			}
-
-			/* FIXME, a static function? */
-			struct sinode *new_callee;
-			long args[3];
-			args[0] = (long)b->rf;
-			args[1] = (long)get_builtin_resfile();
-			args[2] = (long)name;
-			new_callee = analysis__sinode_search(TYPE_FUNC_GLOBAL,
-								SEARCH_BY_SPEC,
-								(void *)args);
-			add_caller(new_callee, caller);
-		}
-
-		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 
-	if (callf_list_find(&callee_func_node->callers,
-				caller->node_id.id.id1, 0)) {
-		CLIB_DBG_FUNC_EXIT();
-		return;
+	char name[NAME_MAX];
+	struct attrval_list *tmp2;
+	list_for_each_entry(tmp2, &tmp->values, sibling) {
+		memset(name, 0, NAME_MAX);
+		tree node = (tree)tmp2->node;
+		if (!node)
+			continue;
+
+		struct sibuf *b = find_target_sibuf(node);
+		analysis__resfile_load(b);
+		if (TREE_CODE(node) == IDENTIFIER_NODE) {
+			get_node_name(node, name);
+		} else if (TREE_CODE(node) == STRING_CST) {
+			struct tree_string *tstr;
+			tstr = (struct tree_string *)node;
+			BUG_ON(tstr->length >= NAME_MAX);
+			memcpy(name, tstr->str, tstr->length);
+		} else {
+			BUG();
+		}
+
+		/* FIXME, a static function? */
+		struct sinode *new_callee;
+		long args[3];
+		args[0] = (long)b->rf;
+		args[1] = (long)get_builtin_resfile();
+		args[2] = (long)name;
+		new_callee = analysis__sinode_search(TYPE_FUNC_GLOBAL,
+							SEARCH_BY_SPEC,
+							(void *)args);
+		analysis__add_caller(new_callee, caller, gcc_c_add_caller);
 	}
-
-	struct callf_list *_newc;
-	_newc = callf_list_new();
-	_newc->value = caller->node_id.id.id1;
-	_newc->value_flag = 0;
-	/* XXX, no need to add gimple here */
-
-	list_add_tail(&_newc->sibling, &callee_func_node->callers);
 
 	CLIB_DBG_FUNC_EXIT();
 	return;
@@ -7683,50 +7666,16 @@ static void call_func_decl(struct sinode *sn, struct func_node *fn,
 		val_flag = 0;
 	}
 
-	struct callf_list *_newc;
+	/* this piece of code is quite similar to add_callee */
+	struct callf_list *newc;
 	node_lock_w(fn);
-	_newc = callf_list_find(&fn->callees, value, val_flag);
-	if (!_newc) {
-		_newc = callf_list_new();
-		_newc->value = value;
-		_newc->value_flag = val_flag;
-		if (val_flag)
-			_newc->body_missing = 1;
-		list_add_tail(&_newc->sibling, &fn->callees);
-	}
+	newc = __add_call(&fn->callees, value, val_flag, val_flag);
+	callf_stmt_list_add(&newc->stmts, WHERE_TYPE_GIMPLE, (void *)gs);
 	node_unlock_w(fn);
-	callf_stmt_list_add(&_newc->stmts, WHERE_TYPE_GIMPLE, (void *)gs);
 
 	/* FIXME, what if call_fn_sn has no data? */
 	if (!val_flag)
-		add_caller(call_fn_sn, sn);
-
-	CLIB_DBG_FUNC_EXIT();
-	return;
-}
-
-static void add_callee(struct sinode *caller_fsn, gimple_seq gs,
-			struct sinode *called_fsn)
-{
-	CLIB_DBG_FUNC_ENTER();
-
-	struct func_node *caller_fn = (struct func_node *)caller_fsn->data;
-	struct func_node *called_fn = (struct func_node *)called_fsn->data;
-
-	struct callf_list *_newc;
-	_newc = callf_list_find(&caller_fn->callees,
-					called_fsn->node_id.id.id1, 0);
-	if (!_newc) {
-		_newc = callf_list_new();
-		_newc->value = called_fsn->node_id.id.id1;
-		_newc->value_flag = 0;
-		if (!called_fn)
-			_newc->body_missing = 1;
-		list_add_tail(&_newc->sibling, &caller_fn->callees);
-	}
-	callf_stmt_list_add(&_newc->stmts, WHERE_TYPE_GIMPLE, gs);
-	if (called_fn)
-		add_caller(called_fsn, caller_fsn);
+		analysis__add_caller(call_fn_sn, sn, gcc_c_add_caller);
 
 	CLIB_DBG_FUNC_EXIT();
 	return;
@@ -7746,14 +7695,15 @@ static void add_possible_callee(struct sinode *caller_fsn,
 		case VALUE_IS_FUNC:
 		{
 			union siid *id;
-			struct sinode *called_fsn;
+			struct sinode *callee_fsn;
 
 			id = (union siid *)&tmp_pv->value;
-			called_fsn = analysis__sinode_search(siid_type(id),
+			callee_fsn = analysis__sinode_search(siid_type(id),
 							SEARCH_BY_ID, id);
 
-			BUG_ON(!called_fsn);
-			add_callee(caller_fsn, gs, called_fsn);
+			BUG_ON(!callee_fsn);
+			analysis__add_callee(caller_fsn, callee_fsn, gs,
+						gcc_c_add_caller);
 			break;
 		}
 		default:
@@ -8085,18 +8035,11 @@ static void __trace_call_gs(struct sinode *sn, struct func_node *fn,
 
 	g = (struct gcall *)gs;
 	if (gs->subcode & GF_CALL_INTERNAL) {
-		struct callf_list *_newc;
-		_newc = callf_list_find(&fn->callees,
-					(long)g->u.internal_fn,
-					0);
-		if (!_newc) {
-			_newc = callf_list_new();
-			_newc->value = (unsigned long)g->u.internal_fn;
-			_newc->value_flag = 0;
-			_newc->body_missing = 1;
-			list_add_tail(&_newc->sibling, &fn->callees);
-		}
-		callf_stmt_list_add(&_newc->stmts, WHERE_TYPE_GIMPLE, gs);
+		struct callf_list *newc;
+		node_lock_w(fn);
+		newc = __add_call(&fn->callees, (long)g->u.internal_fn, 0, 1);
+		callf_stmt_list_add(&newc->stmts, WHERE_TYPE_GIMPLE, gs);
+		node_unlock_w(fn);
 		CLIB_DBG_FUNC_EXIT();
 		return;
 	}

@@ -774,26 +774,11 @@ void sinode_match(char *type, int (*match)(struct sinode *),
 	return;
 }
 
-static void __add_use_at(struct list_head *head, union siid id, int type,
-			void *where, unsigned long extra_info)
-{
-	struct use_at_list *newua;
-	newua = use_at_list_find(head, type, where, extra_info);
-	if (!newua) {
-		newua = use_at_list_new();
-		newua->func_id = id;
-		newua->type = type;
-		newua->where = where;
-		newua->extra_info = extra_info;
-		list_add_tail(&newua->sibling, head);
-	}
-}
-
 void func_add_use_at(struct func_node *fn, union siid id, int type,
 			void *where, unsigned long extra_info)
 {
 	node_lock_w(fn);
-	__add_use_at(&fn->used_at, id, type, where, extra_info);
+	(void)__add_use_at(&fn->used_at, id, type, where, extra_info);
 	node_unlock_w(fn);
 }
 
@@ -801,7 +786,7 @@ void var_add_use_at(struct var_node *vn, union siid id, int type,
 			void *where, unsigned long extra_info)
 {
 	node_lock_w(vn);
-	__add_use_at(&vn->used_at, id, type, where, extra_info);
+	(void)__add_use_at(&vn->used_at, id, type, where, extra_info);
 	node_unlock_w(vn);
 }
 
@@ -809,6 +794,42 @@ void type_add_use_at(struct type_node *tn, union siid id, int type,
 			void *where, unsigned long extra_info)
 {
 	node_lock_w(tn);
-	__add_use_at(&tn->used_at, id, type, where, extra_info);
+	(void)__add_use_at(&tn->used_at, id, type, where, extra_info);
 	node_unlock_w(tn);
+}
+
+/*
+ * if the callee_fsn does not have a body, we should check if it alias to
+ * another function.
+ */
+void add_caller(struct sinode *callee_fsn, struct sinode *caller_fsn,
+		add_caller_alias_f add_caller_alias)
+{
+	struct func_node *callee_fn = (struct func_node *)callee_fsn->data;
+
+	if (unlikely(!callee_fn)) {
+		add_caller_alias(callee_fsn, caller_fsn);
+		return;
+	}
+
+	node_lock_w(callee_fn);
+	(void)__add_call(&callee_fn->callers, caller_fsn->node_id.id.id1, 0, 0);
+	node_unlock_w(callee_fn);
+}
+
+void add_callee(struct sinode *caller_fsn, struct sinode *callee_fsn,void *where,
+		add_caller_alias_f add_caller_alias)
+{
+	struct func_node *caller_fn = (struct func_node *)caller_fsn->data;
+	struct func_node *callee_fn = (struct func_node *)callee_fsn->data;
+
+	struct callf_list *newc;
+	node_lock_w(caller_fn);
+	newc = __add_call(&caller_fn->callees, callee_fsn->node_id.id.id1,
+				0, callee_fn ? 0 : 1);
+	callf_stmt_list_add(&newc->stmts, WHERE_TYPE_GIMPLE, where);
+	node_unlock_w(caller_fn);
+
+	if (callee_fn)
+		add_caller(callee_fsn, caller_fsn, add_caller_alias);
 }

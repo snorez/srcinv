@@ -543,8 +543,25 @@ static inline struct callf_list *callf_list_find(struct list_head *head,
 	return NULL;
 }
 
-static inline
-struct callf_stmt_list *callf_stmt_list_new(void)
+static inline struct callf_list *__add_call(struct list_head *head,
+					unsigned long value,
+					unsigned long value_flag,
+					unsigned long body_missing)
+{
+	struct callf_list *newc;
+	newc = callf_list_find(head, value, value_flag);
+	if (!newc) {
+		newc = callf_list_new();
+		newc->value = value;
+		newc->value_flag = value_flag;
+		newc->body_missing = body_missing;
+		list_add_tail(&newc->sibling, head);
+	}
+
+	return newc;
+}
+
+static inline struct callf_stmt_list *callf_stmt_list_new(void)
 {
 	struct callf_stmt_list *_new;
 	_new = (struct callf_stmt_list *)src_buf_get(sizeof(*_new));
@@ -597,6 +614,25 @@ static inline struct use_at_list *use_at_list_find(struct list_head *head,
 			return tmp;
 	}
 	return NULL;
+}
+
+static inline struct use_at_list *__add_use_at(struct list_head *head,
+						union siid id, int type,
+						void *where,
+						unsigned long extra_info)
+{
+	struct use_at_list *newua;
+	newua = use_at_list_find(head, type, where, extra_info);
+	if (!newua) {
+		newua = use_at_list_new();
+		newua->func_id = id;
+		newua->type = type;
+		newua->where = where;
+		newua->extra_info = extra_info;
+		list_add_tail(&newua->sibling, head);
+	}
+
+	return newua;
 }
 
 static inline struct possible_list *possible_list_new(void)

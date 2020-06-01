@@ -61,6 +61,17 @@ CLIB_MODULE_CALL_FUNC(analysis, type_add_use_at, void,
 		 void *where, unsigned long extra_info),
 		5, tn, id, type, where, extra_info);
 
+typedef void (*add_caller_alias_f)(struct sinode *, struct sinode *);
+CLIB_MODULE_CALL_FUNC(analysis, add_caller, void,
+		(struct sinode *callee_fsn, struct sinode *caller_fsn,
+		 add_caller_alias_f add_caller_alias),
+		3, callee_fsn, caller_fsn, add_caller_alias);
+
+CLIB_MODULE_CALL_FUNC(analysis, add_callee, void,
+		(struct sinode *caller_fsn, struct sinode *callee_fsn,
+		 void *where, add_caller_alias_f add_caller_alias),
+		4, caller_fsn, callee_fsn, where, add_caller_alias);
+
 CLIB_MODULE_CALL_FUNC0(analysis, sibuf_new, struct sibuf *);
 
 CLIB_MODULE_CALL_FUNC(analysis, sibuf_insert, void,

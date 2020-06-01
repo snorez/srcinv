@@ -31,7 +31,7 @@ gcc_%: %
 
 $(CXX_SO): %.so: %.o
 	@echo $(LD_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<
-	$(Q)$(CXX) $(CXXFLAGS) -L$(CLIB_LIB) -L$(LIBDIR) -l$(CLIB_SO) -l$(COMPILER_GCC_SO) -o $@ $< -Wl,-rpath $(CLIB_LIB) -Wl,-rpath $(LIBDIR)
+	$(Q)$(CXX) $(CXXFLAGS) $< -L$(CLIB_LIB) -L$(LIBDIR) -l$(CLIB_SO) -l$(COMPILER_GCC_SO) -o $@ -Wl,-rpath $(CLIB_LIB) -Wl,-rpath $(LIBDIR)
 
 $(CXX_OBJS): %.o: %.cc
 	@echo $(CXX_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<

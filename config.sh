@@ -17,7 +17,7 @@ gen_file()
 
 	CONTENT=$''
 
-	CONTENT+=$'export MAKE_OPT := -s --no-print-directory\n'
+	CONTENT+=$'export MAKE_OPT := --no-print-directory\n'
 	CONTENT+=$'export Q := @\n'
 	CONTENT+=$'export CC = gcc\n'
 	CONTENT+=$'export CXX = g++\n'
@@ -31,6 +31,11 @@ gen_file()
 	CONTENT+=$'export CLEAN_ECHO = 	" CLEAN "\n'
 	CONTENT+=$'export INSTALL_ECHO = 	"INSTALL"\n'
 	CONTENT+=$'export SRC_ECHO = 	" <== "\n'
+	CONTENT+=$'\n'
+
+	CONTENT+=$'ifeq ($(Q), @)\n'
+	CONTENT+=$'export MAKE_OPT += -s\n'
+	CONTENT+=$'endif\n'
 	CONTENT+=$'\n'
 
 	CONTENT+=$'export CLIB_PATH='$1$'\n'
