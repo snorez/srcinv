@@ -80,9 +80,11 @@ static int si_conf_module(struct list_head *orig_head)
 		} else if (!strcmp(bs_key->buf, "comment")) {
 			tmp_si_module.comment = bs_val->buf;
 		} else if (!strcmp(bs_key->buf, "category")) {
-			if (si_module_str_to_category(&tmp_si_module.category,
-							bs_val->buf)) {
-				err_msg("category not recognized: %s", bs_val->buf);
+			tmp_si_module.category =
+					si_module_str_to_category(bs_val->buf);
+			if (tmp_si_module.category == -1) {
+				err_msg("category not recognized: %s",
+						bs_val->buf);
 				return -1;
 			}
 		} else if (!strcmp(bs_key->buf, "type")) {

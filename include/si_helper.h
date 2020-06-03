@@ -28,7 +28,7 @@ C_SYM struct src *si;
 
 C_SYM void *src_buf_get(size_t len);
 C_SYM void si_module_init(struct si_module *p);
-C_SYM int si_module_str_to_category(int *category, char *string);
+C_SYM int8_t si_module_str_to_category(char *string);
 C_SYM int si_module_str_to_type(struct si_type *type, char *string);
 C_SYM int si_module_get_abs_path(char *buf, size_t len, int category,
 					char *path);

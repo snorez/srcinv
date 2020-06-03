@@ -1,5 +1,14 @@
 /*
- * TODO
+ * For now, we only handle call instructions for asm files
+ *
+ * TODO:
+ *	parse branches(Jxx instructions)
+ *	parse sysenter/int for userspace program
+ *
+ * CALL instruction: (https://www.felixcloutier.com/x86/call)
+ *	opcode: E8 FF 9A
+ *
+ * ModR/M: (https://wiki.osdev.org/X86-64_Instruction_Encoding#ModR.2FM)
  *
  * Copyright (C) 2020 zerons
  *
@@ -19,6 +28,55 @@
 
 #include "si_gcc.h"
 #include "../analysis.h"
+
+#define CS_ARCH_X86	3
+#define	CS_MODE_64	(1 << 3)
+#define	CS_MODE_32	(1 << 2)
+#include <capstone/x86.h>
+
+/* copy from codecov */
+enum jxx_1 {
+	JO_OPC0		= 0x70,	//Jbs
+	JNO_OPC0,		//Jbs
+	JB_OPC0,		//Jbs
+	JNB_OPC0,		//Jbs
+	JE_OPC0,		//Jbs
+	JNE_OPC0,		//Jbs
+	JBE_OPC0,		//Jbs
+	JA_OPC0,		//Jbs
+	JS_OPC0,		//Jbs
+	JNS_OPC0,		//Jbs
+	JPE_OPC0,		//Jbs
+	JPO_OPC0,		//Jbs
+	JL_OPC0,		//Jbs
+	JGE_OPC0,		//Jbs
+	JLE_OPC0,		//Jbs
+	JG_OPC0		= 0x7f,	//Jbs
+	JCXZ_OPC	= 0xe3,	//Jbs jump if ecx/rcx = 0
+	//JMP_OPC	= 0xe9,	//Jvds
+	//JMPS_OPC	= 0xeb,	//Jvds
+	//JMPF_OPC	= 0xea, //invalid in 64-bit mode
+};
+
+enum jxx_2 {
+	TWO_OPC		= 0x0f,
+	JO_OPC1		= 0x80,	//Jvds
+	JNO_OPC1,		//Jvds
+	JB_OPC1,		//Jvds
+	JNB_OPC1,		//Jvds
+	JE_OPC1,		//Jvds
+	JNE_OPC1,		//Jvds
+	JBE_OPC1,		//Jvds
+	JA_OPC1,		//Jvds
+	JS_OPC1,		//Jvds
+	JNS_OPC1,		//Jvds
+	JPE_OPC1,		//Jvds
+	JPO_OPC1,		//Jvds
+	JL_OPC1,		//Jvds
+	JGE_OPC1,		//Jvds
+	JLE_OPC1,		//Jvds
+	JG_OPC1		= 0x8f,	//Jvds
+};
 
 static int callback(struct sibuf *, int);
 static struct lang_ops ops;
@@ -149,6 +207,7 @@ static void getbase(void)
 			sn_new->data = (char *)fn;
 			sn_new->datalen = sizeof(*fn);
 		}
+		sn_new->data_fmt = SINODE_FMT_ASM;
 
 		BUG_ON(analysis__sinode_insert(sn_new, SINODE_INSERT_BH_NONE));
 	}
@@ -161,23 +220,197 @@ out:
 	return;
 }
 
-static void getdetail(void)
+static int __match(struct sinode *sn)
 {
+	if (sn->buf == cur_sibuf)
+		return 1;
+	return 0;
+}
+
+static void get_var_detail(struct sinode *sn)
+{
+	CLIB_DBG_FUNC_ENTER();
+
+	struct var_node *vn;
+	vn = (struct var_node *)sn->data;
+
+	/* TODO: what should we do here? */
+	vn->detailed = 1;
+
+	CLIB_DBG_FUNC_EXIT();
 	return;
 }
 
-static void getstep4(void)
+static void get_func_detail(struct sinode *sn)
 {
+	CLIB_DBG_FUNC_ENTER();
+
+	struct func_node *fn;
+	fn = (struct func_node *)sn->data;
+
+	/* TODO: what to do here? */
+	fn->detailed = 1;
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
+}
+
+static void getdetail_match_cb(struct sinode *sn)
+{
+	CLIB_DBG_FUNC_ENTER();
+
+	enum sinode_type type;
+	type = sinode_idtype(sn);
+
+	switch (type) {
+	case TYPE_VAR_STATIC:
+	case TYPE_VAR_GLOBAL:
+	{
+		get_var_detail(sn);
+		break;
+	}
+	case TYPE_FUNC_STATIC:
+	case TYPE_FUNC_GLOBAL:
+	{
+		get_func_detail(sn);
+		break;
+	}
+	default:
+	{
+		si_log1_emer("Not supposed to happen\n");
+		break;
+	}
+	}
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
+}
+
+static void getdetail(void)
+{
+	CLIB_DBG_FUNC_ENTER();
+
+	/*
+	 * We just traverse the sinode, match sinode.buf with cur_sibuf
+	 */
+	analysis__sinode_match("var_global", __match, getdetail_match_cb);
+	analysis__sinode_match("var_static", __match, getdetail_match_cb);
+	analysis__sinode_match("func_global", __match, getdetail_match_cb);
+	analysis__sinode_match("func_static", __match, getdetail_match_cb);
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
+}
+
+static void phase4_match_cb(struct sinode *sn)
+{
+	/* TODO */
+}
+
+static void phase4(void)
+{
+	CLIB_DBG_FUNC_ENTER();
+
+	/*
+	 * We just traverse the sinode, match sinode.buf with cur_sibuf
+	 */
+	analysis__sinode_match("var_global", __match, phase4_match_cb);
+	analysis__sinode_match("var_static", __match, phase4_match_cb);
+	analysis__sinode_match("func_global", __match, phase4_match_cb);
+	analysis__sinode_match("func_static", __match, phase4_match_cb);
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
+}
+
+static void indcfg1_match_cb(struct sinode *sn)
+{
+	CLIB_DBG_FUNC_ENTER();
+
+	struct func_node *fn;
+	fn = (struct func_node *)sn->data;
+
+	/* XXX: we get the direct/indirect calls here */
+	int bits = elf_bits((char *)cur_ctx);
+
+	/*
+	 * disas the function
+	 * look for call instruction,
+	 * decode it
+	 * get the callee function and its sinode
+	 * add_caller/add_callee
+	 */
+	void *addr = fn->node;
+	while (addr < ((char *)fn->node + fn->size)) {
+		char buf[X86_X64_OPCODE_MAXLEN];
+		unsigned int opcode;
+		int bytes = disas_next(CS_ARCH_X86,
+					bits == 32 ? CS_MODE_32 : CS_MODE_64,
+					addr,
+					buf,
+					X86_X64_OPCODE_MAXLEN,
+					&opcode);
+		if (bytes == -1) {
+			si_log1_emer("disas_next err in %s\n", sn->name);
+			goto out;
+		}
+
+		if (bytes > X86_X64_OPCODE_MAXLEN) {
+			si_log1_emer("buffer too small, need %d\n", bytes);
+			goto out;
+		}
+
+		if ((bytes == 1) && ((buf[0] == JCXZ_OPC) ||
+					((buf[0] <= JG_OPC0) &&
+					 (buf[0] >= JO_OPC0)))) {
+			/* TODO */
+		} else if ((bytes == 2) && (buf[0] == TWO_OPC) &&
+				((buf[1] <= JG_OPC1) && (buf[1] >= JO_OPC1))) {
+			/* TODO */
+		} else if (opcode == X86_INS_CALL) {
+			/* TODO */
+		}
+	}
+
+out:
+	CLIB_DBG_FUNC_EXIT();
 	return;
 }
 
 static void getindcfg1(void)
 {
+	CLIB_DBG_FUNC_ENTER();
+
+	/*
+	 * We just traverse the sinode, match sinode.buf with cur_sibuf
+	 */
+	analysis__sinode_match("var_global", __match, indcfg1_match_cb);
+	analysis__sinode_match("var_static", __match, indcfg1_match_cb);
+	analysis__sinode_match("func_global", __match, indcfg1_match_cb);
+	analysis__sinode_match("func_static", __match, indcfg1_match_cb);
+
+	CLIB_DBG_FUNC_EXIT();
 	return;
+}
+
+static void indcfg2_match_cb(struct sinode *sn)
+{
+	/* TODO */
 }
 
 static void getindcfg2(void)
 {
+	CLIB_DBG_FUNC_ENTER();
+
+	/*
+	 * We just traverse the sinode, match sinode.buf with cur_sibuf
+	 */
+	analysis__sinode_match("var_global", __match, indcfg2_match_cb);
+	analysis__sinode_match("var_static", __match, indcfg2_match_cb);
+	analysis__sinode_match("func_global", __match, indcfg2_match_cb);
+	analysis__sinode_match("func_static", __match, indcfg2_match_cb);
+
+	CLIB_DBG_FUNC_EXIT();
 	return;
 }
 
@@ -284,7 +517,7 @@ static int callback(struct sibuf *buf, int parse_mode)
 		mt_add_timer(show_progress_timeout, this_show_progress,
 				show_progress_arg, 0, 1);
 
-		getstep4();
+		phase4();
 		obj_done = 1;
 
 		mt_del_timer(0);

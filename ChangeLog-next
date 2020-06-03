@@ -4,6 +4,8 @@
 	* srcinv: modify Makefiles
 	* analysis: move add_caller/add_callee into sinode.c
 	* analysis: move add_possible to sinode.c
+	* srcinv: re-design the structures, add a sinode_type to identify the
+	module this sinode comes from.
 
 2020-05-30
 	* analysis: short the output

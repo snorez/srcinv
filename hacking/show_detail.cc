@@ -185,7 +185,7 @@ static void output_used_at(struct list_head *head, char *name)
 		fsn = analysis__sinode_search(siid_type(&tmp->func_id),
 				SEARCH_BY_ID, &tmp->func_id);
 
-		if (tmp->type == WHERE_TYPE_GIMPLE) {
+		if (tmp->type == SINODE_FMT_GCC) {
 			gimple_seq gs;
 			gs = (gimple_seq)tmp->where;
 			analysis__resfile_load(fsn->buf);

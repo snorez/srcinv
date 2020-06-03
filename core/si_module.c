@@ -43,9 +43,8 @@ void si_module_init(struct si_module *p)
 	p->loaded = 0;
 }
 
-int si_module_str_to_category(int *category, char *string)
+int8_t si_module_str_to_category(char *string)
 {
-	*category = -1;
 	if (unlikely(!string)) {
 		err_msg("arg check err");
 		return -1;
@@ -56,8 +55,7 @@ int si_module_str_to_category(int *category, char *string)
 		if (!si_module_category_strings[i])
 			continue;
 		if (!strcmp(string, si_module_category_strings[i])) {
-			*category = i;
-			return 0;
+			return i;
 		}
 	}
 

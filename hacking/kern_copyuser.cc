@@ -74,7 +74,7 @@ static void do_check(struct callf_list *cf, int flag)
 {
 	struct callf_stmt_list *tmp;
 	list_for_each_entry(tmp, &cf->stmts, sibling) {
-		if (tmp->type != WHERE_TYPE_GIMPLE) {
+		if (tmp->type != SINODE_FMT_GCC) {
 			/* TODO */
 			continue;
 		}

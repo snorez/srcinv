@@ -739,8 +739,9 @@ static void __sinode_match(enum sinode_type type,
 	}
 }
 
-void sinode_match(char *type, int (*match)(struct sinode *),
-			void (*cb)(struct sinode *))
+void sinode_match(const char *type,
+		  int (*match)(struct sinode *),
+		  void (*cb)(struct sinode *))
 {
 	if (!strcmp(type, "var")) {
 		__sinode_match(TYPE_VAR_GLOBAL, match, cb);
@@ -818,7 +819,7 @@ void add_caller(struct sinode *callee_fsn, struct sinode *caller_fsn,
 }
 
 void add_callee(struct sinode *caller_fsn, struct sinode *callee_fsn,void *where,
-		add_caller_alias_f add_caller_alias)
+		add_caller_alias_f add_caller_alias, int8_t type)
 {
 	struct func_node *caller_fn = (struct func_node *)caller_fsn->data;
 	struct func_node *callee_fn = (struct func_node *)callee_fsn->data;
@@ -827,7 +828,7 @@ void add_callee(struct sinode *caller_fsn, struct sinode *callee_fsn,void *where
 	node_lock_w(caller_fn);
 	newc = __add_call(&caller_fn->callees, callee_fsn->node_id.id.id1,
 				0, callee_fn ? 0 : 1);
-	callf_stmt_list_add(&newc->stmts, WHERE_TYPE_GIMPLE, where);
+	callf_stmt_list_add(&newc->stmts, type, where);
 	node_unlock_w(caller_fn);
 
 	if (callee_fn)

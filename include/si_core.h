@@ -52,10 +52,10 @@ DECL_BEGIN
 
 union siid {
 	struct {
-		unsigned int	id_value: ID_VALUE_BITS;
-		unsigned int	id_type: ID_TYPE_BITS;
+		uint32_t	id_value: ID_VALUE_BITS;
+		uint32_t	id_type: ID_TYPE_BITS;
 	} id0;
-	unsigned int		id1;
+	uint32_t		id1;
 };
 
 #define	SI_TYPE_BOTH	3
@@ -85,11 +85,10 @@ enum si_type_more {
 	SI_TYPE_MORE_ANY = 0xff,
 };
 struct si_type {
-	unsigned int	binary: 2;/* 0: invalid 1: binary 2: src 3: both */
-	unsigned int	kernel: 2;/* 0: invalid 1: kernel 2: usr 3: both */
-	unsigned int	os_type:4;
-	unsigned int	type_more: 8;
-	/* TODO: 2 byte padding? si_type take 4 byte size */
+	uint8_t		binary: 2;/* 0: invalid 1: binary 2: src 3: both */
+	uint8_t		kernel: 2;/* 0: invalid 1: kernel 2: usr 3: both */
+	uint8_t 	os_type:4;
+	uint8_t 	type_more: 8;
 };
 
 /* default mode, not used */
@@ -119,82 +118,88 @@ struct si_type {
 
 struct file_content {
 	/* must be first field */
-	unsigned int		total_size;
-	unsigned int		objs_offs;
-	unsigned int		objs_cnt;
-	struct si_type		type;
-	unsigned char		gcc_ver_major;
-	unsigned char		gcc_ver_minor;
+	uint32_t		total_size;
+	uint32_t		objs_offs;
+	uint32_t		objs_cnt;
 
-	unsigned short		path_len;
+	uint8_t			gcc_ver_major;
+	uint8_t			gcc_ver_minor;
+	uint16_t		path_len;
 
 	/*
-	 * track the compiling cmds for rebuilding the source file and recompiling
+	 * track the compiling cmds for rebuilding the file and recompiling
 	 * NOTE, cmd and path are terminated with null byte
 	 */
-	unsigned short		cmd_len;
-	unsigned short		srcroot_len;
+	uint16_t		cmd_len;
+	uint16_t		srcroot_len;
+
+	struct si_type		type;
 
 	/* must be the last field */
 	char			path[PATH_MAX];
 } __attribute__((packed));
 
+/*
+ * this is for copy information from one process(comiling) to another
+ * process(srcinv-analysis)
+ */
 struct file_obj {
-	unsigned long		fake_addr : 48;
-	unsigned long		real_addr : 48;
-	unsigned int		size;
-	/* offs of the first obj(payload), must be unsigned int */
-	unsigned int		offs;
-
-	unsigned char		is_adjusted	: 1;
-	unsigned char		is_dropped	: 1;
-	unsigned char		is_replaced	: 1;
-	unsigned int		reserved	: 10;
-	unsigned short		gcc_global_varidx;	/* 2*8 = 16 bits */
+	uint64_t		fake_addr : 48;
+	uint64_t		real_addr : 48;
+	uint32_t		size;
+	/* offs of the first obj(payload), must be uint32_t */
+	uint32_t		offs;
 
 	/* set in collect/ modules */
-	unsigned char		is_function	: 1;
-	unsigned char		is_global_var	: 1;
-	unsigned char		is_type		: 1;
+	uint8_t			is_function	: 1;
+	uint8_t			is_global_var	: 1;
+	uint8_t			is_type		: 1;
+
+	uint8_t			is_adjusted	: 1;
+	uint8_t			is_dropped	: 1;
+	uint8_t			is_replaced	: 1;
+	uint16_t		reserved	: 10;
+
+	uint16_t		gcc_global_varidx;	/* 2*8 = 16 bits */
 } __attribute__((packed));
 
 /* this buf is not expandable, maxium size and start address not changeable */
 #ifndef CONFIG_SRC_BUF_START
-#define	SRC_BUF_START		((unsigned long)0x100000000)
+#define	SRC_BUF_START		((uint64_t)0x100000000)
 #else
-#define	SRC_BUF_START		((unsigned long)(CONFIG_SRC_BUF_START))
+#define	SRC_BUF_START		((uint64_t)(CONFIG_SRC_BUF_START))
 #endif
 
 #ifndef CONFIG_SRC_BUF_BLKSZ
-#define	SRC_BUF_BLKSZ		((unsigned long)0x10000000)
+#define	SRC_BUF_BLKSZ		((uint64_t)0x10000000)
 #else
-#define	SRC_BUF_BLKSZ		((unsigned long)(CONFIG_SRC_BUF_BLKSZ))
+#define	SRC_BUF_BLKSZ		((uint64_t)(CONFIG_SRC_BUF_BLKSZ))
 #endif
 
 /* src index information size up to 8G, maxium could be 64G */
 #ifndef CONFIG_SRC_BUF_END
-#define	SRC_BUF_END		((unsigned long)0x300000000)
+#define	SRC_BUF_END		((uint64_t)0x300000000)
 #else
-#define	SRC_BUF_END		((unsigned long)(CONFIG_SRC_BUF_END))
+#define	SRC_BUF_END		((uint64_t)(CONFIG_SRC_BUF_END))
 #endif
 
 /* this buf is expandable, the maxium size used is always RESFILE_BUF_SIZE */
 #ifndef CONFIG_RESFILE_BUF_START
-#define	RESFILE_BUF_START	((unsigned long)0x1000000000)
+#define	RESFILE_BUF_START	((uint64_t)0x1000000000)
 #else
-#define	RESFILE_BUF_START	((unsigned long)(CONFIG_RESFILE_BUF_START))
+#define	RESFILE_BUF_START	((uint64_t)(CONFIG_RESFILE_BUF_START))
 #endif
 
 #ifndef CONFIG_RESFILE_BUF_SIZE
-#define	RESFILE_BUF_SIZE	((unsigned long)0x80000000)
+#define	RESFILE_BUF_SIZE	((uint64_t)0x80000000)
 #else
-#define	RESFILE_BUF_SIZE	((unsigned long)(CONFIG_RESFILE_BUF_SIZE))
+#define	RESFILE_BUF_SIZE	((uint64_t)(CONFIG_RESFILE_BUF_SIZE))
 #endif
 
 #ifndef CONFIG_SIBUF_LOADED_MAX
-#define	SIBUF_LOADED_MAX	((unsigned long)0x200000000)
+#define	SIBUF_LOADED_MAX	((uint64_t)0x200000000)
 #else
-#define	SIBUF_LOADED_MAX	((unsigned long)(CONFIG_SIBUF_LOADED_MAX))
+#define	SIBUF_LOADED_MAX	((uint64_t)(CONFIG_SIBUF_LOADED_MAX))
 #endif
 
 BUILD_BUG_ON(SRC_BUF_START > SRC_BUF_END, "build arg check err");
@@ -265,13 +270,13 @@ struct src {
 	struct rb_root		sinodes[TYPE_MAX][RB_NODE_BY_MAX];
 
 	/* next area to mmap */
-	unsigned long		next_mmap_area;
+	uint64_t		next_mmap_area;
 
 	char			src_id[SRC_ID_LEN];
 
 	/* 
-	 * unsigned int		is_kernel: 1;
-	 * unsigned int		padding: 31;
+	 * uint32_t		is_kernel: 1;
+	 * uint32_t		padding: 31;
 	 *
 	 * add type for src, actually, we only concern the KERN & OS
 	 */
@@ -296,22 +301,24 @@ struct si_module {
 	char			*path;
 	char			*comment;
 
-	int			category;
+	int8_t			category: 4;
+	int8_t			autoload: 1;
+	int8_t			loaded: 1;
+	int8_t			reserved: 2;
+
 	struct si_type		type;
-	int			autoload;
-	int			loaded;
 };
 
 #ifndef CONFIG_MAX_OBJS_PER_FILE
-#define	MAX_OBJS_PER_FILE (unsigned long)0x800000
+#define	MAX_OBJS_PER_FILE (uint64_t)0x800000
 #else
-#define	MAX_OBJS_PER_FILE ((unsigned long)(CONFIG_MAX_OBJS_PER_FILE))
+#define	MAX_OBJS_PER_FILE ((uint64_t)(CONFIG_MAX_OBJS_PER_FILE))
 #endif
 
 #ifndef CONFIG_MAX_SIZE_PER_FILE
-#define	MAX_SIZE_PER_FILE (unsigned long)0x8000000
+#define	MAX_SIZE_PER_FILE (uint64_t)0x8000000
 #else
-#define	MAX_SIZE_PER_FILE ((unsigned long)(CONFIG_MAX_SIZE_PER_FILE))
+#define	MAX_SIZE_PER_FILE ((uint64_t)(CONFIG_MAX_SIZE_PER_FILE))
 #endif
 
 /* for just one resfile, a project could have many resfiles */
@@ -325,15 +332,16 @@ struct resfile {
 	loff_t			file_offs;
 
 	/* current mmap addr */
-	unsigned long		buf_start;
-	unsigned long		buf_size;
+	uint64_t		buf_start;
+	uint64_t		buf_size;
 	/* current mmap offs */
 	loff_t			buf_offs;
 
-	unsigned long		total_files;
+	uint64_t		total_files;
 	atomic_t		parsed_files[FC_STATUS_MAX];
-	/* true for the main routine, for kernel, this is the vmlinux */
-	unsigned int		built_in: 1;
+	/* true for the core, for kernel, this is the vmlinux */
+	uint8_t			built_in: 1;
+	uint8_t			reserved: 7;
 	/* the collect/x.so arg-x-output file */
 	char			path[0];
 };
@@ -343,12 +351,14 @@ struct sibuf {
 	struct list_head	sibling;
 	/* for type(no location or no name) */
 	struct rb_root		file_types;
-	rwlock_t		lock;
 	struct resfile		*rf;
+
+	rwlock_t		lock;
+	uint32_t		total_len;
+
 	/* aligned PAGE_SIZE */
-	unsigned long		load_addr;
+	uint64_t		load_addr;
 	loff_t			offs_of_resfile;
-	unsigned int		total_len;
 
 	size_t			pldlen;
 	char			*payload;
@@ -359,8 +369,8 @@ struct sibuf {
 	struct timeval		access_at;
 
 	/* unload if true, reduce memory usage */
-	unsigned int		need_unload: 1;
-	unsigned int		status: 4;
+	uint8_t			need_unload: 1;
+	uint8_t			status: 4;
 } __attribute__((packed));
 
 #define	SEARCH_BY_ID		0
@@ -384,14 +394,14 @@ struct rb_node_id {
 #define	SINODE_BY_ID_NODE	node_id.node[RB_NODE_BY_ID]
 #define	SINODE_BY_SPEC_NODE	node_id.node[RB_NODE_BY_SPEC]
 
+enum sinode_fmt {
+	SINODE_FMT_GCC = 1,	/* data is from gcc, format GIMPLE */
+	SINODE_FMT_ASM,		/* data is from asm, format binary */
+};
+
 struct sinode {
 	/* must be the first field */
 	struct rb_node_id	node_id;
-
-	char			*name;
-	size_t			namelen;
-	char			*data;
-	size_t			datalen;
 
 	struct sibuf		*buf;
 	struct file_obj		*obj;
@@ -402,6 +412,14 @@ struct sinode {
 	int			loc_col;
 
 	struct list_head	attributes;
+
+	char			*name;
+	size_t			namelen;
+
+	char			*data;
+	size_t			datalen;
+	/* we need to know which module this sinode is from */
+	int8_t			data_fmt;
 } __attribute__((packed));
 
 struct name_list {
@@ -423,12 +441,12 @@ struct attrval_list {
 #define	ARG_VA_LIST_NAME	"__VA_ARGS__"
 struct type_node {
 	rwlock_t		lock;
-	unsigned short		type_code;
+	uint16_t		type_code;
 
-	unsigned int		is_unsigned: 1;
-	unsigned int		is_variant: 1;
-	unsigned int		is_set: 1;
-	unsigned int		reserved: 13;
+	uint16_t		is_unsigned: 1;
+	uint16_t		is_variant: 1;
+	uint16_t		is_set: 1;
+	uint16_t		reserved: 13;
 
 	void			*node;
 	long			baselen;
@@ -459,11 +477,11 @@ struct var_node {
 	struct list_head	used_at;
 	struct list_head	possible_values;
 
-	unsigned int		detailed: 1;
-	unsigned int		padding: 31;
+	uint32_t		detailed: 1;
+	uint32_t		padding: 31;
 
 	/* the memory size of this var */
-	unsigned int		size;
+	uint32_t		size;
 } __attribute__((packed));
 
 struct code_path {
@@ -479,7 +497,7 @@ struct code_path {
 	 */
 	void			*cond_head;
 
-	unsigned long		branches;
+	uint64_t		branches;
 	/* MUST be last field. [0] false path; [1] true path. */
 	struct code_path	*next[2];	/* label jump to */
 } __attribute__((packed));
@@ -507,13 +525,13 @@ struct func_node {
 	struct list_head	used_at;
 
 	/* how deep this function is */
-	unsigned long		call_level;
+	uint64_t		call_level;
 
-	unsigned int		detailed: 1;
-	unsigned int		padding: 31;
+	uint32_t		detailed: 1;
+	uint32_t		padding: 31;
 
 	/* the memory size of this function, useful in asm mode */
-	unsigned int		size;
+	uint32_t		size;
 } __attribute__((packed));
 
 struct sibuf_typenode {
@@ -530,9 +548,9 @@ struct sibuf_typenode {
 /* most use for global vars used in functions */
 struct id_list {
 	struct list_head	sibling;
-	unsigned long		value;
+	uint64_t		value;
 	/* 0 for siid, 1 for tree node */
-	unsigned long		value_flag;
+	uint64_t		value_flag;
 } __attribute__((packed));
 
 struct var_list {
@@ -543,30 +561,26 @@ struct var_list {
 struct callf_list {
 	struct list_head	sibling;
 	/* if id_type is TYPE_FILE, this is an internal_fn call */
-	unsigned long		value;
+	uint64_t		value;
 	/* 0: siid, 1: tree */
-	unsigned long		value_flag;
+	uint64_t		value_flag;
 	/* for callee, check whether the function has a body or not */
 	struct list_head	stmts;
-	unsigned long		body_missing: 1;
+	uint64_t		body_missing: 1;
 } __attribute__((packed));
 
 struct callf_stmt_list {
 	struct list_head	sibling;
 	void			*where;
-	int			type;
+	int8_t			type;
 } __attribute__((packed));
 
-enum where_type {
-	WHERE_TYPE_GIMPLE = 1,
-	WHERE_TYPE_ASM,
-};
 struct use_at_list {
 	struct list_head	sibling;
 	union siid		func_id;
 	void			*where;
-	unsigned long		extra_info;
-	int			type;
+	uint64_t		extra_info;
+	int8_t			type;
 } __attribute__((packed));
 
 #define	CALL_LEVEL_DEEP		64
@@ -595,8 +609,8 @@ struct path_list {
 #define	VALUE_IS_REAL_CST	7
 struct possible_list {
 	struct list_head	sibling;
-	unsigned long		value_flag;
-	unsigned long		value;
+	uint64_t		value_flag;
+	uint64_t		value;
 };
 
 #include "si_helper.h"
