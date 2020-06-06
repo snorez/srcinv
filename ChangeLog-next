@@ -1,3 +1,6 @@
+2020-06-06
+	* analysis/gcc_c: check_conflict check the old sinode data_fmt
+
 2020-06-01
 	* srcinv: reset use_at_list structure
 	* srcinv: reset callf_gs_list structure

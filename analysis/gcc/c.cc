@@ -5049,6 +5049,11 @@ static void do_target_option(tree node, int flag)
  * seperator
  * ************************************************************************
  */
+
+/*
+ * 2020-06-06 UPDATE:
+ *	the old sinode could come from OTHER modules, like gcc_asm
+ */
 static int func_conflict(expanded_location *newl, struct sinode *old)
 {
 #if 0
@@ -5060,11 +5065,23 @@ static int func_conflict(expanded_location *newl, struct sinode *old)
 		return TREE_NAME_CONFLICT_DROP;
 #endif
 
-	tree oldtree = (tree)(long)old->obj->real_addr;
-	tree newtree = (tree)(long)(objs[obj_idx].real_addr);
 	struct tree_decl_with_vis *oldvis, *newvis;
-	oldvis = (struct tree_decl_with_vis *)oldtree;
+	tree newtree, oldtree;
+	newtree = (tree)(long)(objs[obj_idx].real_addr);
 	newvis = (struct tree_decl_with_vis *)newtree;
+
+	if (old->data_fmt != SINODE_FMT_GCC) {
+		/*
+		 * FIXME: we simply drop this new weak tree node
+		 */
+		if (newvis->weak_flag)
+			return TREE_NAME_CONFLICT_DROP;
+		else
+			BUG();
+	}
+
+	oldtree = (tree)(long)old->obj->real_addr;
+	oldvis = (struct tree_decl_with_vis *)oldtree;
 
 	if (oldvis->weak_flag > newvis->weak_flag)
 		return TREE_NAME_CONFLICT_REPLACE;
@@ -5084,11 +5101,20 @@ static int var_conflict(expanded_location *newl, struct sinode *old)
 		return TREE_NAME_CONFLICT_DROP;
 #endif
 
-	tree oldtree = (tree)(long)old->obj->real_addr;
-	tree newtree = (tree)(long)(objs[obj_idx].real_addr);
 	struct tree_decl_with_vis *oldvis, *newvis;
-	oldvis = (struct tree_decl_with_vis *)oldtree;
+	tree oldtree, newtree;
+	newtree = (tree)(long)(objs[obj_idx].real_addr);
 	newvis = (struct tree_decl_with_vis *)newtree;
+
+	if (old->data_fmt != SINODE_FMT_GCC) {
+		if (newvis->weak_flag)
+			return TREE_NAME_CONFLICT_DROP;
+		else
+			BUG();
+	}
+
+	oldtree = (tree)(long)old->obj->real_addr;
+	oldvis = (struct tree_decl_with_vis *)oldtree;
 
 	if (oldvis->weak_flag <= newvis->weak_flag)
 		return TREE_NAME_CONFLICT_DROP;
@@ -5133,8 +5159,8 @@ static int type_conflict(expanded_location *newl, struct sinode *old)
  *	TREE_NAME_CONFLICT_FAILED	-1, check failed
  */
 static int check_conflict(enum sinode_type type,
-					expanded_location *newl,
-					struct sinode *old)
+			  expanded_location *newl,
+			  struct sinode *old)
 {
 	tree oldt = (tree)(long)old->obj->real_addr;
 	tree newt = (tree)(long)(objs[obj_idx].real_addr);
@@ -5332,7 +5358,8 @@ step_1:
 				 * finished, the sn_new->obj->is_replaced is
 				 * set
 				 */
-				sn_tmp->obj->is_replaced = 1;
+				if (sn_tmp->data_fmt == SINODE_FMT_GCC)
+					sn_tmp->obj->is_replaced = 1;
 			} else if (chk_val == TREE_NAME_CONFLICT_SOFT) {
 				BUG();
 			} else

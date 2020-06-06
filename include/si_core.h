@@ -580,7 +580,7 @@ struct use_at_list {
 	union siid		func_id;
 	void			*where;
 	uint64_t		extra_info;
-	int8_t			type;
+	int8_t			type;		/* may not need this field */
 } __attribute__((packed));
 
 #define	CALL_LEVEL_DEEP		64
