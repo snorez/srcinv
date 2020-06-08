@@ -1,3 +1,6 @@
+2020-06-08
+	* analysis: adjust add_callee/sinode_match interfaces
+
 2020-06-06
 	* analysis/gcc_c: check_conflict check the old sinode data_fmt
 

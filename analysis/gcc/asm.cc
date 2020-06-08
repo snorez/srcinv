@@ -220,13 +220,6 @@ out:
 	return;
 }
 
-static int __match(struct sinode *sn)
-{
-	if (sn->buf == cur_sibuf)
-		return 1;
-	return 0;
-}
-
 static void get_var_detail(struct sinode *sn)
 {
 	CLIB_DBG_FUNC_ENTER();
@@ -255,8 +248,11 @@ static void get_func_detail(struct sinode *sn)
 	return;
 }
 
-static void getdetail_match_cb(struct sinode *sn)
+static void getdetail_match_cb(struct sinode *sn, void *arg)
 {
+	if (sn->buf != cur_sibuf)
+		return;
+
 	CLIB_DBG_FUNC_ENTER();
 
 	enum sinode_type type;
@@ -293,17 +289,20 @@ static void getdetail(void)
 	/*
 	 * We just traverse the sinode, match sinode.buf with cur_sibuf
 	 */
-	analysis__sinode_match("var_global", __match, getdetail_match_cb);
-	analysis__sinode_match("var_static", __match, getdetail_match_cb);
-	analysis__sinode_match("func_global", __match, getdetail_match_cb);
-	analysis__sinode_match("func_static", __match, getdetail_match_cb);
+	analysis__sinode_match("var_global", getdetail_match_cb, NULL);
+	analysis__sinode_match("var_static", getdetail_match_cb, NULL);
+	analysis__sinode_match("func_global", getdetail_match_cb, NULL);
+	analysis__sinode_match("func_static", getdetail_match_cb, NULL);
 
 	CLIB_DBG_FUNC_EXIT();
 	return;
 }
 
-static void phase4_match_cb(struct sinode *sn)
+static void phase4_match_cb(struct sinode *sn, void *arg)
 {
+	if (sn->buf != cur_sibuf)
+		return;
+
 	/* TODO */
 }
 
@@ -314,17 +313,112 @@ static void phase4(void)
 	/*
 	 * We just traverse the sinode, match sinode.buf with cur_sibuf
 	 */
-	analysis__sinode_match("var_global", __match, phase4_match_cb);
-	analysis__sinode_match("var_static", __match, phase4_match_cb);
-	analysis__sinode_match("func_global", __match, phase4_match_cb);
-	analysis__sinode_match("func_static", __match, phase4_match_cb);
+	analysis__sinode_match("var_global", phase4_match_cb, NULL);
+	analysis__sinode_match("var_static", phase4_match_cb, NULL);
+	analysis__sinode_match("func_global", phase4_match_cb, NULL);
+	analysis__sinode_match("func_static", phase4_match_cb, NULL);
 
 	CLIB_DBG_FUNC_EXIT();
 	return;
 }
 
-static void indcfg1_match_cb(struct sinode *sn)
+static __thread struct sinode *addr2sinode_val;
+static void addr2sinode_match(struct sinode *sn, void *arg)
 {
+	if (sn->data_fmt != SINODE_FMT_ASM)
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
+
+	struct func_node *fn;
+	fn = (struct func_node *)sn->data;
+
+	if (!fn)
+		goto out;
+
+	if (fn->node != arg)
+		goto out;
+
+	addr2sinode_val = sn;
+
+out:
+	CLIB_DBG_FUNC_EXIT();
+	return;
+}
+
+static struct sinode *addr2sinode(char *addr)
+{
+	CLIB_DBG_FUNC_ENTER();
+	addr2sinode_val = NULL;
+
+	analysis__sinode_match("func_global", addr2sinode_match, addr);
+	if (addr2sinode_val)
+		goto out;
+
+	analysis__sinode_match("func_static", addr2sinode_match, addr);
+
+out:
+	CLIB_DBG_FUNC_EXIT();
+	return addr2sinode_val;
+}
+
+static void indcfg1_do_call(struct sinode *sn, char *ip, char *opcodes, int len)
+{
+	CLIB_DBG_FUNC_ENTER();
+
+	char *next_ip = (char *)ip + len;
+	switch ((int)opcodes[0]) {
+	case 0xe8:
+	{
+		unsigned offset;
+		char *target_addr;
+		struct sinode *target_sn;
+
+		if (len == 3)
+			offset = *(unsigned short *)&opcodes[1];
+		else if (len == 5)
+			offset = *(unsigned *)&opcodes[1];
+		else {
+			si_log1_todo("Call(0xE8) length not right? in %s\n",
+					sn->name);
+			break;
+		}
+
+		target_addr = next_ip + offset;
+		target_sn = addr2sinode(target_addr);
+
+		if (!target_sn)
+			break;
+
+		analysis__add_callee(sn, target_sn, ip, SINODE_FMT_ASM);
+		analysis__add_caller(target_sn, sn, NULL);
+
+		break;
+	}
+	case 0x9a:
+	{
+		/* TODO */
+		break;
+	}
+	case 0xff:
+	{
+		/* TODO */
+		break;
+	}
+	default:
+		si_log1_todo("Unknown call opcode in %s\n", sn->name);
+		break;
+	}
+
+	CLIB_DBG_FUNC_EXIT();
+	return;
+}
+
+static void indcfg1_match_cb(struct sinode *sn, void *arg)
+{
+	if (sn->buf != cur_sibuf)
+		return;
+
 	CLIB_DBG_FUNC_ENTER();
 
 	struct func_node *fn;
@@ -340,7 +434,7 @@ static void indcfg1_match_cb(struct sinode *sn)
 	 * get the callee function and its sinode
 	 * add_caller/add_callee
 	 */
-	void *addr = fn->node;
+	char *addr = (char *)fn->node;
 	while (addr < ((char *)fn->node + fn->size)) {
 		char buf[X86_X64_OPCODE_MAXLEN];
 		unsigned int opcode;
@@ -363,13 +457,15 @@ static void indcfg1_match_cb(struct sinode *sn)
 		if ((bytes == 1) && ((buf[0] == JCXZ_OPC) ||
 					((buf[0] <= JG_OPC0) &&
 					 (buf[0] >= JO_OPC0)))) {
-			/* TODO */
+			/* TODO: should've been handle in getdetail */
 		} else if ((bytes == 2) && (buf[0] == TWO_OPC) &&
 				((buf[1] <= JG_OPC1) && (buf[1] >= JO_OPC1))) {
-			/* TODO */
+			/* TODO: should've been handle in getdetail */
 		} else if (opcode == X86_INS_CALL) {
-			/* TODO */
+			indcfg1_do_call(sn, addr, buf, bytes);
 		}
+
+		addr += bytes;
 	}
 
 out:
@@ -384,17 +480,20 @@ static void getindcfg1(void)
 	/*
 	 * We just traverse the sinode, match sinode.buf with cur_sibuf
 	 */
-	analysis__sinode_match("var_global", __match, indcfg1_match_cb);
-	analysis__sinode_match("var_static", __match, indcfg1_match_cb);
-	analysis__sinode_match("func_global", __match, indcfg1_match_cb);
-	analysis__sinode_match("func_static", __match, indcfg1_match_cb);
+	analysis__sinode_match("var_global", indcfg1_match_cb, NULL);
+	analysis__sinode_match("var_static", indcfg1_match_cb, NULL);
+	analysis__sinode_match("func_global", indcfg1_match_cb, NULL);
+	analysis__sinode_match("func_static", indcfg1_match_cb, NULL);
 
 	CLIB_DBG_FUNC_EXIT();
 	return;
 }
 
-static void indcfg2_match_cb(struct sinode *sn)
+static void indcfg2_match_cb(struct sinode *sn, void *arg)
 {
+	if (sn->buf != cur_sibuf)
+		return;
+
 	/* TODO */
 }
 
@@ -405,10 +504,10 @@ static void getindcfg2(void)
 	/*
 	 * We just traverse the sinode, match sinode.buf with cur_sibuf
 	 */
-	analysis__sinode_match("var_global", __match, indcfg2_match_cb);
-	analysis__sinode_match("var_static", __match, indcfg2_match_cb);
-	analysis__sinode_match("func_global", __match, indcfg2_match_cb);
-	analysis__sinode_match("func_static", __match, indcfg2_match_cb);
+	analysis__sinode_match("var_global", indcfg2_match_cb, NULL);
+	analysis__sinode_match("var_static", indcfg2_match_cb, NULL);
+	analysis__sinode_match("func_global", indcfg2_match_cb, NULL);
+	analysis__sinode_match("func_static", indcfg2_match_cb, NULL);
 
 	CLIB_DBG_FUNC_EXIT();
 	return;

@@ -721,8 +721,8 @@ void sinode_iter(struct rb_node *node, void (*cb)(struct rb_node *arg))
  * ************************************************************************
  */
 static void __sinode_match(enum sinode_type type,
-			int (*match)(struct sinode *),
-			void (*cb)(struct sinode *))
+			void (*match)(struct sinode *, void *),
+			void *match_arg)
 {
 	unsigned long id_ = 0;
 	union siid *id = (union siid *)&id_;
@@ -734,31 +734,33 @@ static void __sinode_match(enum sinode_type type,
 		if (!sn)
 			continue;
 
-		if (match(sn))
-			cb(sn);
+		match(sn, match_arg);
 	}
 }
 
 void sinode_match(const char *type,
-		  int (*match)(struct sinode *),
-		  void (*cb)(struct sinode *))
+		  void (*match)(struct sinode *, void *arg),
+		  void *match_arg)
 {
+	if (!match)
+		return;
+
 	if (!strcmp(type, "var")) {
-		__sinode_match(TYPE_VAR_GLOBAL, match, cb);
-		__sinode_match(TYPE_VAR_STATIC, match, cb);
+		__sinode_match(TYPE_VAR_GLOBAL, match, match_arg);
+		__sinode_match(TYPE_VAR_STATIC, match, match_arg);
 	} else if (!strcmp(type, "var_global")) {
-		__sinode_match(TYPE_VAR_GLOBAL, match, cb);
+		__sinode_match(TYPE_VAR_GLOBAL, match, match_arg);
 	} else if (!strcmp(type, "var_static")) {
-		__sinode_match(TYPE_VAR_STATIC, match, cb);
+		__sinode_match(TYPE_VAR_STATIC, match, match_arg);
 	} else if (!strcmp(type, "func")) {
-		__sinode_match(TYPE_FUNC_GLOBAL, match, cb);
-		__sinode_match(TYPE_FUNC_STATIC, match, cb);
+		__sinode_match(TYPE_FUNC_GLOBAL, match, match_arg);
+		__sinode_match(TYPE_FUNC_STATIC, match, match_arg);
 	} else if (!strcmp(type, "func_global")) {
-		__sinode_match(TYPE_FUNC_GLOBAL, match, cb);
+		__sinode_match(TYPE_FUNC_GLOBAL, match, match_arg);
 	} else if (!strcmp(type, "func_static")) {
-		__sinode_match(TYPE_FUNC_STATIC, match, cb);
+		__sinode_match(TYPE_FUNC_STATIC, match, match_arg);
 	} else if (!strcmp(type, "type")) {
-		__sinode_match(TYPE_TYPE, match, cb);
+		__sinode_match(TYPE_TYPE, match, match_arg);
 	} else {
 		fprintf(stdout, "type %s not implemented yet\n"
 				"Supported type now:\n"
@@ -809,7 +811,8 @@ void add_caller(struct sinode *callee_fsn, struct sinode *caller_fsn,
 	struct func_node *callee_fn = (struct func_node *)callee_fsn->data;
 
 	if (unlikely(!callee_fn)) {
-		add_caller_alias(callee_fsn, caller_fsn);
+		if (add_caller_alias)
+			add_caller_alias(callee_fsn, caller_fsn);
 		return;
 	}
 
@@ -818,8 +821,8 @@ void add_caller(struct sinode *callee_fsn, struct sinode *caller_fsn,
 	node_unlock_w(callee_fn);
 }
 
-void add_callee(struct sinode *caller_fsn, struct sinode *callee_fsn,void *where,
-		add_caller_alias_f add_caller_alias, int8_t type)
+void add_callee(struct sinode *caller_fsn, struct sinode *callee_fsn,
+		void *where, int8_t type)
 {
 	struct func_node *caller_fn = (struct func_node *)caller_fsn->data;
 	struct func_node *callee_fn = (struct func_node *)callee_fsn->data;
@@ -830,9 +833,6 @@ void add_callee(struct sinode *caller_fsn, struct sinode *callee_fsn,void *where
 				0, callee_fn ? 0 : 1);
 	callf_stmt_list_add(&newc->stmts, type, where);
 	node_unlock_w(caller_fn);
-
-	if (callee_fn)
-		add_caller(callee_fsn, caller_fsn, add_caller_alias);
 }
 
 void add_possible(struct var_node *vn, unsigned long value_flag,

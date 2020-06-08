@@ -49,7 +49,7 @@ static char *argv_name;
 static char *split_names[TYPE_MAX_DEPTH];
 static char *argv_opt;
 static int __match(struct sinode *sn);
-static void __cb(struct sinode *sn);
+static void __cb(struct sinode *sn, void *arg);
 static long cb(int argc, char *argv[])
 {
 	long err = 0;
@@ -84,7 +84,7 @@ static long cb(int argc, char *argv[])
 		split_names[i] = ptr_b;
 	}
 
-	analysis__sinode_match(type, __match, __cb);
+	analysis__sinode_match(type, __cb, NULL);
 
 out:
 	argv_name = NULL;
@@ -326,8 +326,11 @@ static void output_type(struct sinode *sn)
 	return;
 }
 
-static void __cb(struct sinode *sn)
+static void __cb(struct sinode *sn, void *arg)
 {
+	if (!__match(sn))
+		return;
+
 	enum sinode_type type;
 	type = sinode_idtype(sn);
 

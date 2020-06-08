@@ -7593,8 +7593,9 @@ static void add_possible_callee(struct sinode *caller_fsn,
 
 			BUG_ON(!callee_fsn);
 			analysis__add_callee(caller_fsn, callee_fsn, gs,
-						callee_alias_add_caller,
 						SINODE_FMT_GCC);
+			analysis__add_caller(callee_fsn, caller_fsn,
+						callee_alias_add_caller);
 			break;
 		}
 		default:
