@@ -379,8 +379,8 @@ static void indcfg1_do_call(struct sinode *sn, char *ip, char *opcodes, int len)
 		else if (len == 5)
 			offset = *(unsigned *)&opcodes[1];
 		else {
-			si_log1_todo("Call(0xE8) length not right? in %s\n",
-					sn->name);
+			si_log1_todo("Call(0xE8) length(%d) not right? in %s\n",
+					len, sn->name);
 			break;
 		}
 
@@ -397,7 +397,26 @@ static void indcfg1_do_call(struct sinode *sn, char *ip, char *opcodes, int len)
 	}
 	case 0x9a:
 	{
-		/* TODO */
+		char *target_addr;
+		struct sinode *target_sn;
+
+		if (len == 3)
+			target_addr = (char *)((long)*(short *)&opcodes[1]);
+		else if (len == 5)
+			target_addr = (char *)((long)*(unsigned *)&opcodes[1]);
+		else {
+			si_log1_todo("Call(0x9A) length(%d) not right? in %s\n", 
+					len, sn->name);
+			break;
+		}
+
+		target_sn = addr2sinode(target_addr);
+		if (!target_sn)
+			break;
+
+		analysis__add_callee(sn, target_sn, ip, SINODE_FMT_ASM);
+		analysis__add_caller(target_sn, sn, NULL);
+
 		break;
 	}
 	case 0xff:
