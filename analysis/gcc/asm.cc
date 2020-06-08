@@ -4,6 +4,7 @@
  * TODO:
  *	parse branches(Jxx instructions)
  *	parse sysenter/int for userspace program
+ *	variables xrefs
  *
  * CALL instruction: (https://www.felixcloutier.com/x86/call)
  *	opcode: E8 FF 9A
@@ -105,6 +106,7 @@ static __thread size_t obj_done, obj_cnt;
 static __thread struct sibuf *cur_sibuf;
 static __thread void *cur_ctx;
 static __thread char *cur_srcfile;
+static __thread struct sinode *cur_sn;
 
 static void getbase(void)
 {
@@ -346,89 +348,216 @@ out:
 	return;
 }
 
-static struct sinode *addr2sinode(char *addr)
+static void addr2sinode_rel(char *addr)
+{
+	if (addr == (char *)0x24e) {
+		fprintf(stderr, "hello world\n");
+		fprintf(stderr, "hello world\n");
+	}
+
+	int err = 0;
+	elf_file *ef;
+	struct list_head syms_head;
+	INIT_LIST_HEAD(&syms_head);
+	struct _elf_sym_full *tmp, *target_sym = NULL;
+	unsigned long shdr_off = 0;
+	char *shdrname = NULL;
+	char *target_symname = NULL;
+	long args[3];
+
+	ef = elf_parse_data(cur_ctx);
+	if (!ef) {
+		si_log1_emer("elf_parse_data err\n");
+		return;
+	}
+
+	err = elf_get_syms(ef, &syms_head);
+	if (err == -1) {
+		si_log1_emer("elf_get_syms err\n");
+		goto ef_out;
+	}
+
+	/* get current text section name first */
+	list_for_each_entry(tmp, &syms_head, sibling) {
+		get_sym_detail(ef, tmp);
+
+		if ((tmp->type != STT_FUNC) || (tmp->bind != STB_GLOBAL))
+			continue;
+
+		struct func_node *fn;
+		fn = (struct func_node *)cur_sn->data;
+		if ((void *)tmp->load_addr != fn->node)
+			continue;
+
+		target_sym = tmp;
+		break;
+	}
+	if (!target_sym) {
+		si_log1_todo("target_sym not found\n");
+		goto syms_out;
+	}
+
+	switch (ef->elf_bits) {
+	case 32:
+	{
+		Elf32_Sym *sym = &target_sym->data.sym0;
+		Elf32_Shdr *shdr;
+		shdr = (Elf32_Shdr *)get_sh_by_id(ef, sym->st_shndx);
+		if (shdr) {
+			shdrname = (char *)((long)ef->shstrtab + shdr->sh_name);
+			shdr_off = shdr->sh_offset;
+		}
+		break;
+	}
+	case 64:
+	{
+		Elf64_Sym *sym = &target_sym->data.sym1;
+		Elf64_Shdr *shdr;
+		shdr = (Elf64_Shdr *)get_sh_by_id(ef, sym->st_shndx);
+		if (shdr) {
+			shdrname = (char *)((long)ef->shstrtab + shdr->sh_name);
+			shdr_off = shdr->sh_offset;
+		}
+		break;
+	}
+	default:
+	{
+		si_log1_todo("miss elf_bits: %d\n", ef->elf_bits);
+		break;
+	}
+	}
+	if (!shdrname) {
+		si_log1_todo("section header name not found\n");
+		goto syms_out;
+	}
+
+	/*
+	 * XXX: .rel or .rela?
+	 * https://stevens.netmeister.org/631/elf.html
+	 * platform-dependent. For x86_32, it is .rel and for x86_64, .rela
+	 */
+	for (int i = 0; i < 2; i++) {
+		char rel_shdr_name[strlen(shdrname) + 6];
+		if (!i)
+			sprintf(rel_shdr_name, "%s%s", ".rel", shdrname);
+		else
+			sprintf(rel_shdr_name, "%s%s", ".rela", shdrname);
+
+		unsigned long off = addr - (char *)cur_ctx - shdr_off;
+		target_symname = get_relentname_by_offset(ef, rel_shdr_name, i,
+							  off);
+		if (target_symname)
+			break;
+	}
+
+	if (!target_symname) {
+		si_log1_todo("target symbol name not found\n");
+		goto syms_out;
+	}
+
+	args[0] = (long)cur_sibuf->rf;
+	args[1] = (long)get_builtin_resfile();
+	args[2] = (long)target_symname;
+	addr2sinode_val = analysis__sinode_search(TYPE_FUNC_GLOBAL,
+						  SEARCH_BY_SPEC,
+						  (void *)args);
+
+syms_out:
+	elf_drop_syms(&syms_head);
+ef_out:
+	elf_cleanup(ef);
+	return;
+}
+
+static struct sinode *addr2sinode(char *addr, int flag)
 {
 	CLIB_DBG_FUNC_ENTER();
 	addr2sinode_val = NULL;
 
-	analysis__sinode_match("func_global", addr2sinode_match, addr);
-	if (addr2sinode_val)
-		goto out;
+	switch (flag) {
+	case 0:
+	{
+		analysis__sinode_match("func_global", addr2sinode_match, addr);
+		if (addr2sinode_val)
+			break;
 
-	analysis__sinode_match("func_static", addr2sinode_match, addr);
+		analysis__sinode_match("func_static", addr2sinode_match, addr);
+		break;
+	}
+	case 1:
+	{
+		/* check the .rel/.rela sections */
+		addr2sinode_rel(addr);
+		break;
+	}
+	default:
+		BUG();
+	}
 
-out:
 	CLIB_DBG_FUNC_EXIT();
 	return addr2sinode_val;
 }
 
-static void indcfg1_do_call(struct sinode *sn, char *ip, char *opcodes, int len)
+static void indcfg1_do_call(char *ip, char *opcodes, int len)
 {
 	CLIB_DBG_FUNC_ENTER();
 
 	char *next_ip = (char *)ip + len;
-	switch ((int)opcodes[0]) {
+	unsigned value;
+	struct sinode *target_sn = NULL;
+
+	if (len == 3)
+		value = *(unsigned short *)&opcodes[1];
+	else if (len == 5)
+		value = *(unsigned *)&opcodes[1];
+	else {
+		si_log1_todo("Call ins length(%d) not right? in %s\n",
+				len, cur_sn->name);
+		goto out;
+	}
+
+	switch ((unsigned char)opcodes[0]) {
 	case 0xe8:
 	{
-		unsigned offset;
-		char *target_addr;
-		struct sinode *target_sn;
-
-		if (len == 3)
-			offset = *(unsigned short *)&opcodes[1];
-		else if (len == 5)
-			offset = *(unsigned *)&opcodes[1];
-		else {
-			si_log1_todo("Call(0xE8) length(%d) not right? in %s\n",
-					len, sn->name);
-			break;
-		}
-
-		target_addr = next_ip + offset;
-		target_sn = addr2sinode(target_addr);
-
-		if (!target_sn)
-			break;
-
-		analysis__add_callee(sn, target_sn, ip, SINODE_FMT_ASM);
-		analysis__add_caller(target_sn, sn, NULL);
-
+		if (value)
+			target_sn = addr2sinode(next_ip + value, 0);
+		else
+			target_sn = addr2sinode(ip + 1, 1);
 		break;
 	}
 	case 0x9a:
 	{
-		char *target_addr;
-		struct sinode *target_sn;
-
-		if (len == 3)
-			target_addr = (char *)((long)*(short *)&opcodes[1]);
-		else if (len == 5)
-			target_addr = (char *)((long)*(unsigned *)&opcodes[1]);
-		else {
-			si_log1_todo("Call(0x9A) length(%d) not right? in %s\n", 
-					len, sn->name);
-			break;
-		}
-
-		target_sn = addr2sinode(target_addr);
-		if (!target_sn)
-			break;
-
-		analysis__add_callee(sn, target_sn, ip, SINODE_FMT_ASM);
-		analysis__add_caller(target_sn, sn, NULL);
+		if (value)
+			target_sn = addr2sinode((char *)(long)value, 0);
+		else
+			target_sn = addr2sinode(ip + 1, 1);
 
 		break;
 	}
 	case 0xff:
 	{
-		/* TODO */
+		si_log1_todo("Call(0xFF) ins\n");
 		break;
 	}
 	default:
-		si_log1_todo("Unknown call opcode in %s\n", sn->name);
+		si_log1_todo("Unknown call opcode(%x) in %s\n",
+				opcodes[0], cur_sn->name);
 		break;
 	}
 
+	if (!target_sn) {
+		si_log1_todo("target called sinode not found\n");
+		goto out;
+	}
+
+	analysis__add_callee(cur_sn, target_sn, ip, SINODE_FMT_ASM);
+	analysis__add_caller(target_sn, cur_sn, NULL);
+	if (!strncmp(target_sn->name, "prepare_ftrace_return",
+			target_sn->namelen)) {
+		si_log1_todo("prepare_ftrace_return found\n");
+	}
+
+out:
 	CLIB_DBG_FUNC_EXIT();
 	return;
 }
@@ -439,6 +568,8 @@ static void indcfg1_match_cb(struct sinode *sn, void *arg)
 		return;
 
 	CLIB_DBG_FUNC_ENTER();
+
+	cur_sn = sn;
 
 	struct func_node *fn;
 	fn = (struct func_node *)sn->data;
@@ -481,7 +612,7 @@ static void indcfg1_match_cb(struct sinode *sn, void *arg)
 				((buf[1] <= JG_OPC1) && (buf[1] >= JO_OPC1))) {
 			/* TODO: should've been handle in getdetail */
 		} else if (opcode == X86_INS_CALL) {
-			indcfg1_do_call(sn, addr, buf, bytes);
+			indcfg1_do_call(addr, buf, bytes);
 		}
 
 		addr += bytes;
