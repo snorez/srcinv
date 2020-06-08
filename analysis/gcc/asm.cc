@@ -350,11 +350,6 @@ out:
 
 static void addr2sinode_rel(char *addr)
 {
-	if (addr == (char *)0x24e) {
-		fprintf(stderr, "hello world\n");
-		fprintf(stderr, "hello world\n");
-	}
-
 	int err = 0;
 	elf_file *ef;
 	struct list_head syms_head;
@@ -552,10 +547,6 @@ static void indcfg1_do_call(char *ip, char *opcodes, int len)
 
 	analysis__add_callee(cur_sn, target_sn, ip, SINODE_FMT_ASM);
 	analysis__add_caller(target_sn, cur_sn, NULL);
-	if (!strncmp(target_sn->name, "prepare_ftrace_return",
-			target_sn->namelen)) {
-		si_log1_todo("prepare_ftrace_return found\n");
-	}
 
 out:
 	CLIB_DBG_FUNC_EXIT();

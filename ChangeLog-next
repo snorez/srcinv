@@ -2,6 +2,7 @@
 	* analysis: adjust add_callee/sinode_match interfaces
 	* analysis/gcc_asm: check 0x9a call opcode.
 	* analysis/gcc_asm: handle e8 00 00 00 00 case
+	* analysis/gcc_asm: remove some debug code
 
 2020-06-06
 	* analysis/gcc_c: check_conflict check the old sinode data_fmt
