@@ -111,6 +111,44 @@ the `si_global_trees` memory area overlaps with the thread stack.
 + We gen a name for a special type, what if the type from a expanded macro? e.g. DEFINE\_KFIFO.
 + ~~ rewrite parse\_resfile() ~~
 + gcc\_asm: TODOs
+	- indirect calls example, compute the real addr:
+	In arch/x86/entry_64.S
+	```c
+	ENTRY(interrupt_entry)
+	UNWIND_HINT_FUNC
+	ASM_CLAC
+	cld
+
+	testb	$3, CS-ORIG_RAX+8(%rsp)
+	jz	1f
+	SWAPGS
+	FENCE_SWAPGS_USER_ENTRY
+	```
+	disassemble
+	```c
+	00000000000008c0 <interrupt_entry>:
+	     8c0:	90                   	nop
+	     8c1:	90                   	nop
+	     8c2:	90                   	nop
+	     8c3:	fc                   	cld    
+	     8c4:	f6 44 24 18 03       	testb  $0x3,0x18(%rsp)
+	     8c9:	74 65                	je     930 <interrupt_entry+0x70>
+	     8cb:	ff 15 00 00 00 00    	callq  *0x0(%rip)        # 8d1 <interrupt_entry+0x11>
+	     8d1:	90                   	nop
+	     8d2:	90                   	nop
+	     8d3:	90                   	nop
+	```
+	the rela entry:
+	```c
+	0000000008cd  004c00000002 R_X86_64_PC32     0000000000000000 pv_cpu_ops + f4
+	```
+	The swapgs field in pv_cpu_ops is offset 0xf8(x86_64), however, the
+	s_addend is f4 in Elf64_Rela.
+	For R_X86_64_PC32, the relocation addr is compute S + A - P, check
+	https://refspecs.linuxfoundation.org/elf/x86_64-abi-0.99.pdf.
+	S is the address of pv_cpu_ops.
+	A is 0xF4.
+	P is (8cd(mem need to be modified) - 8d1(next_ip)) = -4;
 + Update resfile and src.saved information once the target project get patched.
 + Update all function xrefs after parsing a new module
 + Backtrace variables, where it comes from.
