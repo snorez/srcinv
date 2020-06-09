@@ -420,6 +420,8 @@ struct sinode {
 	size_t			datalen;
 	/* we need to know which module this sinode is from */
 	int8_t			data_fmt;
+	int8_t			weak_flag: 1;
+	int8_t			reserved: 7;
 } __attribute__((packed));
 
 struct name_list {

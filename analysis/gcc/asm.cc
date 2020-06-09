@@ -150,20 +150,42 @@ static void getbase(void)
 	list_for_each_entry(tmp, &syms_head, sibling) {
 		get_sym_detail(ef, tmp);
 
-		if ((tmp->type != STT_OBJECT) && (tmp->type != STT_FUNC))
-			continue;
-
 		if ((tmp->type == STT_FUNC) && (tmp->bind == STB_LOCAL))
 			type = TYPE_FUNC_STATIC;
-		else if ((tmp->type == STT_FUNC) && (tmp->bind == STB_GLOBAL))
+		else if ((tmp->type == STT_FUNC) &&
+			 ((tmp->bind == STB_GLOBAL) || (tmp->bind == STB_WEAK)))
 			type = TYPE_FUNC_GLOBAL;
 		else if ((tmp->type == STT_OBJECT) && (tmp->bind == STB_LOCAL))
 			type = TYPE_VAR_STATIC;
-		else if ((tmp->type == STT_OBJECT) && (tmp->bind == STB_GLOBAL))
+		else if ((tmp->type == STT_OBJECT) &&
+			 ((tmp->bind == STB_GLOBAL) || (tmp->bind == STB_WEAK)))
 			type = TYPE_VAR_GLOBAL;
-		else
+		else if ((tmp->type == STT_NOTYPE) && (tmp->name) &&
+				(tmp->load_addr)) {
+			/* detect which section this sym in */
+			if (is_section_text(ef, tmp)) {
+				if ((tmp->bind == STB_GLOBAL) ||
+					(tmp->bind == STB_WEAK))
+					type = TYPE_FUNC_GLOBAL;
+				else if (tmp->bind == STB_LOCAL)
+					type = TYPE_FUNC_STATIC;
+				else
+					continue;
+			} else if (is_section_data(ef, tmp)) {
+				if ((tmp->bind == STB_GLOBAL) ||
+					(tmp->bind == STB_WEAK))
+					type = TYPE_VAR_GLOBAL;
+				else if (tmp->bind == STB_LOCAL)
+					type = TYPE_VAR_STATIC;
+				else
+					continue;
+			} else {
+				continue;
+			}
+		} else
 			continue;
 
+		mutex_lock(&getbase_lock);
 		if ((type == TYPE_FUNC_GLOBAL) || (type == TYPE_VAR_GLOBAL)) {
 			long args[3];
 			args[0] = (long)cur_sibuf->rf;
@@ -183,8 +205,10 @@ static void getbase(void)
 		}
 
 		/* TODO: STB_WEAK not handled */
-		if (sn_tmp)
+		if (sn_tmp) {
+			mutex_unlock(&getbase_lock);
 			continue;
+		}
 
 		sn_new = analysis__sinode_new(type, tmp->name,
 					      strlen(tmp->name) + 1,
@@ -210,8 +234,10 @@ static void getbase(void)
 			sn_new->datalen = sizeof(*fn);
 		}
 		sn_new->data_fmt = SINODE_FMT_ASM;
+		sn_new->weak_flag = (tmp->bind == STB_WEAK);
 
 		BUG_ON(analysis__sinode_insert(sn_new, SINODE_INSERT_BH_NONE));
+		mutex_unlock(&getbase_lock);
 	}
 
 	elf_drop_syms(&syms_head);
@@ -376,9 +402,6 @@ static void addr2sinode_rel(char *addr)
 	list_for_each_entry(tmp, &syms_head, sibling) {
 		get_sym_detail(ef, tmp);
 
-		if ((tmp->type != STT_FUNC) || (tmp->bind != STB_GLOBAL))
-			continue;
-
 		struct func_node *fn;
 		fn = (struct func_node *)cur_sn->data;
 		if ((void *)tmp->load_addr != fn->node)
@@ -505,7 +528,9 @@ static void indcfg1_do_call(char *ip, char *opcodes, int len)
 		value = *(unsigned short *)&opcodes[1];
 	else if (len == 5)
 		value = *(unsigned *)&opcodes[1];
-	else {
+	else if ((unsigned char)opcodes[0] == 0xff) {
+		si_log1_todo("Call(0xff)\n");
+	} else {
 		si_log1_todo("Call ins length(%d) not right? in %s\n",
 				len, cur_sn->name);
 		goto out;
@@ -541,7 +566,8 @@ static void indcfg1_do_call(char *ip, char *opcodes, int len)
 	}
 
 	if (!target_sn) {
-		si_log1_todo("target called sinode not found\n");
+		si_log1_todo("target called sinode not found in %s\n",
+				cur_sn->name);
 		goto out;
 	}
 

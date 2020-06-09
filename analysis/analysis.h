@@ -32,6 +32,7 @@ DECL_BEGIN
 #define	STEPMAX			MODE_MAX
 
 C_SYM struct list_head analysis_lang_ops_head;
+C_SYM lock_t getbase_lock;
 
 struct lang_ops {
 	struct list_head	sibling;

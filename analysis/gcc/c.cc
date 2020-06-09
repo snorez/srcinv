@@ -5071,13 +5071,10 @@ static int func_conflict(expanded_location *newl, struct sinode *old)
 	newvis = (struct tree_decl_with_vis *)newtree;
 
 	if (old->data_fmt != SINODE_FMT_GCC) {
-		/*
-		 * FIXME: we simply drop this new weak tree node
-		 */
-		if (newvis->weak_flag)
-			return TREE_NAME_CONFLICT_DROP;
+		if (newvis->weak_flag < old->weak_flag)
+			return TREE_NAME_CONFLICT_REPLACE;
 		else
-			BUG();
+			return TREE_NAME_CONFLICT_DROP;
 	}
 
 	oldtree = (tree)(long)old->obj->real_addr;
@@ -5107,10 +5104,10 @@ static int var_conflict(expanded_location *newl, struct sinode *old)
 	newvis = (struct tree_decl_with_vis *)newtree;
 
 	if (old->data_fmt != SINODE_FMT_GCC) {
-		if (newvis->weak_flag)
-			return TREE_NAME_CONFLICT_DROP;
+		if (newvis->weak_flag < old->weak_flag)
+			return TREE_NAME_CONFLICT_REPLACE;
 		else
-			BUG();
+			return TREE_NAME_CONFLICT_DROP;
 	}
 
 	oldtree = (tree)(long)old->obj->real_addr;
@@ -5191,7 +5188,6 @@ static int check_conflict(enum sinode_type type,
 /*
  * SYMBOL could be exported
  */
-static lock_t __get_base_lock;
 static void do_get_base(struct sibuf *buf)
 {
 	CLIB_DBG_FUNC_ENTER();
@@ -5269,7 +5265,7 @@ static void do_get_base(struct sibuf *buf)
 		sn_new = NULL;
 		sn_tmp = NULL;
 		loc_file = NULL;
-		mutex_lock(&__get_base_lock);
+		mutex_lock(&getbase_lock);
 
 		/* handle the location file */
 		if (!xloc)	/* happen only on TYPE_TYPE */
@@ -5349,7 +5345,7 @@ step_1:
 			BUG_ON(chk_val == TREE_NAME_CONFLICT_FAILED);
 			if (chk_val == TREE_NAME_CONFLICT_DROP) {
 				objs[obj_idx].is_dropped = 1;
-				mutex_unlock(&__get_base_lock);
+				mutex_unlock(&getbase_lock);
 				continue;
 			} else if (chk_val == TREE_NAME_CONFLICT_REPLACE) {
 				behavior = SINODE_INSERT_BH_REPLACE;
@@ -5402,10 +5398,16 @@ step_1:
 			}
 		}
 		sn_new->data_fmt = SINODE_FMT_GCC;
+		if ((type == TYPE_VAR_GLOBAL) || (type == TYPE_VAR_STATIC) ||
+		    (type == TYPE_FUNC_GLOBAL) || (type == TYPE_FUNC_STATIC)) {
+			struct tree_decl_with_vis *newvis;
+			newvis = (struct tree_decl_with_vis *)obj_addr;
+			sn_new->weak_flag = newvis->weak_flag;
+		}
 
 		BUG_ON(analysis__sinode_insert(sn_new, behavior));
 next_loop:
-		mutex_unlock(&__get_base_lock);
+		mutex_unlock(&getbase_lock);
 	}
 
 	CLIB_DBG_FUNC_EXIT();

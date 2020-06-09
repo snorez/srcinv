@@ -20,6 +20,7 @@
 #include "./analysis.h"
 
 LIST_HEAD(analysis_lang_ops_head);
+lock_t getbase_lock;
 
 static int parse_sibuf(struct sibuf *buf, int step, int force)
 {
