@@ -1,6 +1,7 @@
 2020-06-09
 	* analysis/gcc_asm: complete handle e8 00 00 00 00 case
 	* srcinv: add a weak_flag field in sinode
+	* analysis/gcc_asm: check weak_flag in getbase()
 
 2020-06-08
 	* analysis: adjust add_callee/sinode_match interfaces

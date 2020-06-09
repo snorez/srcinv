@@ -112,10 +112,6 @@ static void getbase(void)
 {
 	CLIB_DBG_FUNC_ENTER();
 
-	/*
-	 * TODO:
-	 * get symbols defined in the file and create a sinode for it
-	 */
 	struct sinode *sn_new = NULL, *sn_tmp = NULL, *loc_file = NULL;
 	enum sinode_type type;
 	int err = 0;
@@ -148,6 +144,7 @@ static void getbase(void)
 
 	struct _elf_sym_full *tmp;
 	list_for_each_entry(tmp, &syms_head, sibling) {
+		int behavior = SINODE_INSERT_BH_NONE;
 		get_sym_detail(ef, tmp);
 
 		if ((tmp->type == STT_FUNC) && (tmp->bind == STB_LOCAL))
@@ -204,10 +201,14 @@ static void getbase(void)
 							 (void *)args);
 		}
 
-		/* TODO: STB_WEAK not handled */
 		if (sn_tmp) {
-			mutex_unlock(&getbase_lock);
-			continue;
+			int weak = (tmp->bind == STB_WEAK);
+			if (weak < sn_tmp->weak_flag) {
+				behavior = SINODE_INSERT_BH_REPLACE;
+			} else {
+				mutex_unlock(&getbase_lock);
+				continue;
+			}
 		}
 
 		sn_new = analysis__sinode_new(type, tmp->name,
@@ -236,7 +237,7 @@ static void getbase(void)
 		sn_new->data_fmt = SINODE_FMT_ASM;
 		sn_new->weak_flag = (tmp->bind == STB_WEAK);
 
-		BUG_ON(analysis__sinode_insert(sn_new, SINODE_INSERT_BH_NONE));
+		BUG_ON(analysis__sinode_insert(sn_new, behavior));
 		mutex_unlock(&getbase_lock);
 	}
 
@@ -521,7 +522,7 @@ static void indcfg1_do_call(char *ip, char *opcodes, int len)
 	CLIB_DBG_FUNC_ENTER();
 
 	char *next_ip = (char *)ip + len;
-	unsigned value;
+	unsigned value = 0;
 	struct sinode *target_sn = NULL;
 
 	if (len == 3)
