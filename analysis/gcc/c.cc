@@ -5159,11 +5159,13 @@ static int check_conflict(enum sinode_type type,
 			  expanded_location *newl,
 			  struct sinode *old)
 {
-	tree oldt = (tree)(long)old->obj->real_addr;
-	tree newt = (tree)(long)(objs[obj_idx].real_addr);
+	if (old->data_fmt == SINODE_FMT_GCC) {
+		tree oldt = (tree)(long)old->obj->real_addr;
+		tree newt = (tree)(long)(objs[obj_idx].real_addr);
 
-	BUG_ON(TREE_CODE_CLASS(TREE_CODE(newt)) !=
-				TREE_CODE_CLASS(TREE_CODE(oldt)));
+		BUG_ON(TREE_CODE_CLASS(TREE_CODE(newt)) !=
+					TREE_CODE_CLASS(TREE_CODE(oldt)));
+	}
 
 	int ret = TREE_NAME_CONFLICT_FAILED;
 	/* do the first node */

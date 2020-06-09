@@ -3,6 +3,7 @@
 	* srcinv: add a weak_flag field in sinode
 	* analysis/gcc_asm: check weak_flag in getbase()
 	* analysis/gcc_asm: use si_log1_todo to handle indirect calls for now.
+	* analysis/gcc_c: fix a null-deref in check_conflict()
 
 2020-06-08
 	* analysis: adjust add_callee/sinode_match interfaces
