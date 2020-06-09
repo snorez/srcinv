@@ -8,7 +8,7 @@ the `si_global_trees` memory area overlaps with the thread stack.
 + gcc/c.cc
 	+ why functions still contain non-null `saved_tree`?
 	+ For Linux Kernel:
-		+ get symbols in .s/.S files to complete call chains
+		+ ~~ get symbols in .s/.S files to complete call chains ~~
 		+ add mitigations detection
 		> e.g. CONFIG_GCC_PLUGIN_RANDSTRUCT randomizes the layout
 		> of (some) kernel-internal structs
@@ -109,7 +109,8 @@ the `si_global_trees` memory area overlaps with the thread stack.
 	```
 
 + We gen a name for a special type, what if the type from a expanded macro? e.g. DEFINE\_KFIFO.
-+ rewrite parse\_resfile()
++ ~~ rewrite parse\_resfile() ~~
++ gcc\_asm: TODOs
 + Update resfile and src.saved information once the target project get patched.
 + Update all function xrefs after parsing a new module
 + Backtrace variables, where it comes from.

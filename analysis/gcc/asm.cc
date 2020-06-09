@@ -5,6 +5,7 @@
  *	parse branches(Jxx instructions)
  *	parse sysenter/int for userspace program
  *	variables xrefs
+ *	indirect calls, FF /2 and FF /3
  *
  * CALL instruction: (https://www.felixcloutier.com/x86/call)
  *	opcode: E8 FF 9A
@@ -530,10 +531,10 @@ static void indcfg1_do_call(char *ip, char *opcodes, int len)
 	else if (len == 5)
 		value = *(unsigned *)&opcodes[1];
 	else if ((unsigned char)opcodes[0] == 0xff) {
-		si_log1_todo("Call(0xff)\n");
+		;
 	} else {
-		si_log1_todo("Call ins length(%d) not right? in %s\n",
-				len, cur_sn->name);
+		si_log1_todo("Call(%x) ins length(%d) not right? in %s\n",
+				opcodes[0], len, cur_sn->name);
 		goto out;
 	}
 
@@ -557,7 +558,32 @@ static void indcfg1_do_call(char *ip, char *opcodes, int len)
 	}
 	case 0xff:
 	{
-		si_log1_todo("Call(0xFF) ins\n");
+		/*
+		 * XXX: check intel manual
+		 * Chapter2.1.5: Addressing-Mode Encoding of ModR/M and SIB Bytes
+		 */
+		unsigned char modrm = opcodes[1];
+		unsigned char digit = (modrm >> 3) & 7;
+		unsigned char mod = (modrm >> 6) & 3;
+		unsigned char rm = (modrm & 0x7);
+		if ((digit != 2) && (digit != 3)) {
+			si_log1_todo("Call is not FF /2 or FF /3\n");
+			break;
+		}
+		if ((len == 6) && (mod == 0) && (rm == 5)) {
+			/* disp32 */
+			value = *(unsigned *)&opcodes[2];
+			si_log1_todo("Call(FF) disp32: %x in %s\n",
+					value, cur_sn->name);
+		} else if ((len == 4) && (mod == 0) && (rm == 6)) {
+			/* disp16 */
+			value = *(unsigned short *)&opcodes[2];
+			si_log1_todo("Call(FF) disp16: %x in %s\n",
+					value, cur_sn->name);
+		} else {
+			si_log1_todo("Call(FF) with mod(%x) R/M(%x) in %s\n",
+					mod, rm, cur_sn->name);
+		}
 		break;
 	}
 	default:
