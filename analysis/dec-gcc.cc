@@ -19,7 +19,7 @@
 #include "si_gcc.h"
 #include "./analysis.h"
 
-C_SYM int init_gimple_cp_state(struct code_path *cp, struct cp_state *head);
+C_SYM int init_gimple_cp_state(struct code_path *cp, struct cp_state *state);
 
 static void single_gimple_init(gimple_seq gs, struct code_path *cp,
 				struct cp_state *state)

@@ -20,9 +20,9 @@
 #include "si_core.h"
 #include "analysis.h"
 
-C_SYM int init_asm_cp_state(struct code_path *cp, struct cp_state *head);
+C_SYM int init_asm_cp_state(struct code_path *cp, struct cp_state *state);
 
-int init_asm_cp_state(struct code_path *cp, struct cp_state *head)
+int init_asm_cp_state(struct code_path *cp, struct cp_state *state)
 {
 	return 0;
 }
