@@ -7,6 +7,5 @@ doc/design.txt
 doc/README_zh.md
 doc/gimple_to_cfg.txt
 doc/gcc_ssa.txt
-analysis/sm.c
 hacking/chktypesz.c
 hacking/dbgmode.c

@@ -54,7 +54,7 @@ static void test_fsn(struct sinode *fsn)
 		basic_block bb;
 		gimple_seq gs;
 
-		bb = (basic_block)next_cp->cq;
+		bb = (basic_block)next_cp->cp;
 		gs = bb->il.gimple.seq;
 
 		si_log2("For BB: %p\n", bb);

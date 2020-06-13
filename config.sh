@@ -56,7 +56,9 @@ gen_file()
 
 	CONTENT+=$'#SELF_CFLAGS+=-Wno-packed-not-aligned\n'
 	CONTENT+=$'#SELF_CFLAGS+=-fno-omit-frame-pointer\n'
-	CONTENT+=$'SELF_CFLAGS+=-Wno-address-of-packed-member\n'
+	CONTENT+=$'ifeq "$(GCC_VER_MAJ)" "9"\n'
+	CONTENT+=$'\tSELF_CFLAGS+=-Wno-address-of-packed-member\n'
+	CONTENT+=$'endif\n'
 	CONTENT+=$'\n'
 
 	CONTENT+=$'#SELF_CFLAGS+=-DCONFIG_THREAD_STACKSZ=0x20*1024*1024\n'

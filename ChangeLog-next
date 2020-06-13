@@ -1,0 +1,4 @@
+2020-06-13
+	* srcinv: rename code_path.cq to cp
+	* srcinv: Makefile check GCC version
+	* analysis: add dec*

@@ -71,7 +71,7 @@ static int mark_linux_kern_entry(void)
 
 	tid->id0.id_type = TYPE_FUNC_GLOBAL;
 	for (; func_id < si->id_idx[TYPE_FUNC_GLOBAL].id1; func_id++) {
-		do_mark_entry(tid, "sys_", 0);
+		do_mark_entry(tid, "__do_sys_", 0);
 	}
 
 	return retval;

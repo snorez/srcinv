@@ -492,7 +492,7 @@ struct code_path {
 	/*
 	 * for gcc, cp is basic_block
 	 */
-	void			*cq;
+	void			*cp;
 
 	/*
 	 * for gcc, cond_head point to a GIMPLE_COND stmt
@@ -613,6 +613,37 @@ struct possible_list {
 	struct list_head	sibling;
 	uint64_t		value_flag;
 	uint64_t		value;
+};
+
+struct sample_state {
+	struct list_head	sibling;
+
+	/* combine code_path with its cp_state(s) */
+	struct list_head	cp_state_list;
+	struct code_path	*cp_entry;
+	u8			data_fmt;
+};
+
+struct cp_state {
+	/* the prev could be the reason */
+	struct list_head	sibling;
+
+	struct list_head	data_list;
+};
+
+struct data_state_ref {
+	void			*todo;
+};
+
+struct data_state_val {
+	void			*todo;
+};
+
+struct data_state {
+	struct list_head	sibling;
+
+	struct data_state_ref	*ref;
+	struct data_state_val	*val;
 };
 
 #include "si_helper.h"

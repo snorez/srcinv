@@ -2,21 +2,21 @@ RELDIR=$(subst $(TOPDIR)/, "", $(shell pwd))
 dirs = gcc
 OUTDIR = $(SRCINV_BIN)
 
-SMF_TEST=sm.c
-SMF=
-ifeq ($(SMF_TEST), $(wildcard $(SMF_TEST)))
-	SMF=$(SMF_TEST)
-	CFLAGS += -DHAS_SM
-endif
 CC_SRCS = analysis.c \
        sinode.c \
        sibuf.c \
        resfile.c \
        parse.c \
        mark-entry.c \
-       utils.c $(SMF)
+       utils.c \
+       dec.c \
+       dec-asm.c \
+       trace.c
+
+CXX_SRCS = dec-gcc.cc
 
 CC_OBJS = $(CC_SRCS:%.c=%.o)
+CXX_OBJS = $(CXX_SRCS:%.cc=%.o)
 
 OUTLIBS = analysis.so
 
@@ -28,17 +28,29 @@ CFLAGS += \
 	  -rdynamic \
 	  -D_FILE_OFFSET_BITS=64
 
+CXXFLAGS += \
+	    -fPIC \
+	    -shared \
+	    -rdynamic \
+	    -fno-rtti \
+	    -Wno-literal-suffix \
+	    -D_FILE_OFFSET_BITS=64
+
 .PHONY: $(dirs)
 
 all: $(OUTLIBS) $(dirs)
 
-$(OUTLIBS): $(CC_OBJS)
+$(OUTLIBS): $(CC_OBJS) $(CXX_OBJS)
 	@echo $(LD_ECHO) $(RELDIR)/$(OUTLIBS) $(SRC_ECHO) $(RELDIR)/{$(CC_OBJS)}
-	$(Q)$(CC) $(CFLAGS) $(CC_OBJS) -L$(CLIB_LIB) -lpthread -l$(CLIB_SO) -o $(OUTLIBS) -Wl,-rpath $(CLIB_LIB)
+	$(Q)$(CC) $(CFLAGS) $(CC_OBJS) $(CXX_OBJS) -L$(CLIB_LIB) -lpthread -l$(CLIB_SO) -o $(OUTLIBS) -Wl,-rpath $(CLIB_LIB)
 
 $(CC_OBJS): %.o: %.c
 	@echo $(CC_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<
 	$(Q)$(CC) $(CFLAGS) -I$(CLIB_INC) -I$(SRCINV_INC) -c -o $@ $<
+
+$(CXX_OBJS): %.o: %.cc
+	@echo $(CXX_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<
+	$(Q)$(CXX) $(CXXFLAGS) -I$(GCC_PLUGIN_INC) -I$(CLIB_INC) -I$(SRCINV_INC) -c -o $@ $<
 
 install: $(dirs) $(INSTALLS)
 

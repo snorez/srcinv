@@ -704,6 +704,95 @@ static inline struct path_list *path_list_new(void)
 	return _new;
 }
 
+static inline struct data_state_ref *data_state_ref_new(void)
+{
+	struct data_state_ref *_new;
+	_new = (struct data_state_ref *)xmalloc(sizeof(*_new));
+	memset(_new, 0, sizeof(*_new));
+	return _new;
+}
+
+static inline void data_state_ref_free(struct data_state_ref *ref)
+{
+	free(ref);
+}
+
+static inline struct data_state_val *data_state_val_new(void)
+{
+	struct data_state_val *_new;
+	_new = (struct data_state_val *)xmalloc(sizeof(*_new));
+	memset(_new, 0, sizeof(*_new));
+	return _new;
+}
+
+static inline void data_state_val_free(struct data_state_val *val)
+{
+	free(val);
+}
+
+static inline struct data_state *data_state_new(void)
+{
+	struct data_state *_new;
+	_new = (struct data_state *)xmalloc(sizeof(*_new));
+	memset(_new, 0, sizeof(*_new));
+	return _new;
+}
+
+static inline void data_state_free(struct data_state *state)
+{
+	data_state_ref_free(state->ref);
+	data_state_val_free(state->val);
+	free(state);
+}
+
+static inline struct cp_state *cp_state_new(void)
+{
+	struct cp_state *_new;
+	_new = (struct cp_state *)xmalloc(sizeof(*_new));
+	memset(_new, 0, sizeof(*_new));
+	INIT_LIST_HEAD(&_new->data_list);
+	return _new;
+}
+
+static inline void cp_state_free(struct cp_state *state)
+{
+	free(state);
+}
+
+static inline void cp_state_cleanup(struct cp_state *state)
+{
+	struct data_state *tmp, *next;
+	list_for_each_entry_safe(tmp, next, &state->data_list, sibling) {
+		list_del(&tmp->sibling);
+		data_state_free(tmp);
+	}
+	cp_state_free(state);
+}
+
+static inline struct sample_state *sample_state_new(void)
+{
+	struct sample_state *_new;
+	_new = (struct sample_state *)xmalloc(sizeof(*_new));
+	memset(_new, 0, sizeof(*_new));
+	INIT_LIST_HEAD(&_new->cp_state_list);
+	return _new;
+}
+
+static inline void sample_state_free(struct sample_state *state)
+{
+	free(state);
+}
+
+static inline void sample_state_cleanup(struct sample_state *state)
+{
+	struct cp_state *tmp, *next;
+	list_for_each_entry_safe(tmp, next, &state->cp_state_list, sibling) {
+		list_del(&tmp->sibling);
+		cp_state_cleanup(tmp);
+	}
+	sample_state_free(state);
+}
+
 #include "defdefine.h"
 
 static inline int si_current_workdir(char *p, size_t len)

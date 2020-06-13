@@ -5890,7 +5890,7 @@ static void get_function_detail(struct sinode *sn)
 		}
 
 		cps[cps_cur] = code_path_new(new_func, brs);
-		cps[cps_cur]->cq = (void *)b;
+		cps[cps_cur]->cp = (void *)b;
 		gimple_seq gs;
 		gs = b->il.gimple.seq;
 		while (gs) {
