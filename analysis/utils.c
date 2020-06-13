@@ -297,8 +297,8 @@ static void create_func_code_paths(struct clib_rw_pool *pool)
 	struct path_list *new_head;
 	new_head = path_list_new();
 	for (size_t i = 0; i < func_code_path_deep; i++) {
-		struct codep_list *_new;
-		_new = codep_list_new();
+		struct cp_list *_new;
+		_new = cp_list_new();
 		_new->cp = (struct code_path *)func_code_paths[i];
 		list_add_tail(&_new->sibling, &new_head->path_head);
 	}
@@ -360,7 +360,7 @@ static void gen_func_codepaths(struct code_path *cp, struct clib_rw_pool *pool,
 
 static void drop_func_codepath(struct path_list *head)
 {
-	struct codep_list *tmp1, *next1;
+	struct cp_list *tmp1, *next1;
 	list_for_each_entry_safe(tmp1, next1, &head->path_head, sibling) {
 		list_del(&tmp1->sibling);
 		free(tmp1);

@@ -486,8 +486,10 @@ struct var_node {
 	uint32_t		size;
 } __attribute__((packed));
 
+struct cp_state;
 struct code_path {
 	struct func_node	*func;
+	struct cp_state		*state;
 
 	/*
 	 * for gcc, cp is basic_block
@@ -591,14 +593,14 @@ struct funcp_list {
 	struct sinode		*fsn;
 };
 
-struct codep_list {
-	struct list_head	sibling;
-	struct code_path	*cp;
-};
-
 struct path_list {
 	struct list_head	sibling;
 	struct list_head	path_head;
+};
+
+struct cp_list {
+	struct list_head	sibling;
+	struct code_path	*cp;
 };
 
 #define	VALUE_IS_UNSPEC		0
@@ -616,19 +618,18 @@ struct possible_list {
 };
 
 struct sample_state {
-	struct list_head	sibling;
-
-	/* combine code_path with its cp_state(s) */
-	struct list_head	cp_state_list;
-	struct code_path	*cp_entry;
-	u8			data_fmt;
+	struct list_head	cp_list_head;
 };
 
 struct cp_state {
 	/* the prev could be the reason */
 	struct list_head	sibling;
 
-	struct list_head	data_list;
+	struct list_head	data_state_list;
+
+	void			*point;
+
+	u8			data_fmt;
 };
 
 struct data_state_ref {

@@ -61,7 +61,7 @@ static expanded_location __maybe_unused *get_code_path_loc(struct sinode *fsn, s
 
 static struct use_at_list *first_use_in_cp(struct var_node *vn, struct list_head *cp)
 {
-	struct codep_list *tmp0;
+	struct cp_list *tmp0;
 	list_for_each_entry(tmp0, cp, sibling) {
 		struct code_stmt *tmp1;
 		list_for_each_entry(tmp1, &tmp0->cp->sentences, sibling) {
@@ -86,7 +86,7 @@ static lock_t log_lock;
 static void log_uninit_use(struct list_head *cp, expanded_location *xloc)
 {
 	mutex_lock(&log_lock);
-	struct codep_list __maybe_unused *cp_tmp;
+	struct cp_list __maybe_unused *cp_tmp;
 
 	si_log2("========trigger location========\n");
 	si_log2("maybe uninitialized var used at (%s %d %d)\n",

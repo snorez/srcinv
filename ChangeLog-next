@@ -2,3 +2,4 @@
 	* srcinv: rename code_path.cq to cp
 	* srcinv: Makefile check GCC version
 	* analysis: add dec*
+	* srcinv: reset structures

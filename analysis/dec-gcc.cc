@@ -19,15 +19,64 @@
 #include "si_gcc.h"
 #include "./analysis.h"
 
-C_SYM int dec_gimple_insn(struct code_path *cp, struct sample_state *head);
+C_SYM int init_gimple_cp_state(struct code_path *cp, struct cp_state *head);
 
-static void dec_single_gimple(gimple_seq gs, struct code_path *cp,
-				struct sample_state *head)
+static void single_gimple_init(gimple_seq gs, struct code_path *cp,
+				struct cp_state *state)
 {
+	switch (gimple_code(gs)) {
+	case GIMPLE_ASM:
+	case GIMPLE_ASSIGN:
+	case GIMPLE_CALL:
+	case GIMPLE_COND:
+	case GIMPLE_LABEL:
+	case GIMPLE_GOTO:
+	case GIMPLE_NOP:
+	case GIMPLE_RETURN:
+	case GIMPLE_SWITCH:
+	case GIMPLE_PHI:
+	case GIMPLE_OMP_PARALLEL:
+	case GIMPLE_OMP_TASK:
+	case GIMPLE_OMP_ATOMIC_LOAD:
+	case GIMPLE_OMP_ATOMIC_STORE:
+	case GIMPLE_OMP_FOR:
+	case GIMPLE_OMP_CONTINUE:
+	case GIMPLE_OMP_SINGLE:
+	case GIMPLE_OMP_TARGET:
+	case GIMPLE_OMP_TEAMS:
+	case GIMPLE_OMP_RETURN:
+	case GIMPLE_OMP_SECTIONS:
+	case GIMPLE_OMP_SECTIONS_SWITCH:
+	case GIMPLE_OMP_MASTER:
+	case GIMPLE_OMP_TASKGROUP:
+	case GIMPLE_OMP_SECTION:
+	case GIMPLE_OMP_GRID_BODY:
+	case GIMPLE_OMP_ORDERED:
+	case GIMPLE_OMP_CRITICAL:
+	case GIMPLE_BIND:
+	case GIMPLE_TRY:
+	case GIMPLE_CATCH:
+	case GIMPLE_EH_FILTER:
+	case GIMPLE_EH_MUST_NOT_THROW:
+	case GIMPLE_EH_ELSE:
+	case GIMPLE_RESX:
+	case GIMPLE_EH_DISPATCH:
+	case GIMPLE_DEBUG:
+	case GIMPLE_PREDICT:
+	case GIMPLE_TRANSACTION:
+		break;
+	default:
+	{
+		si_log1_todo("miss %s in %s\n",
+				gimple_code_name[gimple_code(gs)],
+				cp->func->name);
+		break;
+	}
+	}
 	return;
 }
 
-int dec_gimple_insn(struct code_path *cp, struct sample_state *head)
+int init_gimple_cp_state(struct code_path *cp, struct cp_state *state)
 {
 	basic_block this_bb;
 	gimple_seq gs;
@@ -36,9 +85,8 @@ int dec_gimple_insn(struct code_path *cp, struct sample_state *head)
 	gs = this_bb->il.gimple.seq;
 
 	for (; gs; gs = gs->next) {
-		dec_single_gimple(gs, cp, head);
+		single_gimple_init(gs, cp, state);
 	}
 
-	head->cp_entry = cp;
 	return 0;
 }

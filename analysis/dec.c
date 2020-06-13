@@ -24,24 +24,22 @@
 #include "si_core.h"
 #include "./analysis.h"
 
-C_SYM int dec_asm_insn(struct code_path *cp, struct sample_state *head);
-C_SYM int dec_gimple_insn(struct code_path *cp, struct sample_state *head);
+C_SYM int init_asm_cp_state(struct code_path *cp, struct cp_state *state);
+C_SYM int init_gimple_cp_state(struct code_path *cp, struct cp_state *state);
 
-int dec_insn(int type, struct code_path *cp, struct sample_state *head)
+int init_cp_state(int type, struct code_path *cp)
 {
 	int err = 0;
+	struct cp_state *new_cp_state;
 
-	if (!list_empty(&head->cp_state_list)) {
-		si_log1_emer("sample_state is not empty\n");
-		return -1;
-	}
+	new_cp_state = cp_state_new();
 
 	switch (type) {
 	case SINODE_FMT_ASM:
-		err = dec_asm_insn(cp, head);
+		err = init_asm_cp_state(cp, new_cp_state);
 		break;
 	case SINODE_FMT_GCC:
-		err = dec_gimple_insn(cp, head);
+		err = init_gimple_cp_state(cp, new_cp_state);
 		break;
 	default:
 	{
@@ -51,7 +49,13 @@ int dec_insn(int type, struct code_path *cp, struct sample_state *head)
 	}
 	}
 
-	if (!err)
-		head->data_fmt = type;
+	if (!err) {
+		cp->state = new_cp_state;
+		new_cp_state->data_fmt = type;
+	} else {
+		cp_state_cleanup(new_cp_state);
+		cp_state_free(new_cp_state);
+	}
+
 	return err;
 }
