@@ -2,7 +2,6 @@
  * For now, we only handle call instructions for asm files
  *
  * TODO:
- *	parse branches(Jxx instructions)
  *	parse sysenter/int for userspace program
  *	variables xrefs
  *	indirect calls, FF /2 and FF /3
@@ -151,15 +150,19 @@ static void getbase(void)
 		if ((tmp->type == STT_FUNC) && (tmp->bind == STB_LOCAL))
 			type = TYPE_FUNC_STATIC;
 		else if ((tmp->type == STT_FUNC) &&
-			 ((tmp->bind == STB_GLOBAL) || (tmp->bind == STB_WEAK)))
+			 ((tmp->bind == STB_GLOBAL) ||
+			  (tmp->bind == STB_WEAK)))
 			type = TYPE_FUNC_GLOBAL;
-		else if ((tmp->type == STT_OBJECT) && (tmp->bind == STB_LOCAL))
+		else if ((tmp->type == STT_OBJECT) &&
+			 (tmp->bind == STB_LOCAL))
 			type = TYPE_VAR_STATIC;
 		else if ((tmp->type == STT_OBJECT) &&
-			 ((tmp->bind == STB_GLOBAL) || (tmp->bind == STB_WEAK)))
+			 ((tmp->bind == STB_GLOBAL) ||
+			  (tmp->bind == STB_WEAK)))
 			type = TYPE_VAR_GLOBAL;
-		else if ((tmp->type == STT_NOTYPE) && (tmp->name) &&
-				(tmp->load_addr)) {
+		else if ((tmp->type == STT_NOTYPE) &&
+			 (tmp->name) &&
+			 (tmp->load_addr)) {
 			/* detect which section this sym in */
 			if (is_section_text(ef, tmp)) {
 				if ((tmp->bind == STB_GLOBAL) ||
@@ -184,12 +187,14 @@ static void getbase(void)
 			continue;
 
 		mutex_lock(&getbase_lock);
-		if ((type == TYPE_FUNC_GLOBAL) || (type == TYPE_VAR_GLOBAL)) {
+		if ((type == TYPE_FUNC_GLOBAL) ||
+			(type == TYPE_VAR_GLOBAL)) {
 			long args[3];
 			args[0] = (long)cur_sibuf->rf;
 			args[1] = (long)get_builtin_resfile();
 			args[2] = (long)tmp->name;
-			sn_tmp = analysis__sinode_search(type, SEARCH_BY_SPEC,
+			sn_tmp = analysis__sinode_search(type,
+							 SEARCH_BY_SPEC,
 							 (void *)args);
 		} else if ((type == TYPE_FUNC_STATIC) ||
 				(type == TYPE_VAR_STATIC)) {
@@ -198,7 +203,8 @@ static void getbase(void)
 			args[1] = 0;
 			args[2] = 0;
 			args[3] = (long)tmp->name;
-			sn_tmp = analysis__sinode_search(type, SEARCH_BY_SPEC,
+			sn_tmp = analysis__sinode_search(type,
+							 SEARCH_BY_SPEC,
 							 (void *)args);
 		}
 
@@ -264,6 +270,56 @@ static void get_var_detail(struct sinode *sn)
 	return;
 }
 
+static inline void calc_addr_jmp(unsigned long addr, struct insn *insn,
+				 unsigned long *next, unsigned long *jmp,
+				 int opcs)
+{
+	*next = addr + insn->length;
+	*jmp = 0;
+	s32 offset;
+
+	switch (opcs) {
+	case 1:
+	{
+		offset = (s32)(insn->immediate.bytes[0]);
+		*jmp = *next + offset;
+		break;
+	}
+	case 2:
+	{
+		switch (insn->immediate.nbytes) {
+		case 1:
+		{
+			offset = (s32)(insn->immediate.bytes[0]);
+			break;
+		}
+		case 2:
+		{
+			offset = *(short *)(insn->immediate.bytes);
+			break;
+		}
+		case 4:
+		{
+			offset = *(int *)(insn->immediate.bytes);
+			break;
+		}
+		default:
+		{
+			offset = 0;
+			break;
+		}
+		}
+
+		*jmp = *next + offset;
+		break;
+	}
+	default:
+	{
+		break;
+	}
+	}
+}
+
 static void get_func_detail(struct sinode *sn)
 {
 	CLIB_DBG_FUNC_ENTER();
@@ -271,7 +327,41 @@ static void get_func_detail(struct sinode *sn)
 	struct func_node *fn;
 	fn = (struct func_node *)sn->data;
 
-	/* TODO: what to do here? */
+	struct insn insn;
+	unsigned long addr, i = 0;
+	unsigned long size = fn->size;
+	addr = (unsigned long)fn->node;
+	unsigned long next_addr;
+	unsigned long addr_jmp;
+
+	while (i < size) {
+		unsigned char this_bytes, opc0, opc1;
+		/* FIXME: we just assume that the x86_64 arg is true */
+		insn_init(&insn, (void *)(addr+i), MAX_INSN_SIZE, 1);
+		insn_get_length(&insn);
+		if (!insn.length)
+			break;
+
+		this_bytes = insn.opcode.nbytes;
+		opc0 = insn.opcode.bytes[0];
+		opc1 = insn.opcode.bytes[1];
+
+		if ((this_bytes == 1) &&
+			((opc0 == JCXZ_OPC) ||
+			 ((opc0 <= JG_OPC0) && (opc0 >= JO_OPC0)))) {
+			calc_addr_jmp(addr+i, &insn, &next_addr,
+					&addr_jmp, 1);
+			/* TODO */
+		} else if ((this_bytes == 2) && (opc0 == TWO_OPC) &&
+				((opc1 <= JG_OPC1) && (opc1 >= JO_OPC1))) {
+			calc_addr_jmp(addr+i, &insn, &next_addr,
+					&addr_jmp, 2);
+			/* TODO */
+		}
+
+		i += insn.length;
+	}
+
 	fn->detailed = 1;
 
 	CLIB_DBG_FUNC_EXIT();
@@ -424,7 +514,8 @@ static void addr2sinode_rel(char *addr)
 		Elf32_Shdr *shdr;
 		shdr = (Elf32_Shdr *)get_sh_by_id(ef, sym->st_shndx);
 		if (shdr) {
-			shdrname = (char *)((long)ef->shstrtab + shdr->sh_name);
+			shdrname = (char *)((long)ef->shstrtab +
+					    shdr->sh_name);
 			shdr_off = shdr->sh_offset;
 		}
 		break;
@@ -435,7 +526,8 @@ static void addr2sinode_rel(char *addr)
 		Elf64_Shdr *shdr;
 		shdr = (Elf64_Shdr *)get_sh_by_id(ef, sym->st_shndx);
 		if (shdr) {
-			shdrname = (char *)((long)ef->shstrtab + shdr->sh_name);
+			shdrname = (char *)((long)ef->shstrtab +
+					    shdr->sh_name);
 			shdr_off = shdr->sh_offset;
 		}
 		break;
@@ -464,7 +556,9 @@ static void addr2sinode_rel(char *addr)
 			sprintf(rel_shdr_name, "%s%s", ".rela", shdrname);
 
 		unsigned long off = addr - (char *)cur_ctx - shdr_off;
-		target_symname = get_relentname_by_offset(ef, rel_shdr_name, i,
+		target_symname = get_relentname_by_offset(ef,
+							  rel_shdr_name,
+							  i,
 							  off);
 		if (target_symname)
 			break;
@@ -497,11 +591,13 @@ static struct sinode *addr2sinode(char *addr, int flag)
 	switch (flag) {
 	case 0:
 	{
-		analysis__sinode_match("func_global", addr2sinode_match, addr);
+		analysis__sinode_match("func_global", addr2sinode_match,
+				       addr);
 		if (addr2sinode_val)
 			break;
 
-		analysis__sinode_match("func_static", addr2sinode_match, addr);
+		analysis__sinode_match("func_static", addr2sinode_match,
+				       addr);
 		break;
 	}
 	case 1:
@@ -560,7 +656,7 @@ static void indcfg1_do_call(char *ip, char *opcodes, int len)
 	{
 		/*
 		 * XXX: check intel manual
-		 * Chapter2.1.5: Addressing-Mode Encoding of ModR/M and SIB Bytes
+		 * 2.1.5: Addressing-Mode Encoding of ModR/M and SIB Bytes
 		 */
 		unsigned char modrm = opcodes[1];
 		unsigned char digit = (modrm >> 3) & 7;
@@ -653,7 +749,8 @@ static void indcfg1_match_cb(struct sinode *sn, void *arg)
 					 (buf[0] >= JO_OPC0)))) {
 			/* TODO: should've been handle in getdetail */
 		} else if ((bytes == 2) && (buf[0] == TWO_OPC) &&
-				((buf[1] <= JG_OPC1) && (buf[1] >= JO_OPC1))) {
+				((buf[1] <= JG_OPC1) &&
+				 (buf[1] >= JO_OPC1))) {
 			/* TODO: should've been handle in getdetail */
 		} else if (opcode == X86_INS_CALL) {
 			indcfg1_do_call(addr, buf, bytes);

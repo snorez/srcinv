@@ -5907,6 +5907,7 @@ static void get_function_detail(struct sinode *sn)
 			gs = gs->next;
 		}
 
+		analysis__init_cp_state(SINODE_FMT_GCC, cps[cps_cur]);
 		cps_cur++;
 		b = b->next_bb;
 	}

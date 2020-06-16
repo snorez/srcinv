@@ -841,7 +841,7 @@ static inline void data_state_free(struct data_state *state)
 static inline struct cp_state *cp_state_new(void)
 {
 	struct cp_state *_new;
-	_new = (struct cp_state *)xmalloc(sizeof(*_new));
+	_new = (struct cp_state *)src_buf_get(sizeof(*_new));
 	memset(_new, 0, sizeof(*_new));
 	INIT_LIST_HEAD(&_new->data_state_list);
 	return _new;
@@ -849,13 +849,13 @@ static inline struct cp_state *cp_state_new(void)
 
 static inline void cp_state_free(struct cp_state *state)
 {
-	free(state);
+	return;
 }
 
 static inline void cp_state_cleanup(struct cp_state *state)
 {
 	struct data_state *tmp, *next;
-	list_for_each_entry_safe(tmp, next, &state->data_state_list, sibling) {
+	list_for_each_entry_safe(tmp,next,&state->data_state_list,sibling) {
 		list_del(&tmp->sibling);
 		data_state_free(tmp);
 	}

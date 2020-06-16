@@ -500,7 +500,8 @@ struct code_path {
 	void			*cp;
 
 	/*
-	 * for gcc, cond_head point to a GIMPLE_COND stmt
+	 * for gcc, this point to a GIMPLE_COND stmt
+	 * for asm, this point to the Jxx insn
 	 */
 	void			*cond_head;
 
@@ -633,6 +634,8 @@ struct cp_state {
 	void			*point;
 
 	u8			data_fmt;
+	u8			dirty: 1;
+	u8			padding: 7;
 };
 
 struct data_state_ref {

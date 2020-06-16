@@ -1,5 +1,7 @@
 2020-06-16
 	* srcinv: use a global names_root to store all name
+	* analysis: init code_path.state while parsing
+	* analysis/gcc_asm: prepare to get branches
 
 2020-06-13
 	* srcinv: rename code_path.cq to cp

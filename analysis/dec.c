@@ -27,7 +27,7 @@
 C_SYM int init_asm_cp_state(struct code_path *cp, struct cp_state *state);
 C_SYM int init_gimple_cp_state(struct code_path *cp, struct cp_state *state);
 
-int init_cp_state(int type, struct code_path *cp)
+void init_cp_state(int type, struct code_path *cp)
 {
 	int err = 0;
 	struct cp_state *new_cp_state;
@@ -56,6 +56,4 @@ int init_cp_state(int type, struct code_path *cp)
 		cp_state_cleanup(new_cp_state);
 		cp_state_free(new_cp_state);
 	}
-
-	return err;
 }
