@@ -85,7 +85,6 @@ int si_src_setup(void)
 	memset(si, 0, sizeof(*si));
 	INIT_LIST_HEAD(&si->resfile_head);
 	INIT_LIST_HEAD(&si->sibuf_head);
-	INIT_LIST_HEAD(&si->attr_name_head);
 	si->next_mmap_area = RESFILE_BUF_START;
 
 	/* TODO, check if the src_id already exists */

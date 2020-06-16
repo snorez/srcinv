@@ -262,12 +262,12 @@ struct src {
 	struct list_head	resfile_head;
 	/* sibuf, for one compiled file */
 	struct list_head	sibuf_head;
-	struct list_head	attr_name_head;
 
 	atomic_t		sibuf_mem_usage;
 	union siid		id_idx[TYPE_MAX];
 
 	struct rb_root		sinodes[TYPE_MAX][RB_NODE_BY_MAX];
+	struct rb_root		names_root;
 
 	/* next area to mmap */
 	uint64_t		next_mmap_area;
@@ -425,8 +425,8 @@ struct sinode {
 } __attribute__((packed));
 
 struct name_list {
-	struct list_head	sibling;
-	char			*name;
+	struct rb_node		node;
+	char			name[0];
 };
 
 struct attr_list {
@@ -467,6 +467,7 @@ struct type_node {
 	struct list_head	used_at;
 } __attribute__((packed));
 
+struct varnode_lft;
 struct var_node {
 	rwlock_t		lock;
 	struct type_node	*type;
@@ -478,6 +479,8 @@ struct var_node {
 
 	struct list_head	used_at;
 	struct list_head	possible_values;
+
+	struct varnode_lft	*vn_lft;
 
 	uint32_t		detailed: 1;
 	uint32_t		padding: 31;
@@ -645,6 +648,10 @@ struct data_state {
 
 	struct data_state_ref	*ref;
 	struct data_state_val	*val;
+};
+
+struct varnode_lft {
+	u64			todo;
 };
 
 #include "si_helper.h"

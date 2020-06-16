@@ -4250,9 +4250,8 @@ static void do_result_decl(tree node, int flag)
 			if (DECL_NAME(n)) {
 				memset(name, 0, NAME_MAX);
 				get_node_name(DECL_NAME(n), name);
-				vnl->var.name = (char *)src_buf_get(
-						strlen(name) + 1);
-				memcpy(vnl->var.name, name, strlen(name) + 1);
+				vnl->var.name = name_list_add(name,
+							      strlen(name) + 1);
 			}
 			list_add_tail(&vnl->sibling, &cur_fn->local_vars);
 		}
@@ -4438,10 +4437,8 @@ static void do_var_decl_phase4(tree n)
 			if (DECL_NAME(n)) {
 				memset(name, 0, NAME_MAX);
 				get_node_name(DECL_NAME(n), name);
-				newlv->var.name = (char *)src_buf_get(
-						      strlen(name)+1);
-				memcpy(newlv->var.name,
-					name, strlen(name)+1);
+				newlv->var.name = name_list_add(name,
+								strlen(name)+1);
 			}
 			list_add_tail(&newlv->sibling,
 					&cur_fn->local_vars);
@@ -5505,9 +5502,8 @@ static void __get_type_detail(struct type_node **base, struct list_head *head,
 			BUG_ON(!name[0]);
 			struct var_list *_new_var;
 			_new_var = var_list_new((void *)enum_list);
-			_new_var->var.name =
-					(char *)src_buf_get(strlen(name)+1);
-			memcpy(_new_var->var.name, name, strlen(name)+1);
+			_new_var->var.name = name_list_add(name,
+							   strlen(name) + 1);
 			long value;
 			value = (long)TREE_INT_CST_LOW(TREE_VALUE(enum_list));
 			analysis__add_possible(&_new_var->var,
@@ -5634,9 +5630,8 @@ static void __get_type_detail(struct type_node **base, struct list_head *head,
 			if (DECL_NAME(fields)) {
 				memset(name, 0, NAME_MAX);
 				get_node_name(DECL_NAME(fields), name);
-				newf1->name =
-					(char *)src_buf_get(strlen(name) + 1);
-				memcpy(newf1->name, name, strlen(name)+1);
+				newf1->name = name_list_add(name,
+							    strlen(name) + 1);
 			}
 			list_add_tail(&newf0->sibling, &new_type->children);
 			fields = DECL_CHAIN(fields);
@@ -5667,9 +5662,8 @@ static void __get_type_detail(struct type_node **base, struct list_head *head,
 						strlen(ARG_VA_LIST_NAME));
 				struct type_node *_new;
 				_new = type_node_new((void *)args, VOID_TYPE);
-				_new->type_name =
-					(char *)src_buf_get(strlen(name)+1);
-				memcpy(_new->type_name, name, strlen(name)+1);
+				_new->type_name = name_list_add(name,
+								strlen(name)+1);
 				list_add_tail(&_new->sibling,
 						&new_type->children);
 			} else {
@@ -5790,8 +5784,7 @@ static void get_function_detail(struct sinode *sn)
 		memset(name, 0, NAME_MAX);
 		get_node_name(DECL_NAME(args), name);
 		BUG_ON(!name[0]);
-		new_vn->name = (char *)src_buf_get(strlen(name) + 1);
-		memcpy(new_vn->name, name, strlen(name) + 1);
+		new_vn->name = name_list_add(name, strlen(name) + 1);
 
 		list_add_tail(&new_arg->sibling, &new_func->args);
 
@@ -7490,8 +7483,7 @@ static void callee_alias_add_caller(struct sinode *callee,
 		if (!strcmp(tmp->attr_name, "alias")) {
 			found = 1;
 			break;
-		} else if (!strcmp(tmp->attr_name,
-					"no_instrument_function")) {
+		} else if (!strcmp(tmp->attr_name, "no_instrument_function")) {
 			no_ins = 1;
 		}
 	}

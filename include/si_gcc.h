@@ -532,7 +532,7 @@ static inline void get_attributes(struct list_head *head, tree attr_node)
 		get_node_name(purpose, name);
 
 		struct attr_list *newal;
-		newal = attr_list_new(name);
+		newal = attr_list_add(name);
 
 		tree tl2;
 		tl2 = TREE_VALUE(tl);

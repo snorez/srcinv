@@ -1,3 +1,6 @@
+2020-06-16
+	* srcinv: use a global names_root to store all name
+
 2020-06-13
 	* srcinv: rename code_path.cq to cp
 	* srcinv: Makefile check GCC version

@@ -273,64 +273,134 @@ static inline struct resfile *get_builtin_resfile(void)
 	return ret;
 }
 
-static inline char *__attr_name_find(char *name)
+static inline struct name_list *name_list_new(char *tname, size_t namelen)
 {
+	struct name_list *_new;
+	_new = (struct name_list *)src_buf_get(sizeof(*_new) + namelen);
+	memset(_new, 0, sizeof(*_new));
+	memcpy(_new->name, tname, namelen);
+	return _new;
+}
+
+static inline struct name_list *__name_list_find(char *tname, size_t namelen)
+{
+	struct rb_root *root = &si->names_root;
+	struct rb_node **newtmp = &(root->rb_node);
 	struct name_list *ret = NULL;
-	struct name_list *tmp;
-	list_for_each_entry(tmp, &si->attr_name_head, sibling) {
-		if (!strcmp(tmp->name, name)) {
-			ret = tmp;
-			break;
+
+	while (*newtmp) {
+		struct name_list *data = container_of(*newtmp, struct name_list,
+							node);
+		size_t thislen = strlen(data->name) + 1;
+		if (namelen < thislen) {
+			newtmp = &((*newtmp)->rb_left);
+		} else if (namelen > thislen) {
+			newtmp = &((*newtmp)->rb_right);
+		} else {
+			int res = strncmp(data->name, tname, namelen);
+			if (res > 0) {
+				newtmp = &((*newtmp)->rb_left);
+			} else if (res < 0) {
+				newtmp = &((*newtmp)->rb_right);
+			} else {
+				ret = data;
+				break;
+			}
 		}
 	}
 
-	if (ret)
-		return ret->name;
-	return NULL;
-}
-
-static inline char *attr_name_find(char *name)
-{
-	char *ret = NULL;
-	si_lock_r();
-	ret = __attr_name_find(name);
-	si_unlock_r();
 	return ret;
 }
 
-static inline char *attr_name_new(char *name)
+static inline void __name_list_insert(struct name_list *nl, size_t namelen)
 {
-	char *ret = NULL;
-	si_lock_w();
-	if ((ret = __attr_name_find(name))) {
-		si_unlock_w();
-		return ret;
+	struct rb_root *root = &si->names_root;
+	struct rb_node **newtmp = &(root->rb_node), *parent = NULL;
+
+	while (*newtmp) {
+		struct name_list *data;
+		data = container_of(*newtmp, struct name_list, node);
+
+		size_t thislen = strlen(data->name) + 1;
+		parent = *newtmp;
+		if (namelen < thislen) {
+			newtmp = &((*newtmp)->rb_left);
+		} else if (namelen > thislen) {
+			newtmp = &((*newtmp)->rb_right);
+		} else {
+			int res = strncmp(data->name, nl->name, namelen);
+			if (res > 0) {
+				newtmp = &((*newtmp)->rb_left);
+			} else if (res < 0) {
+				newtmp = &((*newtmp)->rb_right);
+			} else {
+				err_dbg(0, "same name_list insert");
+				return;
+			}
+		}
 	}
 
-	struct name_list *_new;
-	_new = (struct name_list *)src_buf_get(sizeof(*_new));
-	memset(_new, 0, sizeof(*_new));
-	_new->name = (char *)src_buf_get(strlen(name)+1);
-	memcpy(_new->name, name, strlen(name)+1);
-	list_add_tail(&_new->sibling, &si->attr_name_head);
-	ret = _new->name;
-
-	si_unlock_w();
-	return ret;
+	rb_link_node(&nl->node, parent, newtmp);
+	rb_insert_color(&nl->node, root);
+	return;
 }
 
-static inline struct attr_list *attr_list_new(char *attr_name)
+static inline struct name_list *__name_list_add(char *tname, size_t namelen)
 {
-	char *oldname = attr_name_new(attr_name);
-	BUG_ON(!oldname);
+	struct name_list *nl;
+	nl = __name_list_find(tname, namelen);
+	if (!nl) {
+		nl = name_list_new(tname, namelen);
+		__name_list_insert(nl, namelen);
+	}
 
+	return nl;
+}
+
+static inline struct name_list *_name_list_add(char *tname, size_t namelen)
+{
+	si_lock_w();
+	struct name_list *nl;
+	nl = __name_list_add(tname, namelen);
+	si_unlock_w();
+	return nl;
+}
+
+static inline char *name_list_add(char *tname, size_t namelen)
+{
+	struct name_list *nl;
+	nl = _name_list_add(tname, namelen);
+	return nl->name;
+}
+
+static inline struct attr_list *attr_list_new(void)
+{
 	struct attr_list *_new;
 	_new = (struct attr_list *)src_buf_get(sizeof(*_new));
 	memset(_new, 0, sizeof(*_new));
 	INIT_LIST_HEAD(&_new->values);
-	_new->attr_name = oldname;
-
 	return _new;
+}
+
+static inline struct attr_list *__attr_list_add(char *name)
+{
+	struct attr_list *ret = NULL;
+	struct name_list *nl;
+	nl = __name_list_add(name, strlen(name) + 1);
+
+	ret = attr_list_new();
+	ret->attr_name = nl->name;
+
+	return ret;
+}
+
+static inline struct attr_list *attr_list_add(char *name)
+{
+	struct attr_list *ret = NULL;
+	si_lock_w();
+	ret = __attr_list_add(name);
+	si_unlock_w();
+	return ret;
 }
 
 static inline struct attrval_list *attrval_list_new(void)

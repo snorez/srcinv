@@ -35,9 +35,7 @@ struct sinode *sinode_new(enum sinode_type type,
 	/* arrange id for sinode */
 	sinode_id(type, &ret->node_id.id);
 	if (name) {
-		ret->name = (char *)src_buf_get(namelen);
-		BUG_ON(!ret->name);
-		memcpy(ret->name, name, namelen);
+		ret->name = name_list_add(name, namelen);
 		ret->namelen = namelen;
 	}
 	if (data) {
