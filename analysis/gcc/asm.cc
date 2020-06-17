@@ -334,7 +334,14 @@ static void get_func_detail(struct sinode *sn)
 	unsigned long next_addr;
 	unsigned long addr_jmp;
 
+	struct clib_bitmap *bm = NULL;
+	unsigned long entries = 1;
+	bm = clib_bitmap_create(size);
+	clib_bitmap_set(bm, 0);
+
+	i = 0;
 	while (i < size) {
+		int jmpflag = 0;
 		unsigned char this_bytes, opc0, opc1;
 		/* FIXME: we just assume that the x86_64 arg is true */
 		insn_init(&insn, (void *)(addr+i), MAX_INSN_SIZE, 1);
@@ -351,17 +358,102 @@ static void get_func_detail(struct sinode *sn)
 			 ((opc0 <= JG_OPC0) && (opc0 >= JO_OPC0)))) {
 			calc_addr_jmp(addr+i, &insn, &next_addr,
 					&addr_jmp, 1);
-			/* TODO */
+			jmpflag = 1;
 		} else if ((this_bytes == 2) && (opc0 == TWO_OPC) &&
 				((opc1 <= JG_OPC1) && (opc1 >= JO_OPC1))) {
 			calc_addr_jmp(addr+i, &insn, &next_addr,
 					&addr_jmp, 2);
-			/* TODO */
+			jmpflag = 1;
 		}
 
 		i += insn.length;
+
+		if (!jmpflag)
+			continue;
+
+		if ((next_addr > addr) && (next_addr < (addr + size))) {
+			clib_bitmap_set(bm, next_addr-addr);
+			entries++;
+		} else {
+			si_log1_todo("next_addr not in func %s\n",
+					sn->name);
+		}
+
+		if ((addr_jmp > addr) && (addr_jmp < (addr + size))) {
+			clib_bitmap_set(bm, addr_jmp-addr);
+			entries++;
+		} else {
+			si_log1_todo("addr_jmp not in func %s\n",
+					sn->name);
+		}
 	}
 
+	struct code_path *cps[entries] = { NULL };
+	s64 start = 0;
+	for (i = 0; i < entries; i++) {
+		cps[i] = code_path_new(fn, 0);
+		start = clib_bitmap_nonzero(bm, start);
+		BUG_ON(start == -1);
+		cps[i]->cp = (void *)(addr + start);
+		start += 1;
+	}
+	clib_bitmap_destroy(bm);
+
+	i = 0;
+	unsigned long prev_insn_addr = addr;
+	unsigned long cp_idx = 0;
+	while (i < size) {
+		int jmpflag = 0;
+		unsigned char this_bytes, opc0, opc1;
+		insn_init(&insn, (void *)(addr+i), MAX_INSN_SIZE, 1);
+		insn_get_length(&insn);
+		if (!insn.length)
+			break;
+
+		this_bytes = insn.opcode.nbytes;
+		opc0 = insn.opcode.bytes[0];
+		opc1 = insn.opcode.bytes[1];
+
+		if ((this_bytes == 1) &&
+			((opc0 == JCXZ_OPC) ||
+			 ((opc0 <= JG_OPC0) && (opc0 >= JO_OPC0)))) {
+			calc_addr_jmp(addr+i, &insn, &next_addr,
+					&addr_jmp, 1);
+			jmpflag = 1;
+		} else if ((this_bytes == 2) && (opc0 == TWO_OPC) &&
+				((opc1 <= JG_OPC1) && (opc1 >= JO_OPC1))) {
+			calc_addr_jmp(addr+i, &insn, &next_addr,
+					&addr_jmp, 2);
+			jmpflag = 1;
+		}
+
+		prev_insn_addr = addr + i;
+		i += insn.length;
+
+		if (!jmpflag)
+			continue;
+
+		if ((next_addr > addr) && (next_addr < (addr + size))) {
+			cps[cp_idx]->next[0] = cps[cp_idx+1];
+		}
+
+		if ((addr_jmp > addr) && (addr_jmp < (addr + size))) {
+			for (unsigned k = 0; k < entries; k++) {
+				if (cps[k]->cp != (void *)addr_jmp)
+					continue;
+				cps[cp_idx]->next[1] = cps[k];
+			}
+		}
+		cps[cp_idx]->cond_head = (void *)prev_insn_addr;
+		cp_idx++;
+	}
+	cps[cp_idx]->cond_head = (void *)prev_insn_addr;
+
+	for (i = 0; i < entries; i++) {
+		analysis__init_cp_state(SINODE_FMT_ASM, cps[i]);
+	}
+
+	fn->codes = cps[0];
 	fn->detailed = 1;
 
 	CLIB_DBG_FUNC_EXIT();
@@ -744,15 +836,7 @@ static void indcfg1_match_cb(struct sinode *sn, void *arg)
 			goto out;
 		}
 
-		if ((bytes == 1) && ((buf[0] == JCXZ_OPC) ||
-					((buf[0] <= JG_OPC0) &&
-					 (buf[0] >= JO_OPC0)))) {
-			/* TODO: should've been handle in getdetail */
-		} else if ((bytes == 2) && (buf[0] == TWO_OPC) &&
-				((buf[1] <= JG_OPC1) &&
-				 (buf[1] >= JO_OPC1))) {
-			/* TODO: should've been handle in getdetail */
-		} else if (opcode == X86_INS_CALL) {
+		if (opcode == X86_INS_CALL) {
 			indcfg1_do_call(addr, buf, bytes);
 		}
 

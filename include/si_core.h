@@ -496,6 +496,7 @@ struct code_path {
 
 	/*
 	 * for gcc, cp is basic_block
+	 * for asm, this is the first insn addr
 	 */
 	void			*cp;
 
