@@ -1,5 +1,7 @@
 2020-06-17
 	* analysis/gcc_asm: parse branches
+	* analysis/gcc_asm: check if the func size zero and check the retval
+	of clib_bitmap_set()
 
 2020-06-16
 	* srcinv: use a global names_root to store all name

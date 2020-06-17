@@ -322,8 +322,6 @@ static inline void calc_addr_jmp(unsigned long addr, struct insn *insn,
 
 static void get_func_detail(struct sinode *sn)
 {
-	CLIB_DBG_FUNC_ENTER();
-
 	struct func_node *fn;
 	fn = (struct func_node *)sn->data;
 
@@ -333,6 +331,11 @@ static void get_func_detail(struct sinode *sn)
 	addr = (unsigned long)fn->node;
 	unsigned long next_addr;
 	unsigned long addr_jmp;
+
+	if (!size)
+		return;
+
+	CLIB_DBG_FUNC_ENTER();
 
 	struct clib_bitmap *bm = NULL;
 	unsigned long entries = 1;
@@ -372,16 +375,16 @@ static void get_func_detail(struct sinode *sn)
 			continue;
 
 		if ((next_addr > addr) && (next_addr < (addr + size))) {
-			clib_bitmap_set(bm, next_addr-addr);
-			entries++;
+			if (!clib_bitmap_set(bm, next_addr-addr))
+				entries++;
 		} else {
 			si_log1_todo("next_addr not in func %s\n",
 					sn->name);
 		}
 
 		if ((addr_jmp > addr) && (addr_jmp < (addr + size))) {
-			clib_bitmap_set(bm, addr_jmp-addr);
-			entries++;
+			if (!clib_bitmap_set(bm, addr_jmp-addr))
+				entries++;
 		} else {
 			si_log1_todo("addr_jmp not in func %s\n",
 					sn->name);
