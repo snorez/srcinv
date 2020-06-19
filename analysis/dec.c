@@ -23,37 +23,3 @@
  */
 #include "si_core.h"
 #include "./analysis.h"
-
-C_SYM int init_asm_cp_state(struct code_path *cp, struct cp_state *state);
-C_SYM int init_gimple_cp_state(struct code_path *cp, struct cp_state *state);
-
-void init_cp_state(int type, struct code_path *cp)
-{
-	int err = 0;
-	struct cp_state *new_cp_state;
-
-	new_cp_state = cp_state_new();
-
-	switch (type) {
-	case SINODE_FMT_ASM:
-		err = init_asm_cp_state(cp, new_cp_state);
-		break;
-	case SINODE_FMT_GCC:
-		err = init_gimple_cp_state(cp, new_cp_state);
-		break;
-	default:
-	{
-		si_log1_todo("type(%d) not implemented\n", type);
-		err = -1;
-		break;
-	}
-	}
-
-	if (!err) {
-		cp->state = new_cp_state;
-		new_cp_state->data_fmt = type;
-	} else {
-		cp_state_cleanup(new_cp_state);
-		cp_state_free(new_cp_state);
-	}
-}

@@ -1,3 +1,6 @@
+2020-06-19
+	* analysis: implement init_cp_state in gcc/*
+
 2020-06-17
 	* analysis/gcc_asm: parse branches
 	* analysis/gcc_asm: check if the func size zero and check the retval

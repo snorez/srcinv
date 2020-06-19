@@ -390,7 +390,7 @@ void gen_code_paths(void *arg, struct clib_rw_pool *pool)
 	if ((fsn_from == fsn_to) && (line0 == 0) && (line1 == -1)) {
 		struct func_node *fn = (struct func_node *)fsn_from->data;
 		if (fn)
-			gen_func_codepaths(fn->codes, pool, 0, 0, paths);
+			gen_func_codepaths(fn->cps[0], pool, 0, 0, paths);
 		return;
 	}
 

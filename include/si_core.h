@@ -515,7 +515,7 @@ struct code_path {
 #define	LABEL_MAX		(2048+1024)
 struct func_node {
 	rwlock_t		lock;
-	struct code_path	*codes;
+	struct code_path	**cps;
 	void			*node;
 	char			*name;
 	char			*fake_name;
@@ -536,8 +536,9 @@ struct func_node {
 	/* how deep this function is */
 	uint64_t		call_level;
 
-	uint32_t		detailed: 1;
-	uint32_t		padding: 31;
+	uint16_t		detailed: 1;
+	uint16_t		padding: 15;
+	uint16_t		cp_cnt;
 
 	/* the memory size of this function, useful in asm mode */
 	uint32_t		size;
@@ -632,19 +633,30 @@ struct cp_state {
 
 	struct list_head	data_state_list;
 
-	void			*point;
+	void			*cur_point;
 
 	u8			data_fmt;
 	u8			dirty: 1;
 	u8			padding: 7;
 };
 
-struct data_state_ref {
-	void			*todo;
+struct data_state_val {
+	u64			size: 2;
+	u64			type: 6;
+	u64			padding: 58;
+
+	u64			val[3];
 };
 
-struct data_state_val {
-	void			*todo;
+struct data_state_ref {
+	/*
+	 * TODO: we may need a reason here to show the connection.
+	 * However, the reason is quite unique in different path.
+	 */
+	void			*addr;
+	u64			offset;
+	u64			bits;
+	s8			data_fmt;
 };
 
 struct data_state {

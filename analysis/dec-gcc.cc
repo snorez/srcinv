@@ -19,11 +19,7 @@
 #include "si_gcc.h"
 #include "./analysis.h"
 
-C_SYM int init_gimple_cp_state(struct code_path *cp, struct cp_state *state);
-
-static void single_gimple_init(gimple_seq gs, struct code_path *cp,
-				struct cp_state *state)
-{
+#if 0
 	switch (gimple_code(gs)) {
 	case GIMPLE_ASM:
 	case GIMPLE_ASSIGN:
@@ -73,20 +69,4 @@ static void single_gimple_init(gimple_seq gs, struct code_path *cp,
 		break;
 	}
 	}
-	return;
-}
-
-int init_gimple_cp_state(struct code_path *cp, struct cp_state *state)
-{
-	basic_block this_bb;
-	gimple_seq gs;
-
-	this_bb = (basic_block)cp->cp;
-	gs = this_bb->il.gimple.seq;
-
-	for (; gs; gs = gs->next) {
-		single_gimple_init(gs, cp, state);
-	}
-
-	return 0;
-}
+#endif

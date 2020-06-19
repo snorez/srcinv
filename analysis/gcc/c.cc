@@ -93,6 +93,7 @@ static __thread unsigned long cur_gimple_op_idx = 0;
 static __thread struct sinode *cur_fsn = NULL;
 static __thread struct func_node *cur_fn = NULL;
 static __thread tree si_current_function_decl = NULL;
+static __thread struct code_path *cur_cp = NULL;
 static __thread void **phase4_obj_checked;
 static __thread size_t phase4_obj_idx = 0;
 
@@ -540,8 +541,8 @@ static void do_vec_c_goto_bindings(void *node, int flag)
 	case MODE_ADJUST:
 	{
 		CLIB_DBG_FUNC_ENTER();
-		vec<c_goto_bindings_p, va_gc> *node0 =
-					(vec<c_goto_bindings_p, va_gc> *)node;
+		vec<c_goto_bindings_p, va_gc> *node0;
+		node0 = (vec<c_goto_bindings_p, va_gc> *)node;
 		unsigned long len = node0->vecpfx.m_num;
 		c_goto_bindings_p *addr = node0->vecdata;
 		for (unsigned long i = 0; i < len; i++) {
@@ -4272,6 +4273,10 @@ static void do_result_decl(tree node, int flag)
 					 SINODE_FMT_GCC,
 					 cur_gimple, cur_gimple_op_idx);
 
+		if (likely(cur_cp))
+			data_state_add(cur_cp->state, (void *)n, 0, 0,
+					SINODE_FMT_GCC);
+
 		CLIB_DBG_FUNC_EXIT();
 		return;
 
@@ -4321,6 +4326,9 @@ static void do_parm_decl(tree node, int flag)
 		analysis__var_add_use_at(&vnl->var, cur_fsn->node_id.id,
 					 SINODE_FMT_GCC,
 					 cur_gimple, cur_gimple_op_idx);
+		if (likely(cur_cp))
+			data_state_add(cur_cp->state, (void *)n, 0, 0,
+					SINODE_FMT_GCC);
 
 		CLIB_DBG_FUNC_EXIT();
 		return;
@@ -4492,6 +4500,9 @@ static void do_var_decl(tree node, int flag)
 	case MODE_GETSTEP4:
 	{
 		do_var_decl_phase4(node);
+		if (likely(cur_cp))
+			data_state_add(cur_cp->state, (void *)node, 0, 0,
+					SINODE_FMT_GCC);
 		return;
 	}
 	default:
@@ -5814,7 +5825,10 @@ static void get_function_detail(struct sinode *sn)
 	int block_cur = 0, edge_cur = 0, cps_cur = 0;
 	basic_block bbs[block_cnt] = { 0 };
 	edge edges[edge_cnt] = { 0 };
-	struct code_path *cps[block_cnt] = { 0 };
+	struct code_path **__cps;
+	__cps = (struct code_path **)
+		src_buf_get(block_cnt * sizeof(struct code_path *));
+	struct code_path **cps = __cps;
 
 	/* first, check if we know cfg well */
 	b = bb;
@@ -5907,7 +5921,10 @@ static void get_function_detail(struct sinode *sn)
 			gs = gs->next;
 		}
 
+#if 0
+		/* do this in phase4 */
 		analysis__init_cp_state(SINODE_FMT_GCC, cps[cps_cur]);
+#endif
 		cps_cur++;
 		b = b->next_bb;
 	}
@@ -5975,7 +5992,8 @@ static void get_function_detail(struct sinode *sn)
 		}
 	}
 
-	new_func->codes = cps[0];
+	new_func->cps = __cps;
+	new_func->cp_cnt = block_cnt;
 	new_func->detailed = 1;
 
 	CLIB_DBG_FUNC_EXIT();
@@ -7242,6 +7260,21 @@ static void __4_mark_var_func(struct sinode *sn)
 	FOR_EACH_BB_FN(bb, DECL_STRUCT_FUNCTION(si_current_function_decl)) {
 		gimple_seq gs;
 		gs = bb->il.gimple.seq;
+		cur_cp = NULL;
+
+		for (int i = 0; i < fn->cp_cnt; i++) {
+			if ((void *)bb != (void *)fn->cps[i]->cp)
+				continue;
+			cur_cp = fn->cps[i];
+			cur_cp->state = cp_state_new();
+			cur_cp->state->data_fmt = SINODE_FMT_GCC;
+			break;
+		}
+
+		if (unlikely(!cur_cp))
+			si_log1_todo("cur_cp not found in %s\n",
+					sn->name);
+
 		while (gs) {
 			cur_gimple = gs;
 			__4_mark_gimple(gs);

@@ -162,10 +162,6 @@ CLIB_MODULE_CALL_FUNC(analysis, drop_code_path, void,
 
 CLIB_MODULE_CALL_FUNC0(analysis, mark_entry, int);
 
-CLIB_MODULE_CALL_FUNC(analysis, init_cp_state, void,
-		(int type, struct code_path *cp),
-		2, type, cp);
-
 DECL_END
 
 #endif /* end of include guard: SI_ANALYSIS_H_N57L1QPA */

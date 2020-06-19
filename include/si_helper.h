@@ -800,42 +800,61 @@ static inline void sample_state_cleanup(struct sample_state *state)
 static inline struct data_state_ref *data_state_ref_new(void)
 {
 	struct data_state_ref *_new;
-	_new = (struct data_state_ref *)xmalloc(sizeof(*_new));
+	_new = (struct data_state_ref *)src_buf_get(sizeof(*_new));
 	memset(_new, 0, sizeof(*_new));
 	return _new;
-}
-
-static inline void data_state_ref_free(struct data_state_ref *ref)
-{
-	free(ref);
 }
 
 static inline struct data_state_val *data_state_val_new(void)
 {
 	struct data_state_val *_new;
-	_new = (struct data_state_val *)xmalloc(sizeof(*_new));
+	_new = (struct data_state_val *)src_buf_get(sizeof(*_new));
 	memset(_new, 0, sizeof(*_new));
 	return _new;
-}
-
-static inline void data_state_val_free(struct data_state_val *val)
-{
-	free(val);
 }
 
 static inline struct data_state *data_state_new(void)
 {
 	struct data_state *_new;
-	_new = (struct data_state *)xmalloc(sizeof(*_new));
+	_new = (struct data_state *)src_buf_get(sizeof(*_new));
 	memset(_new, 0, sizeof(*_new));
+	_new->ref = data_state_ref_new();
+	_new->val = data_state_val_new();
 	return _new;
 }
 
-static inline void data_state_free(struct data_state *state)
+static inline struct data_state *__data_state_find(struct cp_state *state,
+				void *addr, u64 offset, u64 bits, u8 fmt)
 {
-	data_state_ref_free(state->ref);
-	data_state_val_free(state->val);
-	free(state);
+	struct data_state *tmp;
+	list_for_each_entry(tmp, &state->data_state_list, sibling) {
+		if ((tmp->ref->addr == addr) &&
+			(tmp->ref->offset == offset) &&
+			(tmp->ref->bits == bits) &&
+			(tmp->ref->data_fmt == fmt))
+			return tmp;
+	}
+
+	return NULL;
+}
+
+static inline struct data_state *data_state_add(struct cp_state *state,
+				  void *addr, u64 offset, u64 bits, u8 fmt)
+{
+	struct data_state *ret;
+
+	ret = __data_state_find(state, addr, offset, bits, fmt);
+	if (ret)
+		return ret;
+
+	ret = data_state_new();
+	ret->ref->addr = addr;
+	ret->ref->offset = offset;
+	ret->ref->bits = bits;
+	ret->ref->data_fmt = fmt;
+	list_add_tail(&ret->sibling, &state->data_state_list);
+
+	return ret;
 }
 
 static inline struct cp_state *cp_state_new(void)
@@ -845,20 +864,6 @@ static inline struct cp_state *cp_state_new(void)
 	memset(_new, 0, sizeof(*_new));
 	INIT_LIST_HEAD(&_new->data_state_list);
 	return _new;
-}
-
-static inline void cp_state_free(struct cp_state *state)
-{
-	return;
-}
-
-static inline void cp_state_cleanup(struct cp_state *state)
-{
-	struct data_state *tmp, *next;
-	list_for_each_entry_safe(tmp,next,&state->data_state_list,sibling) {
-		list_del(&tmp->sibling);
-		data_state_free(tmp);
-	}
 }
 
 #include "defdefine.h"

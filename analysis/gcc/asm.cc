@@ -391,7 +391,10 @@ static void get_func_detail(struct sinode *sn)
 		}
 	}
 
-	struct code_path *cps[entries] = { NULL };
+	struct code_path **__cps;
+	__cps = (struct code_path **)
+		src_buf_get(entries * sizeof(struct code_path *));
+	struct code_path **cps = __cps;
 	s64 start = 0;
 	for (i = 0; i < entries; i++) {
 		cps[i] = code_path_new(fn, 0);
@@ -452,11 +455,15 @@ static void get_func_detail(struct sinode *sn)
 	}
 	cps[cp_idx]->cond_head = (void *)prev_insn_addr;
 
+#if 0
+	/* do this in phase4 */
 	for (i = 0; i < entries; i++) {
 		analysis__init_cp_state(SINODE_FMT_ASM, cps[i]);
 	}
+#endif
 
-	fn->codes = cps[0];
+	fn->cps = __cps;
+	fn->cp_cnt = entries;
 	fn->detailed = 1;
 
 	CLIB_DBG_FUNC_EXIT();

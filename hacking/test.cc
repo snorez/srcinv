@@ -49,7 +49,7 @@ static void test_fsn(struct sinode *fsn)
 	fn = (struct func_node *)fsn->data;
 
 	struct code_path *next_cp;
-	analysis__get_func_code_paths_start(fn->codes);
+	analysis__get_func_code_paths_start(fn->cps[0]);
 	while ((next_cp = analysis__get_func_next_code_path())) {
 		basic_block bb;
 		gimple_seq gs;
