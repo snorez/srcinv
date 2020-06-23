@@ -627,6 +627,12 @@ struct sample_state {
 	struct list_head	cp_list_head;
 };
 
+enum cp_state_status {
+	CSS_EMPTY,
+	CSS_INITIALIZED,
+	CSS_GUESSED,
+	CSS_SIMULATION,
+};
 struct cp_state {
 	/* the prev could be the reason */
 	struct list_head	sibling;
@@ -636,8 +642,8 @@ struct cp_state {
 	void			*cur_point;
 
 	u8			data_fmt;
-	u8			dirty: 1;
-	u8			padding: 7;
+	u8			status: 3;
+	u8			padding: 5;
 };
 
 struct data_state_val {

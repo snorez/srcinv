@@ -1,3 +1,6 @@
+2020-06-23
+	* srcinv: add status for cp_state
+
 2020-06-19
 	* analysis: implement init_cp_state in gcc/*
 

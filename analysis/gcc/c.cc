@@ -7268,6 +7268,7 @@ static void __4_mark_var_func(struct sinode *sn)
 			cur_cp = fn->cps[i];
 			cur_cp->state = cp_state_new();
 			cur_cp->state->data_fmt = SINODE_FMT_GCC;
+			cur_cp->state->status = CSS_INITIALIZED;
 			break;
 		}
 
