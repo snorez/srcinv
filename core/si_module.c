@@ -297,6 +297,11 @@ static int si_module_act(struct si_module *sm, int action)
 	char *argv[1];
 	argv[0] = sm->path;
 	int err;
+
+	/* check if the module exists */
+	if (!path_exists(sm->path))
+		return 0;
+
 	if ((!action) && (!sm->loaded)) {
 		/* load */
 		err = clib_module_load(1, argv);

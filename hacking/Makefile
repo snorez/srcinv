@@ -19,8 +19,7 @@ CXX_SRCS = uninit.cc \
 	   debuild.cc \
 	   fuzz.cc \
 	   test.cc
-CXX_EXTRA_SRCS = uaf.cc \
-		 uaf1.cc
+CXX_EXTRA_SRCS = uaf.cc
 CXX_SRCS += $(wildcard $(CXX_EXTRA_SRCS))
 
 CXX_OBJS = $(CXX_SRCS:%.cc=%.o)
