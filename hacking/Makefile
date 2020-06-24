@@ -4,6 +4,8 @@ OUTDIR1 = $(SRCINV_BIN)/hacking
 
 CC_SRCS = hacking.c \
 	  itersn.c
+CC_EXTRA_SRCS = 
+CC_SRCS += $(wildcard $(CC_EXTRA_SRCS))
 
 CC_OBJS = $(CC_SRCS:%.c=%.o)
 
@@ -17,6 +19,9 @@ CXX_SRCS = uninit.cc \
 	   debuild.cc \
 	   fuzz.cc \
 	   test.cc
+CXX_EXTRA_SRCS = uaf.cc \
+		 uaf1.cc
+CXX_SRCS += $(wildcard $(CXX_EXTRA_SRCS))
 
 CXX_OBJS = $(CXX_SRCS:%.cc=%.o)
 

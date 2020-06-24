@@ -7,7 +7,12 @@
  *	indirect calls, FF /2 and FF /3
  *
  * CALL instruction: (https://www.felixcloutier.com/x86/call)
+ *	(https://blog.csdn.net/heron804/article/details/7366898)
  *	opcode: E8 FF 9A
+ *	disp: offset to the %rip
+ *
+ * ELF: https://refspecs.linuxfoundation.org/elf/x86_64-abi-0.99.pdf
+ *	https://refspecs.linuxfoundation.org/elf/elf.pdf
  *
  * ModR/M: (https://wiki.osdev.org/X86-64_Instruction_Encoding#ModR.2FM)
  *

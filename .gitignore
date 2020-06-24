@@ -3,9 +3,8 @@
 .gdb_history
 Makefile
 *.o
-doc/design.txt
 doc/README_zh.md
 doc/gimple_to_cfg.txt
 doc/gcc_ssa.txt
 hacking/chktypesz.c
-hacking/dbgmode.c
+hacking/uaf.cc
