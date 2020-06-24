@@ -24,35 +24,6 @@ static char itersn_cmdname[] = "itersn";
 C_SYM void itersn_usage(void);
 C_SYM long itersn_cb(int argc, char *argv[]);
 
-static char load_sibuf_cmdname[] = "load_sibuf";
-static void load_sibuf_usage(void)
-{
-	fprintf(stdout, "\t(sibuf_addr)\n"
-			"\tLoading specific sibuf\n");
-}
-
-static long load_sibuf_cb(int argc, char *argv[])
-{
-	if (argc != 2) {
-		err_dbg(0, "arg check err");
-		return -1;
-	}
-
-	long addr = atol(argv[1]);
-	int found = 0;
-	struct sibuf *b;
-	list_for_each_entry(b, &si->sibuf_head, sibling) {
-		if ((long)b != addr)
-			continue;
-		found = 1;
-		analysis__resfile_load(b);
-		break;
-	}
-	if (!found)
-		err_dbg(0, "given addr not match to any sibuf");
-	return 0;
-}
-
 static char havefun_cmdname[] = "havefun";
 static void havefun_usage(void)
 {
@@ -87,26 +58,17 @@ SI_MOD_SUBENV_INIT()
 		goto err0;
 	}
 
-	err = clib_cmd_ac_add(load_sibuf_cmdname, load_sibuf_cb,
-				load_sibuf_usage);
-	if (err) {
-		err_msg("clib_cmd_ac_add err");
-		goto err1;
-	}
-
 	/* load all hacking modules */
 	struct list_head *head;
 	head = si_module_get_head(SI_PLUGIN_CATEGORY_HACKING);
 	err = si_module_load_all(head);
 	if (err) {
 		err_dbg(0, "si_module_load_all err");
-		goto err2;
+		goto err1;
 	}
 
 	return 0;
 
-err2:
-	clib_cmd_ac_del(load_sibuf_cmdname);
 err1:
 	clib_cmd_ac_del(havefun_cmdname);
 err0:

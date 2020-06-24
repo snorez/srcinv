@@ -159,6 +159,35 @@ static long cmdline_cb(int argc, char *argv[])
 	return 0;
 }
 
+static char load_sibuf_cmdname[] = "load_sibuf";
+static void load_sibuf_usage(void)
+{
+	fprintf(stdout, "\t(sibuf_addr)\n"
+			"\tLoading specific sibuf\n");
+}
+
+static long load_sibuf_cb(int argc, char *argv[])
+{
+	if (argc != 2) {
+		err_dbg(0, "arg check err");
+		return -1;
+	}
+
+	long addr = atol(argv[1]);
+	int found = 0;
+	struct sibuf *b;
+	list_for_each_entry(b, &si->sibuf_head, sibling) {
+		if ((long)b != addr)
+			continue;
+		found = 1;
+		analysis__resfile_load(b);
+		break;
+	}
+	if (!found)
+		err_dbg(0, "given addr not match to any sibuf");
+	return 0;
+}
+
 SI_MOD_SUBENV_INIT()
 {
 	int err;
@@ -188,6 +217,13 @@ SI_MOD_SUBENV_INIT()
 		goto err2;
 	}
 
+	err = clib_cmd_ac_add(load_sibuf_cmdname, load_sibuf_cb,
+				load_sibuf_usage);
+	if (err) {
+		err_msg("clib_cmd_ac_add err");
+		goto err3;
+	}
+
 	/*
 	 * load analysis modules first
 	 */
@@ -207,6 +243,8 @@ SI_MOD_SUBENV_INIT()
 	return 0;
 
 errl:
+	clib_cmd_ac_del(load_sibuf_cmdname);
+err3:
 	clib_cmd_ac_del(one_sibuf_cmdname);
 err2:
 	clib_cmd_ac_del(cmdline_cmdname);
