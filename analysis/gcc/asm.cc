@@ -112,6 +112,7 @@ static __thread struct sibuf *cur_sibuf;
 static __thread void *cur_ctx;
 static __thread char *cur_srcfile;
 static __thread struct sinode *cur_sn;
+static __thread struct code_path *cur_cp;
 
 static void getbase(void)
 {
@@ -525,12 +526,41 @@ static void getdetail(void)
 	return;
 }
 
+static void phase4_func(struct sinode *sn)
+{
+	struct func_node *fn;
+	fn = (struct func_node *)sn->data;
+
+	for (int i = 0; i < fn->cp_cnt; i++) {
+		cur_cp = fn->cps[i];
+		cur_cp->state = cp_state_new();
+		cur_cp->state->data_fmt = SINODE_FMT_ASM;
+		cur_cp->state->status = CSS_EMPTY;
+	}
+}
+
 static void phase4_match_cb(struct sinode *sn, void *arg)
 {
 	if (sn->buf != cur_sibuf)
 		return;
 
-	/* TODO */
+	enum sinode_type type;
+	type = sinode_idtype(sn);
+
+	switch (type) {
+	case TYPE_FUNC_STATIC:
+	case TYPE_FUNC_GLOBAL:
+	{
+		phase4_func(sn);
+		break;
+	}
+	default:
+	{
+		break;
+	}
+	}
+
+	return;
 }
 
 static void phase4(void)
