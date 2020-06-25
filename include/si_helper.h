@@ -830,11 +830,11 @@ static inline struct data_state *data_state_new(void)
 	return _new;
 }
 
-static inline struct data_state *__data_state_find(struct cp_state *state,
+static inline struct data_state *___data_state_find(struct list_head *head,
 				void *addr, u64 offset, u64 bits, u8 fmt)
 {
 	struct data_state *tmp;
-	list_for_each_entry(tmp, &state->data_state_list, sibling) {
+	list_for_each_entry(tmp, head, sibling) {
 		if ((tmp->ref->addr == addr) &&
 			(tmp->ref->offset == offset) &&
 			(tmp->ref->bits == bits) &&
@@ -843,6 +843,13 @@ static inline struct data_state *__data_state_find(struct cp_state *state,
 	}
 
 	return NULL;
+}
+
+static inline struct data_state *__data_state_find(struct cp_state *state,
+				void *addr, u64 offset, u64 bits, u8 fmt)
+{
+	return ___data_state_find(&state->data_state_list,
+				  addr, offset, bits, fmt);
 }
 
 static inline struct data_state *data_state_add(struct cp_state *state,
@@ -861,6 +868,33 @@ static inline struct data_state *data_state_add(struct cp_state *state,
 	ret->ref->data_fmt = fmt;
 	list_add_tail(&ret->sibling, &state->data_state_list);
 
+	return ret;
+}
+
+static inline struct data_state *__data_state_find_global(void *addr,
+				u64 offset, u64 bits, u8 fmt)
+{
+	return ___data_state_find(&si->global_data_states,
+				  addr, offset, bits, fmt);
+}
+
+static inline struct data_state *data_state_add_global(void *addr,
+				u64 offset, u64 bits, u8 fmt)
+{
+	struct data_state *ret;
+
+	si_lock_w();
+	ret = __data_state_find_global(addr, offset, bits, fmt);
+	if (!ret) {
+		ret = data_state_new();
+		ret->ref->addr = addr;
+		ret->ref->offset = offset;
+		ret->ref->bits = bits;
+		ret->ref->data_fmt = fmt;
+		list_add_tail(&ret->sibling, &si->global_data_states);
+	}
+
+	si_unlock_w();
 	return ret;
 }
 

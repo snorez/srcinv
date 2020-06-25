@@ -260,6 +260,9 @@ struct src {
 	/* sibuf, for one compiled file */
 	struct list_head	sibuf_head;
 
+	/* global data states */
+	struct list_head	global_data_states;
+
 	atomic_t		sibuf_mem_usage;
 	union siid		id_idx[TYPE_MAX];
 
@@ -615,6 +618,7 @@ struct possible_list {
 
 struct sample_state {
 	struct list_head	cp_list_head;
+	struct list_head	alloced_data_states;
 };
 
 enum cp_state_status {

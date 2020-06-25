@@ -4370,7 +4370,7 @@ static void do_decl_with_vis(tree node, int flag)
 }
 
 static void do_init_value(struct var_node *vn, tree init_tree);
-static void do_var_decl_phase4(tree n)
+static void do_var_decl_phase4(tree n, int *is_global)
 {
 	CLIB_DBG_FUNC_ENTER();
 
@@ -4383,6 +4383,8 @@ static void do_var_decl_phase4(tree n)
 	BUG_ON(!b);
 	analysis__resfile_load(b);
 
+	*is_global = 0;
+
 	xloc = get_location(GET_LOC_VAR, b->payload, n);
 	if (si_is_global_var(n, xloc)) {
 		/* global vars */
@@ -4391,6 +4393,8 @@ static void do_var_decl_phase4(tree n)
 		struct id_list *newgv = NULL;
 		long value;
 		long val_flag;
+
+		*is_global = 1;
 
 		get_var_sinode(n, &global_var_sn, 1);
 		if (!global_var_sn) {
@@ -4499,10 +4503,17 @@ static void do_var_decl(tree node, int flag)
 	}
 	case MODE_GETSTEP4:
 	{
-		do_var_decl_phase4(node);
-		if (likely(cur_cp))
-			data_state_add(cur_cp->state, (void *)node, 0, 0,
-					SI_TYPE_DF_GIMPLE);
+		int is_global;
+		do_var_decl_phase4(node, &is_global);
+		if (likely(cur_cp)) {
+			if (is_global)
+				data_state_add_global((void *)node,
+							0, 0,
+							SI_TYPE_DF_GIMPLE);
+			else
+				data_state_add(cur_cp->state, (void *)node,
+						0, 0, SI_TYPE_DF_GIMPLE);
+		}
 		return;
 	}
 	default:

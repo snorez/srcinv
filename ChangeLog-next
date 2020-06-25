@@ -5,6 +5,8 @@
 	* srcinv: move load_sibuf cmd from hacking to analysis
 	* core/si_conf: use clib_json
 	* srcinv: reset si_type
+	* srcinv: add a new field global_data_states in src
+	* srcinv: add a new field alloced_data_states in sample_states
 
 2020-06-19
 	* analysis: implement init_cp_state in gcc/*
