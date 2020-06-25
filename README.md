@@ -43,9 +43,9 @@ About SELF\_CFLAGS in the main Makefile:
 Run `make` and `make install`
 
 ### Usage
-**NOTE**: you should modify config/module.conf before you want to use a
+**NOTE**: you should modify config/module.json before you want to use a
 specific module. e.g. you code a new module for hacking, you should add it
-into config/module.conf file before running it.
+into config/module.json file before running it.
 
 I **HIGHLY RECOMMEND** you to do all the six steps, till you get the
 `src.saved` file. I still can not figure out why it fails when I try

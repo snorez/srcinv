@@ -75,7 +75,7 @@ static int get_compiling_args(void)
 	else
 		write_ctx->type.kernel = SI_TYPE_USER;
 	write_ctx->type.os_type = SI_TYPE_OS_LINUX;
-	write_ctx->type.type_more = SI_TYPE_MORE_GCC_C;
+	write_ctx->type.data_fmt = SI_TYPE_DF_GIMPLE;
 	write_ctx->gcc_ver_major = gcc_ver;
 	write_ctx->gcc_ver_minor = gcc_ver_minor;
 

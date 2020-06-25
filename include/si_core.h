@@ -75,20 +75,17 @@ enum si_type_os {
 	SI_TYPE_OS_ANDROID,
 	SI_TYPE_OS_ANY = 15,	/* 01111 */
 };
-enum si_type_more {
-	SI_TYPE_MORE_GCC_C = 1,
-	SI_TYPE_MORE_GCC_ASM,
-	SI_TYPE_MORE_X86,
-	SI_TYPE_MORE_X8664,
-	SI_TYPE_MORE_ARM,
-	SI_TYPE_MORE_ARM64,
-	SI_TYPE_MORE_ANY = 0xff,
+enum si_type_data_fmt {
+	SI_TYPE_DF_NONE = 0,
+	SI_TYPE_DF_GIMPLE = 1,	/* data is from gcc, format GIMPLE */
+	SI_TYPE_DF_ASM,		/* data is from asm, format binary */
+	SI_TYPE_DF_ANY = 0xff,
 };
 struct si_type {
 	uint8_t		binary: 2;/* 0: invalid 1: binary 2: src 3: both */
 	uint8_t		kernel: 2;/* 0: invalid 1: kernel 2: usr 3: both */
 	uint8_t 	os_type:4;
-	uint8_t 	type_more: 8;
+	uint8_t 	data_fmt: 8;
 };
 
 /* default mode, not used */
@@ -305,8 +302,6 @@ struct si_module {
 	int8_t			autoload: 1;
 	int8_t			loaded: 1;
 	int8_t			reserved: 2;
-
-	struct si_type		type;
 };
 
 #ifndef CONFIG_MAX_OBJS_PER_FILE
@@ -393,11 +388,6 @@ struct rb_node_id {
 };
 #define	SINODE_BY_ID_NODE	node_id.node[RB_NODE_BY_ID]
 #define	SINODE_BY_SPEC_NODE	node_id.node[RB_NODE_BY_SPEC]
-
-enum sinode_fmt {
-	SINODE_FMT_GCC = 1,	/* data is from gcc, format GIMPLE */
-	SINODE_FMT_ASM,		/* data is from asm, format binary */
-};
 
 struct sinode {
 	/* must be the first field */

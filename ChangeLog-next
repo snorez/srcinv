@@ -3,6 +3,8 @@
 	* srcinv: check if the module exists before load it
 	* analysis/gcc_asm: EMPTY cp_state
 	* srcinv: move load_sibuf cmd from hacking to analysis
+	* core/si_conf: use clib_json
+	* srcinv: reset si_type
 
 2020-06-19
 	* analysis: implement init_cp_state in gcc/*

@@ -65,7 +65,7 @@ patches for the bug.
 	> the compiling data(AST)
 
 	- config
-	> runtime configs. Currently in-use file is module.conf
+	> runtime configs. Currently in-use file is module.json
 
 	- core
 	> the main process, handle user input, parse configs, load modules, etc.
@@ -364,7 +364,7 @@ Check [Chapter 3](#3)
 <span id="3.2"></span>
 ### 3.2 - gcc-asm
 Please add new `si_type` in `include/si_core.h`, do not forget to modify
-`config/module.conf` and `si_module.c`.
+`config/module.json` and `si_module.c`.
 
 For linux kernel, `EXTRA_AFLAGS` is needed while run `make`.
 

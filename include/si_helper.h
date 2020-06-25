@@ -35,8 +35,6 @@ C_SYM int si_module_get_abs_path(char *buf, size_t len, int category,
 C_SYM struct list_head *si_module_get_head(int category);
 C_SYM struct si_module *si_module_find_by_name(char *name,
 						struct list_head *head);
-C_SYM struct si_module **si_module_find_by_type(struct si_type *type,
-						struct list_head *head);
 C_SYM int si_module_add(struct si_module *p);
 C_SYM int si_module_load_all(struct list_head *head);
 C_SYM int si_module_unload_all(struct list_head *head);
@@ -238,8 +236,8 @@ static inline int si_type_match(struct si_type *wider, struct si_type *smaller)
 	if ((wider->os_type != SI_TYPE_OS_ANY) &&
 		(wider->os_type != smaller->os_type))
 		return 0;
-	if ((wider->type_more != SI_TYPE_MORE_ANY) &&
-		(wider->type_more != smaller->type_more))
+	if ((wider->data_fmt != SI_TYPE_DF_ANY) &&
+		(wider->data_fmt != smaller->data_fmt))
 		return 0;
 	return 1;
 }
@@ -795,6 +793,15 @@ static inline void sample_state_cleanup(struct sample_state *state)
 		list_del(&tmp->sibling);
 		free(tmp);
 	}
+}
+
+static inline struct code_path *sample_last_cp(struct sample_state *sample)
+{
+	if (list_empty(&sample->cp_list_head))
+		return NULL;
+	struct cp_list *cpl;
+	cpl = list_last_entry(&sample->cp_list_head,struct cp_list,sibling);
+	return cpl->cp;
 }
 
 static inline struct data_state_ref *data_state_ref_new(void)

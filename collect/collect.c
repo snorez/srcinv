@@ -24,10 +24,8 @@
 static char *show_cmdname = "show";
 static void show_usage(void)
 {
-	fprintf(stdout, "\t(type) [path]\n"
-			"\ttype: (SRC/BIN)_(KERN/USER)_(LINUX/...)_(...) "
-			"check si_core.h for more\n"
-			"\tPick appropriate module and show comment\n");
+	fprintf(stdout, "\t (name) [path]\n"
+			"\tFind module by given name & show its comment\n");
 }
 
 static char *target_object = NULL;
@@ -103,7 +101,6 @@ static char *expand_comment(struct si_module *p)
 	return ret;
 }
 
-C_SYM int si_module_str_to_type(struct si_type *type, char *string);
 static long show_cb(int argc, char *argv[])
 {
 	if (unlikely(!si)) {
@@ -111,23 +108,16 @@ static long show_cb(int argc, char *argv[])
 		return -1;
 	}
 
-	if (unlikely((argc != 2) && (argc != 3))) {
+	if (unlikely((argc != 2))) {
 		err_dbg(0, "argc invalid");
 		show_usage();
 		return -1;
 	}
 
-	int err;
-	char *given_type = argv[1];
+	char *given_name = argv[1];
 	char *given_path = argv[2];
-	struct si_type type;
-	err = si_module_str_to_type(&type, given_type);
-	if (err) {
-		err_dbg(0, "si_module_str_to_type err");
-		return -1;
-	}
 
-	struct si_module **mods;
+	struct si_module *mod;
 	struct list_head *head;
 	head = si_module_get_head(SI_PLUGIN_CATEGORY_COLLECT);
 	if (!head) {
@@ -135,30 +125,26 @@ static long show_cb(int argc, char *argv[])
 		return -1;
 	}
 
-	mods = si_module_find_by_type(&type, head);
-	if (!mods) {
+	mod = si_module_find_by_name(given_name, head);
+	if (!mod) {
 		err_dbg(0, "si_module_find_by_type err");
 		return -1;
 	}
 
-	int i = 0;
-	fprintf(stdout, "several modules found:\n");
 	if (given_path)
 		target_object = given_path;
-	while (mods[i]) {
-		char *real_comment = expand_comment(mods[i]);
-		if (!real_comment) {
-			err_dbg(0, "expand_comment err");
-			return -1;
-		}
 
-		fprintf(stdout, "%s:\t%s\n", mods[i]->name, real_comment);
-		free(real_comment);
-		i++;
+	char *real_comment = expand_comment(mod);
+	if (!real_comment) {
+		err_dbg(0, "expand_comment err");
+		return -1;
 	}
+
+	fprintf(stdout, "%s:\t%s\n", mod->name, real_comment);
+	free(real_comment);
+
 	target_object = NULL;
 
-	free(mods);
 	return 0;
 }
 

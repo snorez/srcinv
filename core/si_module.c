@@ -38,7 +38,6 @@ void si_module_init(struct si_module *p)
 	p->path = NULL;
 	p->comment = NULL;
 	p->category = -1;
-	memset(&p->type, 0, sizeof(p->type));
 	/* p->autoload is set by si_conf.c */
 	p->loaded = 0;
 }
@@ -60,94 +59,6 @@ int8_t si_module_str_to_category(char *string)
 	}
 
 	return -1;
-}
-
-int si_module_str_to_type(struct si_type *type, char *string)
-{
-	char *pos_s = string;
-	char *pos_e;
-	size_t len = 0;
-
-	/* BIN/SRC */
-	pos_e = strchr(pos_s, '_');
-	if (!pos_e) {
-		err_msg("type string format err");
-		return -1;
-	}
-
-	len = pos_e - pos_s;
-	if (!strncasecmp(pos_s, "SRC", len)) {
-		type->binary = SI_TYPE_SRC;
-	} else if (!strncasecmp(pos_s, "BIN", len)) {
-		type->binary = SI_TYPE_BIN;
-	} else if (!strncasecmp(pos_s, "BOTH", len)) {
-		type->binary = SI_TYPE_BOTH;
-	} else {
-		err_msg("type string format err");
-		return -1;
-	}
-
-	/* KERN/USER */
-	pos_s = pos_e + 1;
-	pos_e = strchr(pos_s, '_');
-	if (!pos_e) {
-		err_msg("type string format err");
-		return -1;
-	}
-
-	len = pos_e - pos_s;
-	if (!strncasecmp(pos_s, "KERN", len)) {
-		type->kernel = SI_TYPE_KERN;
-	} else if (!strncasecmp(pos_s, "USER", len)) {
-		type->kernel = SI_TYPE_USER;
-	} else if (!strncasecmp(pos_s, "BOTH", len)) {
-		type->kernel = SI_TYPE_BOTH;
-	} else {
-		err_msg("type string format err");
-		return -1;
-	}
-
-	/* OS TYPE */
-	pos_s = pos_e + 1;
-	pos_e = strchr(pos_s, '_');
-	if (!pos_e) {
-		err_msg("type string format err");
-		return -1;
-	}
-
-	len = pos_e - pos_s;
-	if (!strncasecmp(pos_s, "LINUX", len)) {
-		type->os_type = SI_TYPE_OS_LINUX;
-	} else if (!strncasecmp(pos_s, "OSX", len)) {
-		type->os_type = SI_TYPE_OS_OSX;
-	} else if (!strncasecmp(pos_s, "WIN", len)) {
-		type->os_type = SI_TYPE_OS_WIN;
-	} else if (!strncasecmp(pos_s, "IOS", len)) {
-		type->os_type = SI_TYPE_OS_IOS;
-	} else if (!strncasecmp(pos_s, "ANDROID", len)) {
-		type->os_type = SI_TYPE_OS_ANDROID;
-	} else if (!strncasecmp(pos_s, "ANY", len)) {
-		type->os_type = SI_TYPE_OS_ANY;
-	} else {
-		err_msg("type string format err");
-		return -1;
-	}
-
-	/* TYPE MORE */
-	pos_s = pos_e + 1;
-	len = strlen(pos_s);
-	if (!strncasecmp(pos_s, "GCC_C", len)) {
-		type->type_more = SI_TYPE_MORE_GCC_C;
-	} else if (!strncasecmp(pos_s, "GCC_ASM", len)) {
-		type->type_more = SI_TYPE_MORE_GCC_ASM;
-	} else if (!strncasecmp(pos_s, "ANY", len)) {
-		type->type_more = SI_TYPE_MORE_ANY;
-	} else {
-		err_msg("type not implement");
-		return -1;
-	}
-
-	return 0;
 }
 
 int si_module_get_abs_path(char *buf, size_t len, int category, char *path)
@@ -190,32 +101,6 @@ struct si_module *si_module_find_by_name(char *name, struct list_head *head)
 	}
 
 	return NULL;
-}
-
-struct si_module **si_module_find_by_type(struct si_type *type,struct list_head *head)
-{
-	int cnt = 1;
-	struct si_module *tmp;
-	list_for_each_entry(tmp, head, sibling) {
-		if (si_type_match(&tmp->type, type))
-			cnt++;
-	}
-
-	struct si_module **ret;
-	ret = malloc(cnt * sizeof(*ret));
-	if (!ret) {
-		err_dbg(0, "malloc err");
-		return NULL;
-	}
-
-	ret[cnt-1] = NULL;
-	int i = 0;
-	list_for_each_entry(tmp, head, sibling) {
-		if (si_type_match(&tmp->type, type))
-			ret[i++] = tmp;
-	}
-
-	return ret;
 }
 
 static struct si_module *si_module_dup(struct si_module *old)

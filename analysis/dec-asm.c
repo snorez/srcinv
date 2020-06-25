@@ -19,3 +19,11 @@
  */
 #include "si_core.h"
 #include "analysis.h"
+
+C_SYM int dec_asm(struct sample_state *sample, struct code_path *cp);
+
+int dec_asm(struct sample_state *sample, struct code_path *cp)
+{
+	/* TODO */
+	return 0;
+}

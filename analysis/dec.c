@@ -1,7 +1,7 @@
 /*
  * decode code in sinode.
- *	SINODE_FMT_GCC: gimple
- *	SINODE_FMT_ASM: binary
+ *	SI_TYPE_DF_GIMPLE: gimple
+ *	SI_TYPE_DF_ASM: binary
  *
  * We need to know what the code does, the input should be a code_path, and
  * its type, the output is a cp_state list.
@@ -23,3 +23,30 @@
  */
 #include "si_core.h"
 #include "./analysis.h"
+
+C_SYM int dec_asm(struct sample_state *sample, struct code_path *cp);
+C_SYM int dec_gimple(struct sample_state *sample, struct code_path *cp);
+
+int dec_next(struct sample_state *sample, struct code_path *cp)
+{
+	int ret = 0;
+
+	if (cp->state->status == CSS_EMPTY)
+		return 0;
+
+	switch (cp->state->data_fmt) {
+	case SI_TYPE_DF_ASM:
+		ret = dec_asm(sample, cp);
+		break;
+	case SI_TYPE_DF_GIMPLE:
+		ret = dec_gimple(sample, cp);
+		break;
+	default:
+		si_log1_emer("type(%d) not implemented\n",
+				cp->state->data_fmt);
+		ret = -1;
+		break;
+	}
+
+	return ret;
+}

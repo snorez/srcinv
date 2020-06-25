@@ -96,7 +96,7 @@ CLIB_MODULE_INIT()
 	ops.type.binary = SI_TYPE_SRC;
 	ops.type.kernel = SI_TYPE_BOTH;
 	ops.type.os_type = SI_TYPE_OS_LINUX;
-	ops.type.type_more = SI_TYPE_MORE_GCC_ASM;
+	ops.type.data_fmt = SI_TYPE_DF_ASM;
 	register_lang_ops(&ops);
 	return 0;
 }
@@ -247,7 +247,7 @@ static void getbase(void)
 			sn_new->data = (char *)fn;
 			sn_new->datalen = sizeof(*fn);
 		}
-		sn_new->data_fmt = SINODE_FMT_ASM;
+		sn_new->data_fmt = SI_TYPE_DF_ASM;
 		sn_new->weak_flag = (tmp->bind == STB_WEAK);
 
 		BUG_ON(analysis__sinode_insert(sn_new, behavior));
@@ -464,7 +464,7 @@ static void get_func_detail(struct sinode *sn)
 #if 0
 	/* do this in phase4 */
 	for (i = 0; i < entries; i++) {
-		analysis__init_cp_state(SINODE_FMT_ASM, cps[i]);
+		analysis__init_cp_state(SI_TYPE_DF_ASM, cps[i]);
 	}
 #endif
 
@@ -534,7 +534,7 @@ static void phase4_func(struct sinode *sn)
 	for (int i = 0; i < fn->cp_cnt; i++) {
 		cur_cp = fn->cps[i];
 		cur_cp->state = cp_state_new();
-		cur_cp->state->data_fmt = SINODE_FMT_ASM;
+		cur_cp->state->data_fmt = SI_TYPE_DF_ASM;
 		cur_cp->state->status = CSS_EMPTY;
 	}
 }
@@ -582,7 +582,7 @@ static void phase4(void)
 static __thread struct sinode *addr2sinode_val;
 static void addr2sinode_match(struct sinode *sn, void *arg)
 {
-	if (sn->data_fmt != SINODE_FMT_ASM)
+	if (sn->data_fmt != SI_TYPE_DF_ASM)
 		return;
 
 	CLIB_DBG_FUNC_ENTER();
@@ -831,7 +831,7 @@ static void indcfg1_do_call(char *ip, char *opcodes, int len)
 		goto out;
 	}
 
-	analysis__add_callee(cur_sn, target_sn, ip, SINODE_FMT_ASM);
+	analysis__add_callee(cur_sn, target_sn, ip, SI_TYPE_DF_ASM);
 	analysis__add_caller(target_sn, cur_sn, NULL);
 
 out:
