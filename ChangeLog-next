@@ -1,13 +1,18 @@
-2020-06-23
-	* srcinv: add status for cp_state
-	* srcinv: check if the module exists before load it
-	* analysis/gcc_asm: EMPTY cp_state
-	* srcinv: move load_sibuf cmd from hacking to analysis
+2020-06-26
+	* analysis/gcc_c: get the global var node while add data_state
+
+2020-06-25
 	* core/si_conf: use clib_json
 	* srcinv: reset si_type
 	* srcinv: add a new field global_data_states in src
 	* srcinv: add a new field alloced_data_states in sample_states
 	* srcinv: add a helper data_state_find()
+
+2020-06-23
+	* srcinv: add status for cp_state
+	* srcinv: check if the module exists before load it
+	* analysis/gcc_asm: EMPTY cp_state
+	* srcinv: move load_sibuf cmd from hacking to analysis
 
 2020-06-19
 	* analysis: implement init_cp_state in gcc/*

@@ -4370,7 +4370,7 @@ static void do_decl_with_vis(tree node, int flag)
 }
 
 static void do_init_value(struct var_node *vn, tree init_tree);
-static void do_var_decl_phase4(tree n, int *is_global)
+static void do_var_decl_phase4(tree n, int *is_global, void **real_node)
 {
 	CLIB_DBG_FUNC_ENTER();
 
@@ -4384,6 +4384,7 @@ static void do_var_decl_phase4(tree n, int *is_global)
 	analysis__resfile_load(b);
 
 	*is_global = 0;
+	*real_node = (void *)n;
 
 	xloc = get_location(GET_LOC_VAR, b->payload, n);
 	if (si_is_global_var(n, xloc)) {
@@ -4393,8 +4394,6 @@ static void do_var_decl_phase4(tree n, int *is_global)
 		struct id_list *newgv = NULL;
 		long value;
 		long val_flag;
-
-		*is_global = 1;
 
 		get_var_sinode(n, &global_var_sn, 1);
 		if (!global_var_sn) {
@@ -4406,6 +4405,7 @@ static void do_var_decl_phase4(tree n, int *is_global)
 			gvn = (struct var_node *)global_var_sn->data;
 		}
 
+		*is_global = 1;
 		newgv = id_list_find(&cur_fn->global_vars,
 					value, val_flag);
 		if (!newgv) {
@@ -4418,6 +4418,7 @@ static void do_var_decl_phase4(tree n, int *is_global)
 		if (val_flag)
 			goto out;
 
+		*real_node = gvn->node;
 		if (gvn->type) {
 			analysis__type_add_use_at(gvn->type,
 						  cur_fsn->node_id.id,
@@ -4504,14 +4505,15 @@ static void do_var_decl(tree node, int flag)
 	case MODE_GETSTEP4:
 	{
 		int is_global;
-		do_var_decl_phase4(node, &is_global);
+		void *real_node;
+		do_var_decl_phase4(node, &is_global, &real_node);
 		if (likely(cur_cp)) {
 			if (is_global)
-				data_state_add_global((void *)node,
+				data_state_add_global(real_node,
 							0, 0,
 							SI_TYPE_DF_GIMPLE);
 			else
-				data_state_add(cur_cp->state, (void *)node,
+				data_state_add(cur_cp->state, real_node,
 						0, 0, SI_TYPE_DF_GIMPLE);
 		}
 		return;
