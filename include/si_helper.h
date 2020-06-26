@@ -898,6 +898,22 @@ static inline struct data_state *data_state_add_global(void *addr,
 	return ret;
 }
 
+static inline struct data_state *data_state_find(struct cp_state *state,
+				void *addr, u64 offset, u64 bits, u8 fmt)
+{
+	struct data_state *ret;
+
+	si_lock_r();
+	ret = __data_state_find_global(addr, offset, bits, fmt);
+	si_unlock_r();
+
+	if (ret)
+		return ret;
+
+	ret = __data_state_find(state, addr, offset, bits, fmt);
+	return ret;
+}
+
 static inline struct cp_state *cp_state_new(void)
 {
 	struct cp_state *_new;
