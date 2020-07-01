@@ -84,7 +84,8 @@ enum jxx_2 {
 	JG_OPC1		= 0x8f,	//Jvds
 };
 
-static int callback(struct sibuf *, int);
+static int parse(struct sibuf *, int);
+static int dec(struct sample_state *, struct code_path *);
 static struct lang_ops ops;
 
 CLIB_MODULE_NAME(asm);
@@ -92,7 +93,8 @@ CLIB_MODULE_NEEDED0();
 
 CLIB_MODULE_INIT()
 {
-	ops.callback = callback;
+	ops.parse = parse;
+	ops.dec = dec;
 	ops.type.binary = SI_TYPE_SRC;
 	ops.type.kernel = SI_TYPE_BOTH;
 	ops.type.os_type = SI_TYPE_OS_LINUX;
@@ -949,7 +951,7 @@ static void this_show_progress(int signo, siginfo_t *si, void *arg, int last)
 
 static int gcc_ver_major = __GNUC__;
 static int gcc_ver_minor = __GNUC_MINOR__;
-static int callback(struct sibuf *buf, int parse_mode)
+static int parse(struct sibuf *buf, int parse_mode)
 {
 	CLIB_DBG_FUNC_ENTER();
 
@@ -1086,5 +1088,11 @@ static int callback(struct sibuf *buf, int parse_mode)
 	}
 
 	CLIB_DBG_FUNC_EXIT();
+	return 0;
+}
+
+static int dec(struct sample_state *, struct code_path *)
+{
+	/* TODO */
 	return 0;
 }

@@ -1,3 +1,8 @@
+2020-07-01
+	* srcinv: add insn_desc_head list in code_path
+	* analysis: do dec in parsing
+	* analysis: keep a dec interface
+
 2020-06-26
 	* analysis/gcc_c: get the global var node while add data_state
 

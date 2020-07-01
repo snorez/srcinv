@@ -555,6 +555,7 @@ static inline int func_caller_internal(union siid *id)
 
 static inline void code_path_init(struct code_path *cp)
 {
+	INIT_LIST_HEAD(&cp->insn_desc_head);
 	return;
 }
 

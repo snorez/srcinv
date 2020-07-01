@@ -37,7 +37,9 @@ C_SYM lock_t getbase_lock;
 struct lang_ops {
 	struct list_head	sibling;
 	struct si_type		type;
-	int			(*callback)(struct sibuf *buf, int parse_mode);
+	int			(*parse)(struct sibuf *buf, int parse_mode);
+	int			(*dec)(struct sample_state *,
+					struct code_path *);
 };
 
 static inline struct lang_ops *lang_ops_find(struct list_head *h,

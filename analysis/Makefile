@@ -10,10 +10,9 @@ CC_SRCS = analysis.c \
        mark-entry.c \
        utils.c \
        dec.c \
-       dec-asm.c \
        trace.c
 
-CXX_SRCS = dec-gcc.cc
+CXX_SRCS =
 
 CC_OBJS = $(CC_SRCS:%.c=%.o)
 CXX_OBJS = $(CXX_SRCS:%.cc=%.o)
@@ -61,6 +60,7 @@ $(OUTDIR)/%: %
 clean: $(dirs)
 	@echo $(CLEAN_ECHO) $(RELDIR)/
 	$(Q)$(RM) $(CC_OBJS)
+	$(Q)$(RM) $(CXX_OBJS)
 	$(Q)$(RM) $(OUTLIBS)
 
 distclean: clean

@@ -24,29 +24,30 @@
 #include "si_core.h"
 #include "./analysis.h"
 
-C_SYM int dec_asm(struct sample_state *sample, struct code_path *cp);
-C_SYM int dec_gimple(struct sample_state *sample, struct code_path *cp);
-
 int dec_next(struct sample_state *sample, struct code_path *cp)
 {
 	int ret = 0;
+	struct sibuf *buf;
+	struct file_content *fc;
+	struct lang_ops *ops;
+
+	buf = find_target_sibuf(cp->func->node);
+	if (!buf) {
+		si_log1_todo("find_target_sibuf return NULL\n");
+		return ret;
+	}
+
+	analysis__resfile_load(buf);
+	fc = (struct file_content *)buf->load_addr;
+	ops = lang_ops_find(&analysis_lang_ops_head, &fc->type);
+	if (!ops) {
+		si_log1_todo("lang_ops_find return NULL\n");
+		return ret;
+	}
 
 	if (cp->state->status == CSS_EMPTY)
 		return 0;
 
-	switch (cp->state->data_fmt) {
-	case SI_TYPE_DF_ASM:
-		ret = dec_asm(sample, cp);
-		break;
-	case SI_TYPE_DF_GIMPLE:
-		ret = dec_gimple(sample, cp);
-		break;
-	default:
-		si_log1_emer("type(%d) not implemented\n",
-				cp->state->data_fmt);
-		ret = -1;
-		break;
-	}
-
+	ret = ops->dec(sample, cp);
 	return ret;
 }

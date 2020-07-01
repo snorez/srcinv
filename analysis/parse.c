@@ -50,14 +50,14 @@ static int parse_sibuf(struct sibuf *buf, int step, int force)
 	int dbgmode = get_dbg_mode();
 	if (dbgmode)
 		disable_dbg_mode();
-	err = ops->callback(buf, step);
+	err = ops->parse(buf, step);
 	if (dbgmode)
 		enable_dbg_mode();
 	if (unlikely(clib_dbg_func_check())) {
 		si_log1("CLIB_DBG_FUNC_ENTER/CLIB_DBG_FUNC_EXIT not paired\n");
 	}
 	if (err) {
-		err_dbg(0, "fc->type callback err");
+		err_dbg(0, "fc->type parse err");
 		return -1;
 	}
 

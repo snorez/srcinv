@@ -486,6 +486,7 @@ struct cp_state;
 struct code_path {
 	struct func_node	*func;
 	struct cp_state		*state;
+	struct list_head	insn_desc_head; /* list of insn_desc */
 
 	/*
 	 * for gcc, cp is basic_block
@@ -628,9 +629,6 @@ enum cp_state_status {
 	CSS_SIMULATION,
 };
 struct cp_state {
-	/* the prev could be the reason */
-	struct list_head	sibling;
-
 	struct list_head	data_state_list;
 
 	void			*cur_point;
@@ -664,6 +662,47 @@ struct data_state {
 
 	struct data_state_ref	*ref;
 	struct data_state_val	*val;
+};
+
+enum insn_source_type {
+	INSN_SRCT_UNK,
+	INSN_SRCT_DSTATE,
+	INSN_SRCT_IMM,
+};
+
+struct insn_desc_source {
+	struct list_head	sibling;
+	unsigned long		source;
+	enum insn_source_type	type;
+};
+
+enum insn_action {
+	INSN_ACT_UNK,
+	INSN_ACT_READ_REG,
+	INSN_ACT_WRITE_REG,
+	INSN_ACT_READ_MEM,
+	INSN_ACT_WRITE_MEM,
+	INSN_ACT_GET_ADDR,
+	INSN_ACT_CMP,
+	INSN_ACT_CALL,
+	INSN_ACT_JMP,
+	INSN_ACT_RET,
+	INSN_ACT_XCHG,
+	INSN_ACT_PREFETCH,
+	INSN_ACT_UND,
+};
+
+struct insn_desc_action {
+	struct list_head	sibling;
+	struct list_head	sources;
+	/* FIXME: only one result? */
+	struct data_state	*result;
+	enum insn_action	action;
+};
+
+struct insn_desc {
+	struct list_head	sibling;
+	struct list_head	actions;
 };
 
 struct varnode_lft {
