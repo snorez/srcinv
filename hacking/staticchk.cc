@@ -152,11 +152,11 @@ static void chk_funcid(unsigned long func_id)
 	fprintf(stdout, "checking %s ", fsn->name);
 	fflush(stdout);
 	si_log2("checking %s\n", fsn->name);
-	if (chk_func(fsn)) {
-		fprintf(stdout, "done.\n");
+	if (!chk_func(fsn)) {
+		fprintf(stdout, "done\n");
 		si_log2("checking %s done\n", fsn->name);
 	} else {
-		fprintf(stdout, "err.\n");
+		fprintf(stdout, "err\n");
 		si_log2("checking %s err\n", fsn->name);
 	}
 	fflush(stdout);

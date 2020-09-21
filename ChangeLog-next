@@ -1,5 +1,6 @@
 2020-09-21
 	* srcinv: prepare for v1.0
+	* hacking/staticchk: mishandle the return value of chk_func()
 
 2020-07-01
 	* srcinv: add insn_desc_head list in code_path
