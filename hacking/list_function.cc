@@ -18,7 +18,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "si_gcc.h"
-#include "./hacking.h"
 
 CLIB_MODULE_NAME(list_function);
 CLIB_MODULE_NEEDED0();

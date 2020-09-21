@@ -1,5 +1,11 @@
 /*
- * Helper functions to trace var, param, etc.
+ * Init the system.
+ *
+ * For example, when the linux kernel bootup, it sets the hardware, generate
+ * some variables, init them, etc. Also, check some sections in the image
+ * file, call all the init functions.
+ *
+ * If we don't do sys_bootup(), we won't know what the variable is.
  *
  * Copyright (C) 2020 zerons
  *
@@ -16,4 +22,8 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-#include "si_core.h"
+
+int sys_bootup(void)
+{
+	return 0;
+}

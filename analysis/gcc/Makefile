@@ -1,3 +1,5 @@
+include ../../Makefile.opt
+
 RELDIR=$(subst $(TOPDIR)/, "", $(shell pwd))
 OUTDIR = $(SRCINV_BIN)/analysis
 

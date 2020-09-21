@@ -1,9 +1,13 @@
+include ../Makefile.opt
+
 RELDIR=$(subst $(TOPDIR)/, "", $(shell pwd))
 OUTDIR0 = $(SRCINV_BIN)
 OUTDIR1 = $(SRCINV_BIN)/hacking
 
-CC_SRCS = hacking.c \
-	  itersn.c
+LIBDIR = $(SRCINV_BIN)
+COMPILER_GCC_SO = compiler_gcc
+
+CC_SRCS = hacking.c
 CC_EXTRA_SRCS = 
 CC_SRCS += $(wildcard $(CC_EXTRA_SRCS))
 
@@ -11,15 +15,15 @@ CC_OBJS = $(CC_SRCS:%.c=%.o)
 
 CC_SO = hacking.so
 
-CXX_SRCS = uninit.cc \
-	   kern_copyuser.cc \
-	   gensample.cc \
+CXX_SRCS = \
+	   itersn.cc \
 	   list_function.cc \
 	   show_detail.cc \
-	   debuild.cc \
-	   fuzz.cc \
+	   staticchk.cc \
+	   replay_sset.cc \
+	   uaf.cc \
 	   test.cc
-CXX_EXTRA_SRCS = uaf.cc
+CXX_EXTRA_SRCS = 
 CXX_SRCS += $(wildcard $(CXX_EXTRA_SRCS))
 
 CXX_OBJS = $(CXX_SRCS:%.cc=%.o)
@@ -55,7 +59,7 @@ $(CC_OBJS): %.o: %.c
 
 $(CXX_SO): %.so : %.o
 	@echo $(LD_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<
-	$(Q)$(CXX) $(CXXFLAGS) $< -L$(CLIB_LIB) -l$(CLIB_SO) -lpthread -o $@ -Wl,-rpath $(CLIB_LIB)
+	$(Q)$(CXX) $(CXXFLAGS) $< -L$(CLIB_LIB) -L$(LIBDIR) -l$(CLIB_SO) -l$(COMPILER_GCC_SO) -lpthread -o $@ -Wl,-rpath $(CLIB_LIB) -Wl,-rpath $(LIBDIR)
 
 $(CXX_OBJS): %.o: %.cc
 	@echo $(CXX_ECHO) $(RELDIR)/$@ $(SRC_ECHO) $(RELDIR)/$<

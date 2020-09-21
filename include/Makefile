@@ -1,3 +1,5 @@
+include ../Makefile.opt
+
 RELDIR=$(subst $(TOPDIR)/, "", $(shell pwd))
 GCC_ORIG_HFILE=gcc_treecodes_orig.h
 GCC_OUT_HFILE=gcc_treecodes.h
@@ -6,7 +8,7 @@ DEF_DEFINEFILE=defdefine.h
 
 all: pre_header
 
-pre_header: $(GCC_OUT_HFILE) $(DEF_DEFINEFILE)
+pre_header: $(DEF_DEFINEFILE)
 
 $(GCC_OUT_HFILE): $(GCC_ORIG_HFILE)
 	@echo $(GEN_ECHO) $(RELDIR)/$(GCC_OUT_HFILE)

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # This is a simple configure script.
-# Later, may change to use config tools.
+# Later, may switch to use config tools.
 
 DEF_GCC_PLUGIN_BASE=/usr/lib/gcc/x86_64-linux-gnu
 
@@ -13,9 +13,13 @@ usage()
 
 gen_file()
 {
-	TFILE=$4
+	OPTFILE=$4
 
 	CONTENT=$''
+
+	CONTENT+=$'SELF_CFLAGS_N=2\n'
+	CONTENT+=$'ANALYSIS_THREAD_N=0x10\n'
+	CONTENT+=$'\n'
 
 	CONTENT+=$'export MAKE_OPT := --no-print-directory\n'
 	CONTENT+=$'export Q := @\n'
@@ -47,8 +51,12 @@ gen_file()
 	CONTENT+=$'export GCC_PLUGIN_INC=$(GCC_PLUGIN_BASE)/$(GCC_VER_MAJ)/plugin/include\n'
 	CONTENT+=$'\n'
 
-	CONTENT+=$'SELF_CFLAGS=-g -Wall -O2\n'
-	CONTENT+=$'SELF_CFLAGS+=-DCONFIG_ANALYSIS_THREAD=0x10\n'
+	CONTENT+=$'SELF_CFLAGS=\n'
+	CONTENT+=$'ifeq ($(SELF_CFLAGS_N), 0)\n'
+	CONTENT+=$'SELF_CFLAGS=-g\n'
+	CONTENT+=$'endif\n'
+	CONTENT+=$'SELF_CFLAGS+=-Wall -O$(SELF_CFLAGS_N)\n'
+	CONTENT+=$'SELF_CFLAGS+=-DCONFIG_ANALYSIS_THREAD=$(ANALYSIS_THREAD_N)\n'
 	CONTENT+=$'SELF_CFLAGS+=-DCONFIG_DEBUG_MODE=1\n'
 	CONTENT+=$'SELF_CFLAGS+=-DHAVE_CLIB_DBG_FUNC\n'
 	CONTENT+=$'#SELF_CFLAGS+=-DUSE_NCURSES\n'
@@ -90,8 +98,8 @@ gen_file()
 	CONTENT+=$'#SELF_CFLAGS+=-DGCC_CONTAIN_FREE_SSANAMES\n'
 	CONTENT+=$'\n'
 
-	CONTENT+=$'export CFLAGS=-std=gnu11 $(SELF_CFLAGS) $(EXTRA_CFLAGS)\n'
-	CONTENT+=$'export CXXFLAGS=-std=gnu++11 $(SELF_CFLAGS) $(EXTRA_CFLAGS)\n'
+	CONTENT+=$'export CFLAGS=-std=gnu17 $(SELF_CFLAGS) $(EXTRA_CFLAGS)\n'
+	CONTENT+=$'export CXXFLAGS=-std=gnu++17 $(SELF_CFLAGS) $(EXTRA_CFLAGS)\n'
 	CONTENT+=$'\n'
 
 	CONTENT+=$'export ARCH=$(shell getconf LONG_BIT)\n'
@@ -103,35 +111,12 @@ gen_file()
 	CONTENT+=$'export TOPDIR=$(SRCINV_ROOT)\n'
 	CONTENT+=$'\n'
 
-	CONTENT+=$'TARGETS = all install clean distclean\n'
-	CONTENT+=$'dirs = include core lib collect analysis hacking\n'
-	CONTENT+=$'\n'
-
-	CONTENT+=$'MAKECMDGOALS ?= all\n'
-	CONTENT+=$'ifeq (, $(filter $(TARGETS), $(MAKECMDGOALS)))\n'
-	CONTENT+=$'MAKECMDGOALS=all\n'
-	CONTENT+=$'endif\n'
-	CONTENT+=$'\n'
-
 	CONTENT+=$'GCC_VER_MATCH := $(shell expr `gcc -dumpversion | cut -f1 -d.` \== `g++ -dumpversion | cut -f1 -d.`)\n'
 	CONTENT+=$'ifeq "$(GCC_VER_MATCH)" "0"\n'
 	CONTENT+=$'$(error gcc version not match g++ version)\n'
-	CONTENT+=$'endif\n'
-	CONTENT+=$'\n'
+	CONTENT+=$'endif'
 
-	CONTENT+=$'.PHONY: $(dirs)\n'
-	CONTENT+=$'\n'
-
-	CONTENT+=$'$(TARGETS): $(dirs)\n'
-	CONTENT+=$'\n'
-
-	CONTENT+=$'prepare: include\n'
-	CONTENT+=$'\n'
-
-	CONTENT+=$'$(dirs):\n'
-	CONTENT+=$'\t$(Q)$(MAKE) $(MAKE_OPT) -C $@ $(MAKECMDGOALS)'
-
-	echo "$CONTENT" > $TFILE
+	echo "$CONTENT" > $OPTFILE
 }
 
 main()
@@ -144,7 +129,7 @@ main()
 	CLIB_PATH=$(realpath $1)
 	SRCINV_ROOT=$(realpath $2)
 	GCC_PLUGIN_BASE=$DEF_GCC_PLUGIN_BASE
-	TFILE=Makefile
+	OPTFILE=Makefile.opt
 
 	if [[ $# == 3 ]]; then
 		GCC_PLUGIN_BASE=$3
@@ -154,9 +139,9 @@ main()
 	echo "    CLIB_PATH=$CLIB_PATH"
 	echo "    SRCINV_ROOT=$SRCINV_ROOT"
 	echo "    GCC_PLUGIN_BASE=$GCC_PLUGIN_BASE"
-	echo "to generate $TFILE..."
-	gen_file $CLIB_PATH $SRCINV_ROOT $GCC_PLUGIN_BASE $TFILE
-	echo "$TFILE ready."
+	echo "to generate $OPTFILE..."
+	gen_file $CLIB_PATH $SRCINV_ROOT $GCC_PLUGIN_BASE $OPTFILE
+	echo "$OPTFILE ready."
 	echo ""
 	echo "Now, you can run 'make distclean && make && make install'"
 }

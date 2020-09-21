@@ -44,16 +44,16 @@
 		"autoload": "1"
 	},
 	{
-		"name": "uninit",
-		"path": "uninit.so",
-		"comment": "check uninitialized variable usage",
+		"name": "staticchk",
+		"path": "staticchk.so",
+		"comment": "call all static check modules for all sinode",
 		"category": "hacking",
-		"autoload": "0"
+		"autoload": "1"
 	},
 	{
-		"name": "kern_copyuser",
-		"path": "kern_copyuser.so",
-		"comment": "check copy_to_user/copy_from_user argument type incorrect",
+		"name": "itersn",
+		"path": "itersn.so",
+		"comment": "iterate all sinode",
 		"category": "hacking",
 		"autoload": "1"
 	},

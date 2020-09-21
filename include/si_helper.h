@@ -1,6 +1,4 @@
 /*
- * TODO
- *
  * Copyright (C) 2020 zerons
  *
  * This program is free software: you can redistribute it and/or modify
@@ -32,12 +30,12 @@ C_SYM int8_t si_module_str_to_category(char *string);
 C_SYM int si_module_str_to_type(struct si_type *type, char *string);
 C_SYM int si_module_get_abs_path(char *buf, size_t len, int category,
 					char *path);
-C_SYM struct list_head *si_module_get_head(int category);
+C_SYM struct slist_head *si_module_get_head(int category);
 C_SYM struct si_module *si_module_find_by_name(char *name,
-						struct list_head *head);
+						struct slist_head *head);
 C_SYM int si_module_add(struct si_module *p);
-C_SYM int si_module_load_all(struct list_head *head);
-C_SYM int si_module_unload_all(struct list_head *head);
+C_SYM int si_module_load_all(struct slist_head *head);
+C_SYM int si_module_unload_all(struct slist_head *head);
 C_SYM void si_module_cleanup(void);
 
 #define	SI_MOD_SUBSHELL_CMDS() \
@@ -62,17 +60,25 @@ static long ____exit_cb(int argc, char *argv[])\
 }\
 static int __maybe_unused ____v
 
-#define	SI_MOD_SUBENV_INIT_NAME	__subenv_init
-#define	SI_MOD_SUBENV_DEINIT_NAME __subenv_deinit
+#define	SI_MOD_SUBENV_INIT_NAME		__subenv_init
+#define	SI_MOD_SUBENV_DEINIT_NAME	__subenv_deinit
+#define	SI_MOD_SUBENV_EARLY_INIT_NAME	__subenv_early_init
+#define	SI_MOD_SUBENV_EARLY_DEINIT_NAME	__subenv_early_deinit
+
 #define	SI_MOD_SUBENV_INIT() \
 static long SI_MOD_SUBENV_INIT_NAME(void)
 #define	SI_MOD_SUBENV_DEINIT() \
 static void SI_MOD_SUBENV_DEINIT_NAME(void)
 
-#define	SI_MOD_SUBENV_SETUP(modname) \
+#define	SI_MOD_SUBENV_EARLY_INIT() \
+static long SI_MOD_SUBENV_EARLY_INIT_NAME(void)
+#define	SI_MOD_SUBENV_EARLY_DEINIT() \
+static void SI_MOD_SUBENV_EARLY_DEINIT_NAME(void)
+
+#define	SI_MOD_SUBENV_SETUP(modname, n, ...) \
 SI_MOD_SUBSHELL_CMDS();\
 CLIB_MODULE_NAME(modname);\
-CLIB_MODULE_NEEDED0();\
+CLIB_MODULE_NEEDEDx(n, ##__VA_ARGS__);\
 static char *cmdname = #modname;\
 static void modname##_usage(void)\
 {\
@@ -147,6 +153,8 @@ static long modname##_cb(int argc, char *argv[])\
 	clib_ui_end();\
 	return 0;\
 }\
+SI_MOD_SUBENV_EARLY_INIT();\
+SI_MOD_SUBENV_EARLY_DEINIT();\
 CLIB_MODULE_INIT()\
 {\
 	int err;\
@@ -155,11 +163,18 @@ CLIB_MODULE_INIT()\
 		err_dbg(0, "clib_cmd_ac_add err");\
 		return -1;\
 	}\
+	err = SI_MOD_SUBENV_EARLY_INIT_NAME();\
+	if (err) {\
+		err_dbg(0, "SI_MOD_SUBENV_EARLY_INIT err");\
+		clib_cmd_ac_del(cmdname);\
+		return -1;\
+	}\
 	return 0;\
 }\
 CLIB_MODULE_EXIT()\
 {\
 	clib_cmd_ac_del(cmdname);\
+	SI_MOD_SUBENV_EARLY_DEINIT_NAME();\
 }\
 static int __maybe_unused modname##____v
 
@@ -246,7 +261,7 @@ static inline struct sibuf *find_target_sibuf(void *addr)
 {
 	struct sibuf *tmp = NULL, *ret = NULL;
 	si_lock_r();
-	list_for_each_entry(tmp, &si->sibuf_head, sibling) {
+	slist_for_each_entry(tmp, &si->sibuf_head, sibling) {
 		if (((unsigned long)addr >= tmp->load_addr) &&
 			((unsigned long)addr < (tmp->load_addr +
 						tmp->total_len))) {
@@ -259,11 +274,29 @@ static inline struct sibuf *find_target_sibuf(void *addr)
 	return ret;
 }
 
+static inline int __si_data_fmt(struct sibuf *buf)
+{
+	struct file_content *fc;
+	if (!buf)
+		return SI_TYPE_DF_NONE;
+
+	fc = (struct file_content *)buf->load_addr;
+	return fc->type.data_fmt;
+}
+
+static inline int si_data_fmt(void *addr)
+{
+	struct sibuf *buf;
+
+	buf = find_target_sibuf(addr);
+	return __si_data_fmt(buf);
+}
+
 static inline struct resfile *get_builtin_resfile(void)
 {
 	struct resfile *ret = NULL;
 	si_lock_r();
-	ret = list_first_entry_or_null(&si->resfile_head, struct resfile,
+	ret = slist_first_entry_or_null(&si->resfile_head, struct resfile,
 					sibling);
 	if (ret && (!ret->built_in))
 		ret = NULL;
@@ -376,7 +409,7 @@ static inline struct attr_list *attr_list_new(void)
 	struct attr_list *_new;
 	_new = (struct attr_list *)src_buf_get(sizeof(*_new));
 	memset(_new, 0, sizeof(*_new));
-	INIT_LIST_HEAD(&_new->values);
+	INIT_SLIST_HEAD(&_new->values);
 	return _new;
 }
 
@@ -478,10 +511,10 @@ static inline void type_node_init(struct type_node *tn,
 	struct type_node *_new = tn;
 	_new->node = node;
 	_new->type_code = type_code;
-	INIT_LIST_HEAD(&_new->sibling);
-	INIT_LIST_HEAD(&_new->children);
+	INIT_SLIST_HEAD(&_new->sibling);
+	INIT_SLIST_HEAD(&_new->children);
 
-	INIT_LIST_HEAD(&_new->used_at);
+	INIT_SLIST_HEAD(&_new->used_at);
 	return;
 }
 
@@ -499,8 +532,8 @@ static inline struct type_node *type_node_new(void *node, int type_code)
 static inline void var_node_init(struct var_node *n, void *node)
 {
 	n->node = node;
-	INIT_LIST_HEAD(&n->used_at);
-	INIT_LIST_HEAD(&n->possible_values);
+	INIT_SLIST_HEAD(&n->used_at);
+	INIT_SLIST_HEAD(&n->possible_values);
 }
 
 static inline struct var_node *var_node_new(void *node)
@@ -521,11 +554,11 @@ static inline struct var_list *var_list_new(void *node)
 	return _new;
 }
 
-static inline struct var_list *var_list_find(struct list_head *head,
+static inline struct var_list *var_list_find(struct slist_head *head,
 							void *node)
 {
 	struct var_list *tmp;
-	list_for_each_entry(tmp, head, sibling) {
+	slist_for_each_entry(tmp, head, sibling) {
 		if (tmp->var.node == node)
 			return tmp;
 	}
@@ -538,25 +571,20 @@ static inline struct func_node *func_node_new(void *node)
 	_new = (struct func_node *)src_buf_get(sizeof(*_new));
 	memset(_new, 0, sizeof(*_new));
 	_new->node = node;
-	INIT_LIST_HEAD(&_new->args);
-	INIT_LIST_HEAD(&_new->callers);
-	INIT_LIST_HEAD(&_new->callees);
-	INIT_LIST_HEAD(&_new->global_vars);
-	INIT_LIST_HEAD(&_new->local_vars);
+	INIT_SLIST_HEAD(&_new->args);
+	INIT_SLIST_HEAD(&_new->callers);
+	INIT_SLIST_HEAD(&_new->callees);
+	INIT_SLIST_HEAD(&_new->global_vars);
+	INIT_SLIST_HEAD(&_new->local_vars);
+	INIT_SLIST_HEAD(&_new->data_state_list);
 
-	INIT_LIST_HEAD(&_new->used_at);
+	INIT_SLIST_HEAD(&_new->used_at);
 	return _new;
 }
 
 static inline int func_caller_internal(union siid *id)
 {
 	return siid_type(id) == TYPE_FILE;
-}
-
-static inline void code_path_init(struct code_path *cp)
-{
-	INIT_LIST_HEAD(&cp->insn_desc_head);
-	return;
 }
 
 static inline struct code_path *code_path_new(struct func_node *func,
@@ -566,7 +594,6 @@ static inline struct code_path *code_path_new(struct func_node *func,
 	size_t size_need = sizeof(*_new) + extra_branches * sizeof(_new);
 	_new = (struct code_path *)src_buf_get(size_need);
 	memset(_new, 0, sizeof(*_new));
-	code_path_init(_new);
 	_new->func = func;
 	_new->branches = 2+extra_branches;
 	return _new;
@@ -579,12 +606,12 @@ static inline struct id_list *id_list_new(void)
 	return _new;
 }
 
-static inline struct id_list *id_list_find(struct list_head *head,
+static inline struct id_list *id_list_find(struct slist_head *head,
 						unsigned long value,
 						unsigned long flag)
 {
 	struct id_list *tmp;
-	list_for_each_entry(tmp, head, sibling) {
+	slist_for_each_entry(tmp, head, sibling) {
 		if ((tmp->value == value) && (tmp->value_flag == flag))
 			return tmp;
 	}
@@ -596,23 +623,23 @@ static inline struct callf_list *callf_list_new(void)
 	struct callf_list *_new;
 	_new = (struct callf_list *)src_buf_get(sizeof(*_new));
 	memset(_new, 0, sizeof(*_new));
-	INIT_LIST_HEAD(&_new->stmts);
+	INIT_SLIST_HEAD(&_new->stmts);
 	return _new;
 }
 
-static inline struct callf_list *callf_list_find(struct list_head *head,
+static inline struct callf_list *callf_list_find(struct slist_head *head,
 							unsigned long value,
 							unsigned long flag)
 {
 	struct callf_list *tmp;
-	list_for_each_entry(tmp, head, sibling) {
+	slist_for_each_entry(tmp, head, sibling) {
 		if ((tmp->value == value) && (tmp->value_flag == flag))
 			return tmp;
 	}
 	return NULL;
 }
 
-static inline struct callf_list *__add_call(struct list_head *head,
+static inline struct callf_list *__add_call(struct slist_head *head,
 					unsigned long value,
 					unsigned long value_flag,
 					unsigned long body_missing)
@@ -624,7 +651,7 @@ static inline struct callf_list *__add_call(struct list_head *head,
 		newc->value = value;
 		newc->value_flag = value_flag;
 		newc->body_missing = body_missing;
-		list_add_tail(&newc->sibling, head);
+		slist_add_tail(&newc->sibling, head);
 	}
 
 	return newc;
@@ -638,18 +665,18 @@ static inline struct callf_stmt_list *callf_stmt_list_new(void)
 	return _new;
 }
 
-static inline int callf_stmt_list_exist(struct list_head *head, int type,
+static inline int callf_stmt_list_exist(struct slist_head *head, int type,
 					void *where)
 {
 	struct callf_stmt_list *tmp;
-	list_for_each_entry(tmp, head, sibling) {
+	slist_for_each_entry(tmp, head, sibling) {
 		if ((tmp->type == type) && (tmp->where == where))
 			return 1;
 	}
 	return 0;
 }
 
-static inline void callf_stmt_list_add(struct list_head *head, int type,
+static inline void callf_stmt_list_add(struct slist_head *head, int type,
 					void *where)
 {
 	if (callf_stmt_list_exist(head, type, where))
@@ -659,7 +686,7 @@ static inline void callf_stmt_list_add(struct list_head *head, int type,
 	_new = callf_stmt_list_new();
 	_new->where = where;
 	_new->type = type;
-	list_add_tail(&_new->sibling, head);
+	slist_add_tail(&_new->sibling, head);
 }
 
 static inline struct use_at_list *use_at_list_new(void)
@@ -670,13 +697,12 @@ static inline struct use_at_list *use_at_list_new(void)
 	return _new;
 }
 
-static inline struct use_at_list *use_at_list_find(struct list_head *head,
-							int type,
-							void *where,
-							unsigned long extra_info)
+static inline struct use_at_list *use_at_list_find(struct slist_head *head,
+						   int type, void *where,
+						   unsigned long extra_info)
 {
 	struct use_at_list *tmp;
-	list_for_each_entry(tmp, head, sibling) {
+	slist_for_each_entry(tmp, head, sibling) {
 		if ((tmp->type == type) &&
 			(tmp->where == where) &&
 			(tmp->extra_info == extra_info))
@@ -685,7 +711,7 @@ static inline struct use_at_list *use_at_list_find(struct list_head *head,
 	return NULL;
 }
 
-static inline struct use_at_list *__add_use_at(struct list_head *head,
+static inline struct use_at_list *__add_use_at(struct slist_head *head,
 						union siid id, int type,
 						void *where,
 						unsigned long extra_info)
@@ -698,7 +724,7 @@ static inline struct use_at_list *__add_use_at(struct list_head *head,
 		newua->type = type;
 		newua->where = where;
 		newua->extra_info = extra_info;
-		list_add_tail(&newua->sibling, head);
+		slist_add_tail(&newua->sibling, head);
 	}
 
 	return newua;
@@ -712,19 +738,19 @@ static inline struct possible_list *possible_list_new(void)
 	return _new;
 }
 
-static inline struct possible_list *possible_list_find(struct list_head *head,
+static inline struct possible_list *possible_list_find(struct slist_head *head,
 							unsigned long val_flag,
 							unsigned long value)
 {
 	struct possible_list *tmp;
-	list_for_each_entry(tmp, head, sibling) {
+	slist_for_each_entry(tmp, head, sibling) {
 		if (tmp->value == value)
 			return tmp;
 	}
 	return NULL;
 }
 
-static inline struct possible_list *__add_possible(struct list_head *head,
+static inline struct possible_list *__add_possible(struct slist_head *head,
 							unsigned long val_flag,
 							unsigned long value)
 {
@@ -734,7 +760,7 @@ static inline struct possible_list *__add_possible(struct list_head *head,
 		pv = possible_list_new();
 		pv->value_flag = val_flag;
 		pv->value = value;
-		list_add_tail(&pv->sibling, head);
+		slist_add_tail(&pv->sibling, head);
 	}
 
 	return pv;
@@ -748,180 +774,727 @@ static inline struct sibuf_typenode *sibuf_typenode_new(void)
 	return _new;
 }
 
-static inline struct funcp_list *funcp_list_new(void)
-{
-	struct funcp_list *_new;
-	_new = (struct funcp_list *)xmalloc(sizeof(*_new));
-	memset(_new, 0, sizeof(*_new));
-	return _new;
-}
-
-static inline struct path_list *path_list_new(void)
-{
-	struct path_list *_new;
-	_new = (struct path_list *)xmalloc(sizeof(*_new));
-	memset(_new, 0, sizeof(*_new));
-	INIT_LIST_HEAD(&_new->path_head);
-	return _new;
-}
-
-static inline struct cp_list *cp_list_new(void)
+static inline struct cp_list *cp_list_new(int dyn, struct code_path *cp)
 {
 	struct cp_list *_new;
-	_new = (struct cp_list *)xmalloc(sizeof(*_new));
+	if (dyn)
+		_new = (struct cp_list *)xmalloc(sizeof(*_new));
+	else
+		_new = (struct cp_list *)src_buf_get(sizeof(*_new));
 	memset(_new, 0, sizeof(*_new));
+	_new->cp = cp;
 	return _new;
 }
 
-static inline struct sample_state *sample_state_new(void)
+static inline void cp_list_free(struct cp_list *cp)
 {
-	struct sample_state *_new;
-	_new = (struct sample_state *)xmalloc(sizeof(*_new));
-	memset(_new, 0, sizeof(*_new));
-	INIT_LIST_HEAD(&_new->cp_list_head);
-	return _new;
+	free(cp);
 }
 
-static inline void sample_state_free(struct sample_state *state)
+static inline int ds_get_section(u8 val_type)
 {
-	free(state);
-}
-
-static inline void sample_state_cleanup(struct sample_state *state)
-{
-	struct cp_list *tmp, *next;
-	list_for_each_entry_safe(tmp, next, &state->cp_list_head, sibling) {
-		list_del(&tmp->sibling);
-		free(tmp);
+	if (val_type == DSVT_UNK) {
+		return 0;
+	} else if ((val_type >= DSVT_INT_CST) &&
+			(val_type <= DSVT_REAL_CST)) {
+		return 1;
+	} else if ((val_type >= DSVT_ADDR) &&
+			(val_type <= DSVT_REF)) {
+		return 2;
+	} else if ((val_type >= DSVT_ARRAY) &&
+			(val_type <= DSVT_COMPONENT)) {
+		return 3;
+	} else {
+		BUG();
 	}
 }
 
-static inline struct code_path *sample_last_cp(struct sample_state *sample)
+static inline void data_state_init_base(struct data_state_base *base, 
+				        u64 addr, u8 type)
 {
-	if (list_empty(&sample->cp_list_head))
+	base->ref_base = addr;
+	base->ref_type = type;
+}
+
+static inline struct data_state_base *data_state_base_new(u64 addr, u8 type)
+{
+	struct data_state_base *_new;
+	_new = (struct data_state_base *)src_buf_get(sizeof(*_new));
+	memset(_new, 0, sizeof(*_new));
+	data_state_init_base(_new, addr, type);
+	return _new;
+}
+
+static inline void dsv_set_raw(struct data_state_val *dsv, void *raw)
+{
+	dsv->raw = (u64)raw;
+}
+
+static inline struct data_state_rw *data_state_rw_new(u64 addr, u8 type,
+							void *raw)
+{
+	struct data_state_rw *_new;
+	_new = (struct data_state_rw *)xmalloc(sizeof(*_new));
+	memset(_new, 0, sizeof(*_new));
+	data_state_init_base(&_new->base, addr, type);
+	dsv_set_raw(&_new->val, raw);
+	atomic_set(&_new->refcnt, 1);
+	return _new;
+}
+
+static inline void data_state_drop(struct data_state_rw *ds);
+static inline void data_state_val_free(struct data_state_val *dsv)
+{
+	switch (ds_get_section(DSV_TYPE(dsv))) {
+	case 0:
+	{
+		break;
+	}
+	case 1:
+	{
+		free(DSV_SEC1_VAL(dsv));
+		DSV_SEC1_VAL(dsv) = NULL;
+		break;
+	}
+	case 2:
+	{
+		struct data_state_val_ref *dsvr;
+		dsvr = DSV_SEC2_VAL(dsv);
+		data_state_drop(dsvr->ds);
+
+		free(DSV_SEC2_VAL(dsv));
+		DSV_SEC2_VAL(dsv) = NULL;
+		break;
+	}
+	case 3:
+	{
+		struct data_state_val1 *tmp, *next;
+		slist_for_each_entry_safe(tmp, next, DSV_SEC3_VAL(dsv),
+					  sibling) {
+			slist_del(&tmp->sibling, DSV_SEC3_VAL(dsv));
+			data_state_val_free(&tmp->val);
+			free(tmp);
+		}
+		break;
+	}
+	default:
+	{
+		BUG();
+	}
+	}
+	DSV_TYPE(dsv) = DSVT_UNK;
+	return;
+}
+
+static inline void data_state_val_alloc(struct data_state_val *dsv, u8 val_type,
+					u32 bytes)
+{
+	data_state_val_free(dsv);
+
+	switch (ds_get_section(val_type)) {
+	case 0:
+	{
+		break;
+	}
+	case 1:
+	{
+		BUG_ON(!bytes);
+		DSV_SEC1_VAL(dsv) = xmalloc(bytes);
+		memset(DSV_SEC1_VAL(dsv), 0, bytes);
+		dsv->info.v1_info.bytes = bytes;
+		break;
+	}
+	case 2:
+	{
+		bytes = sizeof(struct data_state_val_ref);
+		DSV_SEC2_VAL(dsv) = (struct data_state_val_ref *)xmalloc(bytes);
+		memset((void *)DSV_SEC2_VAL(dsv), 0, bytes);
+		break;
+	}
+	case 3:
+	{
+		break;
+	}
+	default:
+	{
+		BUG();
+	}
+	}
+	DSV_TYPE(dsv) = val_type;
+	return;
+}
+
+static inline struct data_state_val1 *data_state_val1_alloc(void *raw)
+{
+	struct data_state_val1 *_new;
+	_new = (struct data_state_val1 *)xmalloc(sizeof(*_new));
+	memset(_new, 0, sizeof(*_new));
+	dsv_set_raw(&_new->val, raw);
+	return _new;
+}
+
+static inline void data_state_destroy(struct data_state_rw *ds)
+{
+	data_state_val_free(&ds->val);
+	free(ds);
+}
+
+static inline struct data_state_rw *data_state_hold(struct data_state_rw *ds)
+{
+	if (!ds)
 		return NULL;
-	struct cp_list *cpl;
-	cpl = list_last_entry(&sample->cp_list_head,struct cp_list,sibling);
-	return cpl->cp;
+
+	atomic_inc(&ds->refcnt);
+	return ds;
 }
 
-static inline struct data_state_ref *data_state_ref_new(void)
+static inline void data_state_drop(struct data_state_rw *ds)
 {
-	struct data_state_ref *_new;
-	_new = (struct data_state_ref *)src_buf_get(sizeof(*_new));
-	memset(_new, 0, sizeof(*_new));
+	if (!ds)
+		return;
+
+	if (atomic_dec_and_test(&ds->refcnt))
+		data_state_destroy(ds);
+
+	return;
+}
+
+static inline void __ds_vref_setv(struct data_state_val *t,
+				struct data_state_rw *ds, s32 offset, u32 bits)
+{
+	struct data_state_val_ref *dsvr;
+	dsvr = DSV_SEC2_VAL(t);
+	dsvr->ds = ds;
+	dsvr->offset = offset;
+	dsvr->bits = bits;
+}
+
+static inline void ds_vref_setv(struct data_state_val *t,
+				struct data_state_rw *ds, s32 offset, u32 bits)
+{
+	switch (DS_VTYPE(ds)) {
+	case DSVT_REF:
+	{
+		struct data_state_val_ref *dsvr;
+		dsvr = DS_SEC2_VAL(ds);
+		data_state_hold(dsvr->ds);
+		__ds_vref_setv(t, dsvr->ds, offset, bits);
+		data_state_drop(ds);
+		break;
+	}
+	default:
+	{
+		data_state_hold(ds);
+		__ds_vref_setv(t, ds, offset, bits);
+		break;
+	}
+	}
+}
+
+static inline
+struct data_state_rw *data_state_dup_base(struct data_state_base *base)
+{
+	struct data_state_rw *_new;
+	void *raw = NULL;
+	switch (base->ref_type) {
+	case DSRT_VN:
+	{
+		struct var_node *vn;
+		vn = (struct var_node *)(long)base->ref_base;
+		raw = vn->node;
+		break;
+	}
+	case DSRT_FN:
+	{
+		struct func_node *fn;
+		fn = (struct func_node *)(long)base->ref_base;
+		raw = fn->node;
+		break;
+	}
+	case DSRT_RAW:
+	{
+		raw = (void *)(long)base->ref_base;
+		break;
+	}
+	default:
+	{
+		/* should not happen here */
+		err_dbg(0, "miss %d\n", base->ref_type);
+		BUG();
+	}
+	}
+	_new = data_state_rw_new(base->ref_base, base->ref_type, raw);
 	return _new;
 }
 
-static inline struct data_state_val *data_state_val_new(void)
+static inline
+struct data_state_base *__data_state_find(struct slist_head *head,
+					  u64 addr, u8 type)
 {
-	struct data_state_val *_new;
-	_new = (struct data_state_val *)src_buf_get(sizeof(*_new));
-	memset(_new, 0, sizeof(*_new));
-	return _new;
-}
-
-static inline struct data_state *data_state_new(void)
-{
-	struct data_state *_new;
-	_new = (struct data_state *)src_buf_get(sizeof(*_new));
-	memset(_new, 0, sizeof(*_new));
-	_new->ref = data_state_ref_new();
-	_new->val = data_state_val_new();
-	return _new;
-}
-
-static inline struct data_state *___data_state_find(struct list_head *head,
-				void *addr, u64 offset, u64 bits, u8 fmt)
-{
-	struct data_state *tmp;
-	list_for_each_entry(tmp, head, sibling) {
-		if ((tmp->ref->addr == addr) &&
-			(tmp->ref->offset == offset) &&
-			(tmp->ref->bits == bits) &&
-			(tmp->ref->data_fmt == fmt))
+	struct data_state_base *tmp;
+	slist_for_each_entry(tmp, head, sibling) {
+		if ((tmp->ref_base == addr) && (tmp->ref_type == type))
 			return tmp;
 	}
 
 	return NULL;
 }
 
-static inline struct data_state *__data_state_find(struct cp_state *state,
-				void *addr, u64 offset, u64 bits, u8 fmt)
+static inline
+struct data_state_base *fn_data_state_find(struct func_node *fn,
+					   u64 addr, u8 type)
 {
-	return ___data_state_find(&state->data_state_list,
-				  addr, offset, bits, fmt);
+	return __data_state_find(&fn->data_state_list, addr, type);
 }
 
-static inline struct data_state *data_state_add(struct cp_state *state,
-				  void *addr, u64 offset, u64 bits, u8 fmt)
+static inline
+struct data_state_base *fn_data_state_add(struct func_node *fn,
+					  u64 addr, u8 type)
 {
-	struct data_state *ret;
+	struct data_state_base *ret;
 
-	ret = __data_state_find(state, addr, offset, bits, fmt);
+	ret = fn_data_state_find(fn, addr, type);
 	if (ret)
 		return ret;
 
-	ret = data_state_new();
-	ret->ref->addr = addr;
-	ret->ref->offset = offset;
-	ret->ref->bits = bits;
-	ret->ref->data_fmt = fmt;
-	list_add_tail(&ret->sibling, &state->data_state_list);
+	/* insert into func_node, use src_buf_get to alloc */
+	ret = data_state_base_new(addr, type);
+	slist_add_tail(&ret->sibling, &fn->data_state_list);
 
 	return ret;
 }
 
-static inline struct data_state *__data_state_find_global(void *addr,
-				u64 offset, u64 bits, u8 fmt)
+static inline
+struct data_state_rw *fnl_data_state_find(struct fn_list *fnl,
+					  u64 addr, u8 type)
 {
-	return ___data_state_find(&si->global_data_states,
-				  addr, offset, bits, fmt);
+	struct data_state_base *base;
+	struct data_state_rw *ret;
+	base = __data_state_find(&fnl->data_state_list, addr, type);
+	if (!base)
+		return NULL;
+
+	ret = container_of(base, struct data_state_rw, base);
+	data_state_hold(ret);
+	return ret;
 }
 
-static inline struct data_state *data_state_add_global(void *addr,
-				u64 offset, u64 bits, u8 fmt)
+static inline
+struct data_state_rw *fnl_data_state_add(struct fn_list *fnl,
+					 u64 addr, u8 type, void *raw)
 {
-	struct data_state *ret;
+	struct data_state_rw *ret;
 
-	si_lock_w();
-	ret = __data_state_find_global(addr, offset, bits, fmt);
-	if (!ret) {
-		ret = data_state_new();
-		ret->ref->addr = addr;
-		ret->ref->offset = offset;
-		ret->ref->bits = bits;
-		ret->ref->data_fmt = fmt;
-		list_add_tail(&ret->sibling, &si->global_data_states);
+	ret = fnl_data_state_find(fnl, addr, type);
+	if (ret)
+		return ret;
+
+	ret = data_state_rw_new(addr, type, raw);
+	if (slist_add_tail_check(&ret->base.sibling, &fnl->data_state_list)) {
+		data_state_drop(ret);
+		return NULL;
+	} else {
+		data_state_hold(ret);
 	}
 
-	si_unlock_w();
 	return ret;
 }
 
-static inline struct data_state *data_state_find(struct cp_state *state,
-				void *addr, u64 offset, u64 bits, u8 fmt)
+static inline
+struct data_state_base *__global_data_state_base_find(u64 addr, u8 type)
 {
-	struct data_state *ret;
+	return __data_state_find(&si->global_data_states, addr, type);
+}
+
+static inline
+struct data_state_base *global_data_state_base_find(u64 addr, u8 type)
+{
+	struct data_state_base *ret;
+	si_lock_r();
+	ret = __global_data_state_base_find(addr, type);
+	si_unlock_r();
+	return ret;
+}
+
+static inline
+struct data_state_base *global_data_state_base_add(u64 addr, u8 type)
+{
+	struct data_state_base *ret;
+
+	si_lock_w();
+	ret = __global_data_state_base_find(addr, type);
+	if (!ret) {
+		/* likewise */
+		ret = data_state_base_new(addr, type);
+		slist_add_tail(&ret->sibling, &si->global_data_states);
+	}
+	si_unlock_w();
+
+	return ret;
+}
+
+static inline
+struct data_state_rw *__global_data_state_rw_find(u64 addr, u8 type)
+{
+	struct data_state_base *base;
+	struct data_state_rw *ret;
+	base = __data_state_find(&si->global_data_rw_states, addr, type);
+	if (!base)
+		return NULL;
+
+	ret = container_of(base, struct data_state_rw, base);
+	data_state_hold(ret);
+	return ret;
+}
+
+static inline
+struct data_state_rw *global_data_state_rw_find(u64 addr, u8 type)
+{
+	struct data_state_rw *ret;
+	si_lock_r();
+	ret = __global_data_state_rw_find(addr, type);
+	si_unlock_r();
+	return ret;
+}
+
+static inline
+struct data_state_rw *global_data_state_rw_add(u64 addr, u8 type, void *raw)
+{
+	struct data_state_rw *ret;
+
+	si_lock_w();
+	ret = __global_data_state_rw_find(addr, type);
+	if (!ret) {
+		ret = data_state_rw_new(addr, type, raw);
+		if (slist_add_tail_check(&ret->base.sibling,
+					 &si->global_data_rw_states)) {
+			data_state_drop(ret);
+			ret = NULL;
+		} else {
+			data_state_hold(ret);
+		}
+	}
+	si_unlock_w();
+
+	return ret;
+}
+
+/*
+ * @data_state_find: search for data_state_*
+ * 1st, search in the global data_state_*
+ * 2nd, Optional, search in the sample set allocated_data_states
+ * 3rd, search in the local func_node
+ */
+static inline
+struct data_state_base *data_state_base_find(struct sample_set *sset, int idx,
+					     struct func_node *fn,
+					     u64 addr, u8 type)
+{
+	struct data_state_base *ret;
 
 	si_lock_r();
-	ret = __data_state_find_global(addr, offset, bits, fmt);
+	ret = __global_data_state_base_find(addr, type);
 	si_unlock_r();
 
 	if (ret)
 		return ret;
 
-	ret = __data_state_find(state, addr, offset, bits, fmt);
+	if (fn)
+		ret = fn_data_state_find(fn, addr, type);
+
 	return ret;
 }
 
-static inline struct cp_state *cp_state_new(void)
+static inline
+struct data_state_rw *data_state_rw_find(struct sample_set *sset, int idx,
+					 struct fn_list *fnl,
+					 u64 addr, u8 type)
 {
-	struct cp_state *_new;
-	_new = (struct cp_state *)src_buf_get(sizeof(*_new));
+	struct data_state_rw *ret;
+
+	si_lock_r();
+	ret = __global_data_state_rw_find(addr, type);
+	si_unlock_r();
+
+	if (ret)
+		return ret;
+
+	if (sset) {
+		struct data_state_base *base;
+		base = __data_state_find(&sset->allocated_data_states,
+					 addr, type);
+		if (base) {
+			ret = container_of(base, struct data_state_rw, base);
+			data_state_hold(ret);
+			return ret;
+		}
+	}
+
+	if (fnl)
+		ret = fnl_data_state_find(fnl, addr, type);
+
+	return ret;
+}
+
+static inline struct fn_list *fn_list_new(struct func_node *fn)
+{
+	struct fn_list *_new;
+	_new = (struct fn_list *)xmalloc(sizeof(*_new));
 	memset(_new, 0, sizeof(*_new));
-	INIT_LIST_HEAD(&_new->data_state_list);
+	INIT_SLIST_HEAD(&_new->data_state_list);
+	INIT_SLIST_HEAD(&_new->cp_list);
+
+	struct data_state_base *tmp0;
+	struct data_state_rw *tmp1;
+	slist_for_each_entry(tmp0, &fn->data_state_list, sibling) {
+		tmp1 = data_state_dup_base(tmp0);
+		slist_add_tail(&tmp1->base.sibling, &_new->data_state_list);
+	}
+
+	_new->fn = fn;
 	return _new;
+}
+
+static inline void fn_list_free(struct fn_list *fnl)
+{
+	struct data_state_rw *tmp_ds, *next_ds;
+	slist_for_each_entry_safe(tmp_ds, next_ds, &fnl->data_state_list,
+				base.sibling) {
+		slist_del(&tmp_ds->base.sibling, &fnl->data_state_list);
+		data_state_drop(tmp_ds);
+	}
+
+	struct cp_list *tmp_cpl, *next_cpl;
+	slist_for_each_entry_safe(tmp_cpl, next_cpl, &fnl->cp_list, sibling) {
+		slist_del(&tmp_cpl->sibling, &fnl->cp_list);
+		cp_list_free(tmp_cpl);
+	}
+
+	free(fnl);
+}
+
+static inline struct sample_state *sample_state_alloc(int dyn)
+{
+	struct sample_state *_new;
+	if (dyn)
+		_new = (struct sample_state *)xmalloc(sizeof(*_new));
+	else
+		_new = (struct sample_state *)src_buf_get(sizeof(*_new));
+	memset(_new, 0, sizeof(*_new));
+	INIT_SLIST_HEAD(&_new->fn_list_head);
+	INIT_SLIST_HEAD(&_new->cp_list_head);
+	INIT_SLIST_HEAD(&_new->arg_head);
+	return _new;
+}
+
+static inline
+void sample_empty_arg_head(struct sample_state *sample)
+{
+	struct data_state_rw *tmp, *next;
+	slist_for_each_entry_safe(tmp, next, &sample->arg_head, base.sibling) {
+		slist_del(&tmp->base.sibling, &sample->arg_head);
+		data_state_drop(tmp);
+	}
+}
+
+static inline void sample_state_free(struct sample_state *state)
+{
+	struct fn_list *tmp, *next;
+	slist_for_each_entry_safe(tmp, next, &state->fn_list_head, sibling) {
+		slist_del(&tmp->sibling, &state->fn_list_head);
+		fn_list_free(tmp);
+	}
+
+	struct cp_list *tmp_cpl, *next_cpl;
+	slist_for_each_entry_safe(tmp_cpl, next_cpl,
+				&state->cp_list_head, sibling) {
+		slist_del(&tmp_cpl->sibling, &state->cp_list_head);
+		cp_list_free(tmp_cpl);
+	}
+
+	sample_empty_arg_head(state);
+
+	free(state);
+}
+
+static inline
+struct fn_list *sample_add_new_fn(struct sample_state *sample,
+					struct func_node *fn)
+{
+	struct fn_list *fnl;
+	fnl = fn_list_new(fn);
+	slist_add_tail(&fnl->sibling, &sample->fn_list_head);
+	return fnl;
+}
+
+static inline
+struct cp_list *sample_add_new_cp(struct sample_state *sample,
+					struct code_path *cp)
+{
+	struct cp_list *cpl;
+	cpl = cp_list_new(1, cp);
+	slist_add_tail(&cpl->sibling, &sample->cp_list_head);
+	return cpl;
+}
+
+static inline struct fn_list *sample_last_fnl(struct sample_state *sample)
+{
+	struct fn_list *fnl = NULL;
+	if (!slist_empty(&sample->fn_list_head))
+		fnl = slist_last_entry(&sample->fn_list_head,
+					struct fn_list, sibling);
+	return fnl;
+}
+
+static inline
+struct cp_list *fnl_add_new_cp(struct fn_list *fnl, struct code_path *cp)
+{
+	struct cp_list *cpl;
+	cpl = cp_list_new(1, cp);
+	slist_add_tail(&cpl->sibling, &fnl->cp_list);
+	return cpl;
+}
+
+static inline struct cp_list *fnl_last_cpl(struct fn_list *fnl)
+{
+	struct cp_list *cpl = NULL;
+	if (!slist_empty(&fnl->cp_list))
+		cpl = slist_last_entry(&fnl->cp_list, struct cp_list, sibling);
+	return cpl;
+}
+
+static inline struct sample_set *sample_set_alloc(int dyn, u64 count)
+{
+	struct sample_set *_new;
+	u64 total_len = sizeof(*_new) + count * sizeof(_new->samples[0]);
+	if (dyn)
+		_new = (struct sample_set *)xmalloc(total_len);
+	else
+		_new = (struct sample_set *)src_buf_get(total_len);
+
+	memset(_new, 0, total_len);
+	INIT_SLIST_HEAD(&_new->allocated_data_states);
+	_new->count = count;
+	for (u64 i = 0; i < count; i++)
+		_new->samples[i] = sample_state_alloc(dyn);
+	return _new;
+}
+
+static inline void sample_set_free(struct sample_set *sset)
+{
+	struct data_state_rw *tmp, *next;
+	slist_for_each_entry_safe(tmp, next,
+				 &sset->allocated_data_states, base.sibling) {
+		slist_del(&tmp->base.sibling, &sset->allocated_data_states);
+		data_state_drop(tmp);
+	}
+
+	for (u64 i = 0; i < sset->count; i++) {
+		struct sample_state *sample;
+		sample = sset->samples[i];
+		sample_state_free(sample);
+		sset->samples[i] = NULL;
+	}
+	free(sset);
+}
+
+static inline void save_sample_state(struct sample_state *dst,
+					struct sample_state *src)
+{
+	struct cp_list *tmp;
+	slist_for_each_entry(tmp, &src->cp_list_head, sibling) {
+		struct cp_list *new_cpl;
+		new_cpl = cp_list_new(0, tmp->cp);
+		slist_add_tail(&new_cpl->sibling, &dst->cp_list_head);
+	}
+}
+
+static inline void save_sample_set(struct sample_set *set)
+{
+	struct sample_set *new_set;
+	new_set = sample_set_alloc(0, set->count);
+	for (u64 i = 0; i < set->count; i++) {
+		struct sample_state *new_sample;
+		new_sample = sample_state_alloc(0);
+		save_sample_state(new_sample, set->samples[i]);
+		new_set->samples[i] = new_sample;
+	}
+
+	si_lock_w();
+	slist_add_tail(&new_set->sibling, &si->sample_set_head);
+	si_unlock_w();
+}
+
+static inline int sample_set_zeroflag(struct sample_set *sset)
+{
+	return (sset->flag == 0);
+}
+
+static inline int sample_set_done(struct sample_set *sset)
+{
+	for (u64 i = 0; i < sset->count; i++) {
+		struct fn_list *fnl;
+		fnl = sample_last_fnl(sset->samples[i]);
+		if (fnl)
+			return 0;
+	}
+
+	return 1;
+}
+
+static inline int sample_set_chk_flag(struct sample_set *sset, int nr)
+{
+	return test_bit(nr, (long *)&sset->flag);
+}
+
+static inline void sample_set_set_flag(struct sample_set *sset, int nr)
+{
+	if (nr >= SAMPLE_SF_MAX)
+		return;
+	test_and_set_bit(nr, (long *)&sset->flag);
+}
+
+static inline void sample_set_clear_flag(struct sample_set *sset, int nr)
+{
+	if (nr >= SAMPLE_SF_MAX)
+		return;
+	test_and_clear_bit(nr, (long *)&sset->flag);
+}
+
+static inline void src_init(int empty)
+{
+	if (empty) {
+		memset(si, 0, sizeof(*si));
+		INIT_SLIST_HEAD(&si->resfile_head);
+		INIT_SLIST_HEAD(&si->sibuf_head);
+		INIT_SLIST_HEAD(&si->global_data_states);
+		INIT_SLIST_HEAD(&si->sample_set_head);
+	}
+	si->next_mmap_area = RESFILE_BUF_START;
+
+	INIT_SLIST_HEAD(&si->global_data_rw_states);
+	struct data_state_base *base;
+	slist_for_each_entry(base, &si->global_data_states, sibling) {
+		struct data_state_rw *tmp;
+		tmp = data_state_dup_base(base);
+		slist_add_tail(&tmp->base.sibling, &si->global_data_rw_states);
+	}
+}
+
+static inline u64 src_get_sset_curid(void)
+{
+	u64 ret = 0;
+	si_lock_r();
+	ret = si->sample_set_curid;
+	si_unlock_r();
+	return ret;
+}
+
+static inline void src_set_sset_curid(u64 id)
+{
+	si_lock_w();
+	si->sample_set_curid = id;
+	si_unlock_w();
 }
 
 #include "defdefine.h"
@@ -1004,22 +1577,17 @@ static inline void __si_log(const char *fmt, ...)
 			"NOFILE",0,LEVEL,##__VA_ARGS__);\
 	})
 
-#define	si_log(fmt, ...) \
-	SI_LOG_NOLINE("INFO", "0", fmt, ##__VA_ARGS__)
+#define	si_log(fmt, ...)	SI_LOG_NOLINE("INFO", "0", fmt, ##__VA_ARGS__)
 
-#define	si_log1(fmt, ...) \
-	SI_LOG("INFO", "1", fmt, ##__VA_ARGS__)
-#define	si_log1_todo(fmt, ...) \
-	SI_LOG("TODO", "1", fmt, ##__VA_ARGS__)
-#define	si_log1_emer(fmt, ...) \
-	SI_LOG("EMER", "1", fmt, ##__VA_ARGS__)
+#define	si_log1(fmt, ...)	SI_LOG("INFO", "1", fmt, ##__VA_ARGS__)
+#define	si_log1_todo(fmt, ...)	SI_LOG("TODO", "1", fmt, ##__VA_ARGS__)
+#define	si_log1_warn(fmt, ...)	SI_LOG("WARN", "1", fmt, ##__VA_ARGS__)
+#define	si_log1_err(fmt, ...)	SI_LOG(" ERR", "1", fmt, ##__VA_ARGS__)
 
-#define	si_log2(fmt, ...) \
-	SI_LOG("INFO", "2", fmt, ##__VA_ARGS__)
-#define	si_log2_todo(fmt, ...) \
-	SI_LOG("TODO", "2", fmt, ##__VA_ARGS__)
-#define	si_log2_emer(fmt, ...) \
-	SI_LOG("EMER", "2", fmt, ##__VA_ARGS__)
+#define	si_log2(fmt, ...)	SI_LOG("INFO", "2", fmt, ##__VA_ARGS__)
+#define	si_log2_todo(fmt, ...)	SI_LOG("TODO", "2", fmt, ##__VA_ARGS__)
+#define	si_log2_warn(fmt, ...)	SI_LOG("WARN", "2", fmt, ##__VA_ARGS__)
+#define	si_log2_err(fmt, ...)	SI_LOG(" ERR", "2", fmt, ##__VA_ARGS__)
 
 /* for CLIB_MODULE_CALL_FUNC */
 #undef PLUGIN_SYMBOL_CONFLICT

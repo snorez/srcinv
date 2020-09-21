@@ -82,11 +82,7 @@ int si_src_setup(void)
 	}
 
 	si = src_buf_get(sizeof(*si));
-	memset(si, 0, sizeof(*si));
-	INIT_LIST_HEAD(&si->resfile_head);
-	INIT_LIST_HEAD(&si->sibuf_head);
-	INIT_LIST_HEAD(&si->global_data_states);
-	si->next_mmap_area = RESFILE_BUF_START;
+	src_init(1);
 
 	/* TODO, check if the src_id already exists */
 	while (!si->src_id[0]) {
@@ -177,11 +173,11 @@ static long do_load_srcfile(char *id)
 	}
 
 	si = (struct src *)buf_start;
+	src_init(0);
 	buf_cur = buf_start+readlen;
-	si->next_mmap_area = RESFILE_BUF_START;
 
 	struct resfile *tmp0;
-	list_for_each_entry(tmp0, &si->resfile_head, sibling) {
+	slist_for_each_entry(tmp0, &si->resfile_head, sibling) {
 		tmp0->fd = -1;
 		tmp0->file_offs = 0;
 		tmp0->buf_start = 0;
@@ -189,7 +185,7 @@ static long do_load_srcfile(char *id)
 	}
 
 	struct sibuf *tmp1;
-	list_for_each_entry(tmp1, &si->sibuf_head, sibling) {
+	slist_for_each_entry(tmp1, &si->sibuf_head, sibling) {
 		tmp1->need_unload = 0;
 		si->next_mmap_area += tmp1->total_len;
 	}
@@ -219,7 +215,7 @@ static long cmd0_cb(int argc, char *argv[])
 		return -1;
 	}
 
-	if (!list_empty(&si->resfile_head)) {
+	if (!slist_empty(&si->resfile_head)) {
 		err_msg("si already set");
 		return 0;
 	}
@@ -235,7 +231,7 @@ static long cmd0_cb(int argc, char *argv[])
 
 static void do_flush_outfile(void)
 {
-	if (list_empty(&si->resfile_head)) {
+	if (slist_empty(&si->resfile_head)) {
 		char buf[PATH_MAX];
 		snprintf(buf, PATH_MAX, "%s/%s", DEF_TMPDIR, si->src_id);
 		rmdir(buf);

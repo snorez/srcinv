@@ -53,7 +53,7 @@ struct sinode *sinode_new(enum sinode_type type,
 		INIT_LIST_HEAD(&ret->same_loc_line_head);
 #endif
 
-	INIT_LIST_HEAD(&ret->attributes);
+	INIT_SLIST_HEAD(&ret->attributes);
 
 	return ret;
 }
@@ -839,4 +839,18 @@ void add_possible(struct var_node *vn, unsigned long value_flag,
 	node_lock_w(vn);
 	(void)__add_possible(&vn->possible_values, value_flag, value);
 	node_unlock_w(vn);
+}
+
+void pick_related_func(struct sinode *first, struct func_node **fn_array,
+			size_t array_cnt)
+{
+	memset(fn_array, 0, array_cnt * sizeof(struct func_node *));
+
+	if (array_cnt == 1) {
+		fn_array[0] = (struct func_node *)first->data;
+		return;
+	}
+
+	si_log1_todo("not implemented yet\n");
+	return;
 }

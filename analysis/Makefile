@@ -1,3 +1,5 @@
+include ../Makefile.opt
+
 RELDIR=$(subst $(TOPDIR)/, "", $(shell pwd))
 dirs = gcc
 OUTDIR = $(SRCINV_BIN)
@@ -8,9 +10,11 @@ CC_SRCS = analysis.c \
        resfile.c \
        parse.c \
        mark-entry.c \
-       utils.c \
        dec.c \
-       trace.c
+       sys-bootup.c \
+       trace.c \
+       sample.c \
+       data-state.c
 
 CXX_SRCS =
 

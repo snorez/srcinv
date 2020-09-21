@@ -1,6 +1,7 @@
 /*
  * TODO
- * Copyright (C) 2018  zerons
+ *
+ * Copyright (C) 2020 zerons
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,15 +16,23 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+
 #include "si_gcc.h"
 
-CLIB_MODULE_NAME(fuzz);
-CLIB_MODULE_NEEDED1(gensample);
-CLIB_MODULE_INIT()
+edge find_edge(basic_block pred, basic_block succ)
 {
-	return 0;
-}
-CLIB_MODULE_EXIT()
-{
-	return;
+	edge e;
+	edge_iterator ei;
+
+	if (EDGE_COUNT(pred->succs) <= EDGE_COUNT(succ->preds)) {
+		FOR_EACH_EDGE(e, ei, pred->succs)
+			if (e->dest == succ)
+				return e;
+	} else {
+		FOR_EACH_EDGE(e, ei, succ->preds)
+			if (e->src == pred)
+				return e;
+	}
+
+	return NULL;
 }

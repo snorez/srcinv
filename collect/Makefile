@@ -1,3 +1,5 @@
+include ../Makefile.opt
+
 RELDIR=$(subst $(TOPDIR)/, "", $(shell pwd))
 dirs = gcc
 OUTDIR = $(SRCINV_BIN)

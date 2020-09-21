@@ -1,10 +1,11 @@
+history/
 .gitignore.addtion
 .ycm_extra_conf.py
 .gdb_history
-Makefile
+Makefile.opt
 *.o
 doc/README_zh.md
 doc/gimple_to_cfg.txt
 doc/gcc_ssa.txt
+doc/data_state.txt
 hacking/chktypesz.c
-hacking/uaf.cc

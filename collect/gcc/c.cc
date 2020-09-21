@@ -11,6 +11,11 @@
  *	default_defs in gimple_df
  *	tm_restart in gimple_df, this one not needed
  *
+ * UPDATE:
+ *	) in make_int_cst(), the total length is taken from ext_len, which
+ *	  means that we should use TREE_INT_CST_EXT_NUNITS to calculate the
+ *	  length. We use tree_size() to handle that.
+ *
  * Copyright (C) 2019  zerons
  *
  * This program is free software: you can redistribute it and/or modify

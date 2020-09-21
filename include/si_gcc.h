@@ -1,5 +1,4 @@
 /*
- * TODO
  * Copyright (C) 2019  zerons
  *
  * This program is free software: you can redistribute it and/or modify
@@ -18,6 +17,10 @@
 #ifndef SI_GCC_H_LETQ5PZR
 #define SI_GCC_H_LETQ5PZR
 
+#ifndef __cplusplus
+#error Must use g++ to compile, you may need to link the compiler_gcc too.
+#endif
+
 #ifndef _FILE_OFFSET_BITS
 #define	_FILE_OFFSET_BITS 64
 #endif
@@ -26,12 +29,17 @@
 #define	xmalloc malloc
 #endif
 
-/* for gcc */
-#ifdef __cplusplus
+#ifndef vecpfx
+#define	vecpfx m_vecpfx
+#endif
 
-/* for g++ compilation */
+#ifndef vecdata
+#define	vecdata m_vecdata
+#endif
+
 #include <gcc-plugin.h>
 //#include <plugin-version.h>
+#include <tree.h>
 #include <c-tree.h>
 #include <context.h>
 #include <function.h>
@@ -39,7 +47,6 @@
 #include <is-a.h>
 #include <predict.h>
 #include <basic-block.h>
-#include <tree.h>
 #include <tree-ssa-alias.h>
 #include <gimple-expr.h>
 #include <gimple.h>
@@ -71,24 +78,445 @@
 #include <tree-vrp.h>
 #include <tree-ssanames.h>
 #include <cpplib.h>
+#include <tm-preds.h>
+#include <safe-ctype.h>
+#include <tree-vector-builder.h>
+#include <tree-dfa.h>
+#include <dfp.h>
+#include <calls.h>
 
-#include "g++_treecodes.h"
+#include "si_core.h"
 
 #ifndef TYPE_MODE_RAW
 #define	TYPE_MODE_RAW(NODE) (TYPE_CHECK(NODE)->type_common.mode)
 #endif
 
-#else /* __cplusplus */
+static inline tree si_gcc_global(const char *str, void *n, int idx)
+{
+	tree ret = NULL_TREE;
+	if (idx < 0)
+		return ret;
 
-#include "gcc_treecodes.h"
+	struct sibuf *b;
+	b = find_target_sibuf(n);
+	if (!b)
+		return ret;
+	analysis__resfile_load(b);
 
-#endif
+	int maxlen;
+	tree *ptr = (tree *)analysis__sibuf_get_global(b, str, &maxlen);
+	if (!ptr)
+		return ret;
+	else if (idx >= maxlen)
+		return ret;
 
-#include "si_core.h"
+	ret = ptr[idx];
+	return ret;
+}
 
-#ifdef __cplusplus
+#define	SI_GCC_GLOBAL(str, n, idx) \
+	({\
+		tree ____ret;\
+		____ret = si_gcc_global(str, n, idx);\
+		____ret;\
+	})
+
+#define	si_global_trees(n, idx)		SI_GCC_GLOBAL("global_trees", n, idx)
+#define	si_integer_types(n, idx)	SI_GCC_GLOBAL("integer_types", n, idx)
+#define	si_sizetype_tab(n, idx)		SI_GCC_GLOBAL("sizetype_tab", n, idx)
+
+#define si_error_mark_node(n)	\
+	si_global_trees(n, TI_ERROR_MARK)
+#define si_intQI_type_node(n)	\
+	si_global_trees(n, TI_INTQI_TYPE)
+#define si_intHI_type_node(n)	\
+	si_global_trees(n, TI_INTHI_TYPE)
+#define si_intSI_type_node(n)	\
+	si_global_trees(n, TI_INTSI_TYPE)
+#define si_intDI_type_node(n)	\
+	si_global_trees(n, TI_INTDI_TYPE)
+#define si_intTI_type_node(n)	\
+	si_global_trees(n, TI_INTTI_TYPE)
+#define si_unsigned_intQI_type_node(n)	\
+	si_global_trees(n, TI_UINTQI_TYPE)
+#define si_unsigned_intHI_type_node(n)	\
+	si_global_trees(n, TI_UINTHI_TYPE)
+#define si_unsigned_intSI_type_node(n)	\
+	si_global_trees(n, TI_UINTSI_TYPE)
+#define si_unsigned_intDI_type_node(n)	\
+	si_global_trees(n, TI_UINTDI_TYPE)
+#define si_unsigned_intTI_type_node(n)	\
+	si_global_trees(n, TI_UINTTI_TYPE)
+#define si_atomicQI_type_node(n)	\
+	si_global_trees(n, TI_ATOMICQI_TYPE)
+#define si_atomicHI_type_node(n)	\
+	si_global_trees(n, TI_ATOMICHI_TYPE)
+#define si_atomicSI_type_node(n)	\
+	si_global_trees(n, TI_ATOMICSI_TYPE)
+#define si_atomicDI_type_node(n)	\
+	si_global_trees(n, TI_ATOMICDI_TYPE)
+#define si_atomicTI_type_node(n)	\
+	si_global_trees(n, TI_ATOMICTI_TYPE)
+#define si_uint16_type_node(n)	\
+	si_global_trees(n, TI_UINT16_TYPE)
+#define si_uint32_type_node(n)	\
+	si_global_trees(n, TI_UINT32_TYPE)
+#define si_uint64_type_node(n)	\
+	si_global_trees(n, TI_UINT64_TYPE)
+#define si_void_node(n)	\
+	si_global_trees(n, TI_VOID)
+#define si_integer_zero_node(n)	\
+	si_global_trees(n, TI_INTEGER_ZERO)
+#define si_integer_one_node(n)	\
+	si_global_trees(n, TI_INTEGER_ONE)
+#define si_integer_three_node(n)	\
+	si_global_trees(n, TI_INTEGER_THREE)
+#define si_integer_minus_one_node(n)	\
+	si_global_trees(n, TI_INTEGER_MINUS_ONE)
+#define si_size_zero_node(n)	\
+	si_global_trees(n, TI_SIZE_ZERO)
+#define si_size_one_node(n)	\
+	si_global_trees(n, TI_SIZE_ONE)
+#define si_bitsize_zero_node(n)	\
+	si_global_trees(n, TI_BITSIZE_ZERO)
+#define si_bitsize_one_node(n)	\
+	si_global_trees(n, TI_BITSIZE_ONE)
+#define si_bitsize_unit_node(n)	\
+	si_global_trees(n, TI_BITSIZE_UNIT)
+#define si_access_public_node(n)	\
+	si_global_trees(n, TI_PUBLIC)
+#define si_access_protected_node(n)	\
+	si_global_trees(n, TI_PROTECTED)
+#define si_access_private_node(n)	\
+	si_global_trees(n, TI_PRIVATE)
+#define si_null_pointer_node(n)	\
+	si_global_trees(n, TI_NULL_POINTER)
+#define si_float_type_node(n)	\
+	si_global_trees(n, TI_FLOAT_TYPE)
+#define si_double_type_node(n)	\
+	si_global_trees(n, TI_DOUBLE_TYPE)
+#define si_long_double_type_node(n)	\
+	si_global_trees(n, TI_LONG_DOUBLE_TYPE)
+#define SI_FLOATN_TYPE_NODE(n, IDX)	\
+	si_global_trees(n, TI_FLOATN_TYPE_FIRST + (IDX))
+#define SI_FLOATN_NX_TYPE_NODE(n, IDX)	\
+	si_global_trees(n, TI_FLOATN_NX_TYPE_FIRST + (IDX))
+#define SI_FLOATNX_TYPE_NODE(n, IDX)	\
+	si_global_trees(n, TI_FLOATNX_TYPE_FIRST + (IDX))
+#define si_float16_type_node(n)	\
+	si_global_trees(n, TI_FLOAT16_TYPE)
+#define si_float32_type_node(n)	\
+	si_global_trees(n, TI_FLOAT32_TYPE)
+#define si_float64_type_node(n)	\
+	si_global_trees(n, TI_FLOAT64_TYPE)
+#define si_float128_type_node(n)	\
+	si_global_trees(n, TI_FLOAT128_TYPE)
+#define si_float32x_type_node(n)	\
+	si_global_trees(n, TI_FLOAT32X_TYPE)
+#define si_float64x_type_node(n)	\
+	si_global_trees(n, TI_FLOAT64X_TYPE)
+#define si_float128x_type_node(n)	\
+	si_global_trees(n, TI_FLOAT128X_TYPE)
+#define si_float_ptr_type_node(n)	\
+	si_global_trees(n, TI_FLOAT_PTR_TYPE)
+#define si_double_ptr_type_node(n)	\
+	si_global_trees(n, TI_DOUBLE_PTR_TYPE)
+#define si_long_double_ptr_type_node(n)	\
+	si_global_trees(n, TI_LONG_DOUBLE_PTR_TYPE)
+#define si_integer_ptr_type_node(n)	\
+	si_global_trees(n, TI_INTEGER_PTR_TYPE)
+#define si_complex_integer_type_node(n)	\
+	si_global_trees(n, TI_COMPLEX_INTEGER_TYPE)
+#define si_complex_float_type_node(n)	\
+	si_global_trees(n, TI_COMPLEX_FLOAT_TYPE)
+#define si_complex_double_type_node(n)	\
+	si_global_trees(n, TI_COMPLEX_DOUBLE_TYPE)
+#define si_complex_long_double_type_node(n)	\
+	si_global_trees(n, TI_COMPLEX_LONG_DOUBLE_TYPE)
+#define SI_COMPLEX_FLOATN_NX_TYPE_NODE(n, IDX)	\
+	si_global_trees(n, TI_COMPLEX_FLOATN_NX_TYPE_FIRST + (IDX))
+#define si_void_type_node(n)	\
+	si_global_trees(n, TI_VOID_TYPE)
+#define si_ptr_type_node(n)	\
+	si_global_trees(n, TI_PTR_TYPE)
+#define si_const_ptr_type_node(n)	\
+	si_global_trees(n, TI_CONST_PTR_TYPE)
+#define si_size_type_node(n)	\
+	si_global_trees(n, TI_SIZE_TYPE)
+#define si_pid_type_node(n)	\
+	si_global_trees(n, TI_PID_TYPE)
+#define si_ptrdiff_type_node(n)	\
+	si_global_trees(n, TI_PTRDIFF_TYPE)
+#define si_va_list_type_node(n)	\
+	si_global_trees(n, TI_VA_LIST_TYPE)
+#define si_va_list_gpr_counter_field(n)	\
+	si_global_trees(n, TI_VA_LIST_GPR_COUNTER_FIELD)
+#define si_va_list_fpr_counter_field(n)	\
+	si_global_trees(n, TI_VA_LIST_FPR_COUNTER_FIELD)
+#define si_fileptr_type_node(n)	\
+	si_global_trees(n, TI_FILEPTR_TYPE)
+#define si_const_tm_ptr_type_node(n)	\
+	si_global_trees(n, TI_CONST_TM_PTR_TYPE)
+#define si_fenv_t_ptr_type_node(n)	\
+	si_global_trees(n, TI_FENV_T_PTR_TYPE)
+#define si_const_fenv_t_ptr_type_node(n)	\
+	si_global_trees(n, TI_CONST_FENV_T_PTR_TYPE)
+#define si_fexcept_t_ptr_type_node(n)	\
+	si_global_trees(n, TI_FEXCEPT_T_PTR_TYPE)
+#define si_const_fexcept_t_ptr_type_node(n)	\
+	si_global_trees(n, TI_CONST_FEXCEPT_T_PTR_TYPE)
+#define si_pointer_sized_int_node(n)	\
+	si_global_trees(n, TI_POINTER_SIZED_TYPE)
+#define si_boolean_type_node(n)	\
+	si_global_trees(n, TI_BOOLEAN_TYPE)
+#define si_boolean_false_node(n)	\
+	si_global_trees(n, TI_BOOLEAN_FALSE)
+#define si_boolean_true_node(n)	\
+	si_global_trees(n, TI_BOOLEAN_TRUE)
+#define si_dfloat32_type_node(n)	\
+	si_global_trees(n, TI_DFLOAT32_TYPE)
+#define si_dfloat64_type_node(n)	\
+	si_global_trees(n, TI_DFLOAT64_TYPE)
+#define si_dfloat128_type_node(n)	\
+	si_global_trees(n, TI_DFLOAT128_TYPE)
+#define si_dfloat32_ptr_type_node(n)	\
+	si_global_trees(n, TI_DFLOAT32_PTR_TYPE)
+#define si_dfloat64_ptr_type_node(n)	\
+	si_global_trees(n, TI_DFLOAT64_PTR_TYPE)
+#define si_dfloat128_ptr_type_node(n)	\
+	si_global_trees(n, TI_DFLOAT128_PTR_TYPE)
+#define si_sat_short_fract_type_node(n)	\
+	si_global_trees(n, TI_SAT_SFRACT_TYPE)
+#define si_sat_fract_type_node(n)	\
+	si_global_trees(n, TI_SAT_FRACT_TYPE)
+#define si_sat_long_fract_type_node(n)	\
+	si_global_trees(n, TI_SAT_LFRACT_TYPE)
+#define si_sat_long_long_fract_type_node(n)	\
+	si_global_trees(n, TI_SAT_LLFRACT_TYPE)
+#define si_sat_unsigned_short_fract_type_node(n)	\
+	si_global_trees(n, TI_SAT_USFRACT_TYPE)
+#define si_sat_unsigned_fract_type_node(n)	\
+	si_global_trees(n, TI_SAT_UFRACT_TYPE)
+#define si_sat_unsigned_long_fract_type_node(n)	\
+	si_global_trees(n, TI_SAT_ULFRACT_TYPE)
+#define si_sat_unsigned_long_long_fract_type_node(n)	\
+	si_global_trees(n, TI_SAT_ULLFRACT_TYPE)
+#define si_short_fract_type_node(n)	\
+	si_global_trees(n, TI_SFRACT_TYPE)
+#define si_fract_type_node(n)	\
+	si_global_trees(n, TI_FRACT_TYPE)
+#define si_long_fract_type_node(n)	\
+	si_global_trees(n, TI_LFRACT_TYPE)
+#define si_long_long_fract_type_node(n)	\
+	si_global_trees(n, TI_LLFRACT_TYPE)
+#define si_unsigned_short_fract_type_node(n)	\
+	si_global_trees(n, TI_USFRACT_TYPE)
+#define si_unsigned_fract_type_node(n)	\
+	si_global_trees(n, TI_UFRACT_TYPE)
+#define si_unsigned_long_fract_type_node(n)	\
+	si_global_trees(n, TI_ULFRACT_TYPE)
+#define si_unsigned_long_long_fract_type_node(n)	\
+	si_global_trees(n, TI_ULLFRACT_TYPE)
+#define si_sat_short_accum_type_node(n)	\
+	si_global_trees(n, TI_SAT_SACCUM_TYPE)
+#define si_sat_accum_type_node(n)	\
+	si_global_trees(n, TI_SAT_ACCUM_TYPE)
+#define si_sat_long_accum_type_node(n)	\
+	si_global_trees(n, TI_SAT_LACCUM_TYPE)
+#define si_sat_long_long_accum_type_node(n)	\
+	si_global_trees(n, TI_SAT_LLACCUM_TYPE)
+#define si_sat_unsigned_short_accum_type_node(n)	\
+	si_global_trees(n, TI_SAT_USACCUM_TYPE)
+#define si_sat_unsigned_accum_type_node(n)	\
+	si_global_trees(n, TI_SAT_UACCUM_TYPE)
+#define si_sat_unsigned_long_accum_type_node(n)	\
+	si_global_trees(n, TI_SAT_ULACCUM_TYPE)
+#define si_sat_unsigned_long_long_accum_type_node(n)	\
+	si_global_trees(n, TI_SAT_ULLACCUM_TYPE)
+#define si_short_accum_type_node(n)	\
+	si_global_trees(n, TI_SACCUM_TYPE)
+#define si_accum_type_node(n)	\
+	si_global_trees(n, TI_ACCUM_TYPE)
+#define si_long_accum_type_node(n)	\
+	si_global_trees(n, TI_LACCUM_TYPE)
+#define si_long_long_accum_type_node(n)	\
+	si_global_trees(n, TI_LLACCUM_TYPE)
+#define si_unsigned_short_accum_type_node(n)	\
+	si_global_trees(n, TI_USACCUM_TYPE)
+#define si_unsigned_accum_type_node(n)	\
+	si_global_trees(n, TI_UACCUM_TYPE)
+#define si_unsigned_long_accum_type_node(n)	\
+	si_global_trees(n, TI_ULACCUM_TYPE)
+#define si_unsigned_long_long_accum_type_node(n)	\
+	si_global_trees(n, TI_ULLACCUM_TYPE)
+#define si_qq_type_node(n)	\
+	si_global_trees(n, TI_QQ_TYPE)
+#define si_hq_type_node(n)	\
+	si_global_trees(n, TI_HQ_TYPE)
+#define si_sq_type_node(n)	\
+	si_global_trees(n, TI_SQ_TYPE)
+#define si_dq_type_node(n)	\
+	si_global_trees(n, TI_DQ_TYPE)
+#define si_tq_type_node(n)	\
+	si_global_trees(n, TI_TQ_TYPE)
+#define si_uqq_type_node(n)	\
+	si_global_trees(n, TI_UQQ_TYPE)
+#define si_uhq_type_node(n)	\
+	si_global_trees(n, TI_UHQ_TYPE)
+#define si_usq_type_node(n)	\
+	si_global_trees(n, TI_USQ_TYPE)
+#define si_udq_type_node(n)	\
+	si_global_trees(n, TI_UDQ_TYPE)
+#define si_utq_type_node(n)	\
+	si_global_trees(n, TI_UTQ_TYPE)
+#define si_sat_qq_type_node(n)	\
+	si_global_trees(n, TI_SAT_QQ_TYPE)
+#define si_sat_hq_type_node(n)	\
+	si_global_trees(n, TI_SAT_HQ_TYPE)
+#define si_sat_sq_type_node(n)	\
+	si_global_trees(n, TI_SAT_SQ_TYPE)
+#define si_sat_dq_type_node(n)	\
+	si_global_trees(n, TI_SAT_DQ_TYPE)
+#define si_sat_tq_type_node(n)	\
+	si_global_trees(n, TI_SAT_TQ_TYPE)
+#define si_sat_uqq_type_node(n)	\
+	si_global_trees(n, TI_SAT_UQQ_TYPE)
+#define si_sat_uhq_type_node(n)	\
+	si_global_trees(n, TI_SAT_UHQ_TYPE)
+#define si_sat_usq_type_node(n)	\
+	si_global_trees(n, TI_SAT_USQ_TYPE)
+#define si_sat_udq_type_node(n)	\
+	si_global_trees(n, TI_SAT_UDQ_TYPE)
+#define si_sat_utq_type_node(n)	\
+	si_global_trees(n, TI_SAT_UTQ_TYPE)
+#define si_ha_type_node(n)	\
+	si_global_trees(n, TI_HA_TYPE)
+#define si_sa_type_node(n)	\
+	si_global_trees(n, TI_SA_TYPE)
+#define si_da_type_node(n)	\
+	si_global_trees(n, TI_DA_TYPE)
+#define si_ta_type_node(n)	\
+	si_global_trees(n, TI_TA_TYPE)
+#define si_uha_type_node(n)	\
+	si_global_trees(n, TI_UHA_TYPE)
+#define si_usa_type_node(n)	\
+	si_global_trees(n, TI_USA_TYPE)
+#define si_uda_type_node(n)	\
+	si_global_trees(n, TI_UDA_TYPE)
+#define si_uta_type_node(n)	\
+	si_global_trees(n, TI_UTA_TYPE)
+#define si_sat_ha_type_node(n)	\
+	si_global_trees(n, TI_SAT_HA_TYPE)
+#define si_sat_sa_type_node(n)	\
+	si_global_trees[TI_SAT_SA_TYPE]
+#define si_sat_da_type_node(n)	\
+	si_global_trees(n, TI_SAT_DA_TYPE)
+#define si_sat_ta_type_node(n)	\
+	si_global_trees(n, TI_SAT_TA_TYPE)
+#define si_sat_uha_type_node(n)	\
+	si_global_trees(n, TI_SAT_UHA_TYPE)
+#define si_sat_usa_type_node(n)	\
+	si_global_trees(n, TI_SAT_USA_TYPE)
+#define si_sat_uda_type_node(n)	\
+	si_global_trees(n, TI_SAT_UDA_TYPE)
+#define si_sat_uta_type_node(n)	\
+	si_global_trees(n, TI_SAT_UTA_TYPE)
+#define si_void_list_node(n)	\
+	si_global_trees(n, TI_VOID_LIST_NODE)
+#define si_main_identifier_node(n)	\
+	si_global_trees(n, TI_MAIN_IDENTIFIER)
+#define SI_MAIN_NAME_P(NODE) \
+	(IDENTIFIER_NODE_CHECK(NODE) == si_main_identifier_node(NODE))
+#define si_optimization_default_node(n)	\
+	si_global_trees(n, TI_OPTIMIZATION_DEFAULT)
+#define si_optimization_current_node(n)	\
+	si_global_trees(n, TI_OPTIMIZATION_CURRENT)
+#define si_target_option_default_node(n)	\
+	si_global_trees(n, TI_TARGET_OPTION_DEFAULT)
+#define si_target_option_current_node(n)	\
+	si_global_trees(n, TI_TARGET_OPTION_CURRENT)
+#define si_current_target_pragma(n)	\
+	si_global_trees(n, TI_CURRENT_TARGET_PRAGMA)
+#define si_current_optimize_pragma(n)	\
+	si_global_trees(n, TI_CURRENT_OPTIMIZE_PRAGMA)
+
+#define si_char_type_node(n)	\
+	si_integer_types(n, itk_char)
+#define si_signed_char_type_node(n)	\
+	si_integer_types(n, itk_signed_char)
+#define si_unsigned_char_type_node(n)	\
+	si_integer_types(n, itk_unsigned_char)
+#define si_short_integer_type_node(n)	\
+	si_integer_types(n, itk_short)
+#define si_short_unsigned_type_node(n)	\
+	si_integer_types(n, itk_unsigned_short)
+#define si_integer_type_node(n)	\
+	si_integer_types(n, itk_int)
+#define si_unsigned_type_node(n)	\
+	si_integer_types(n, itk_unsigned_int)
+#define si_long_integer_type_node(n)	\
+	si_integer_types(n, itk_long)
+#define si_long_unsigned_type_node(n)	\
+	si_integer_types(n, itk_unsigned_long)
+#define si_long_long_integer_type_node(n)	\
+	si_integer_types(n, itk_long_long)
+#define si_long_long_unsigned_type_node(n)	\
+	si_integer_types(n, itk_unsigned_long_long)
+
+#define si_sizetype(n)	\
+	si_sizetype_tab(n, (int)stk_sizetype)
+#define si_bitsizetype(n)	\
+	si_sizetype_tab(n, (int)stk_bitsizetype)
+#define si_ssizetype(n)	\
+	si_sizetype_tab(n, (int)stk_ssizetype)
+#define si_sbitsizetype(n)	\
+	si_sizetype_tab(n, (int)stk_sbitsizetype)
 
 DECL_BEGIN
+
+C_SYM const char *const tree_code_name[];
+C_SYM const size_t gsstruct_code_size[];
+C_SYM void show_gimple(gimple_seq);
+C_SYM tree si_private_lookup_attribute(const char *attr_name, size_t attr_len,
+					tree list);
+C_SYM int check_tree_code(tree n);
+C_SYM int check_gimple_code(gimple_seq gs);
+C_SYM const unsigned char si_lookup_constraint_array[];
+C_SYM histogram_value si_gimple_histogram_value(struct function *, gimple *);
+C_SYM tree si_build1(enum tree_code code, tree type, tree node);
+C_SYM tree si_size_int_kind(poly_int64 number, enum size_type_kind kind);
+C_SYM const unsigned short si_sch_istable[256];
+C_SYM tree si_build0(enum tree_code code, tree tt);
+C_SYM tree si_ss_ph_in_expr(tree, tree);
+C_SYM tree si_fold_build1_loc(location_t loc, enum tree_code code,
+			tree type, tree op0);
+C_SYM tree si_fold_build2_loc(location_t loc, enum tree_code code,
+			tree type, tree op0, tree op1);
+C_SYM tree si_build_fixed(tree type, FIXED_VALUE_TYPE f);
+C_SYM tree si_build_poly_int_cst(tree type, const poly_wide_int_ref &values);
+C_SYM REAL_VALUE_TYPE si_real_value_from_int_cst(const_tree type,const_tree i);
+C_SYM tree si_build_real_from_int_cst(tree type, const_tree i);
+C_SYM tree si_fold_ignored_result(tree t);
+C_SYM tree si_build_vector_from_val(tree vectype, tree sc);
+C_SYM tree si_decl_function_context(const_tree decl);
+C_SYM bool si_decl_address_invariant_p(const_tree op);
+C_SYM bool si_tree_invariant_p(tree t);
+C_SYM tree si_skip_simple_arithmetic(tree expr);
+C_SYM bool si_contains_placeholder_p(const_tree exp);
+C_SYM tree si_save_expr(tree expr);
+C_SYM tree si_fold_convert_loc(location_t loc, tree type, tree arg);
+C_SYM tree si_component_ref_field_offset(tree exp);
+C_SYM bool si_parse_output_constraint(const char **constraint_p, int op_num,
+				int ninputs, int noutputs,
+				bool *allows_mem, bool *allows_reg,
+				bool *is_inout);
+C_SYM int si_flags_from_decl_or_type(const_tree exp);
+C_SYM const int si_internal_fn_flags_array[];
+C_SYM int si_gimple_call_flags(const gimple *stmt);
+C_SYM void si_parse_ssa_operands(struct function *fn, gimple *gs);
+C_SYM edge si_find_taken_edge_switch_expr(struct func_node *fn,
+				    const gswitch *switch_stmt, tree val);
+C_SYM edge si_find_taken_edge(struct func_node *fn, basic_block bb, tree val);
 
 #if __GNUC__ >= 8
 struct GTY(()) sorted_fields_type {
@@ -214,6 +642,27 @@ static inline expanded_location *si_expr_location(tree expr)
 static inline expanded_location *get_gimple_loc(char *payload, location_t *loc)
 {
 	return (expanded_location *)(payload + *loc);
+}
+
+static inline int gimple_loc_string(char *ret, size_t retlen, gimple_seq gs)
+{
+	expanded_location *xloc;
+	struct sibuf *buf;
+
+	memset(ret, 0, retlen);
+
+	buf = find_target_sibuf((void *)gs);
+	if (!buf) {
+		snprintf(ret, retlen, "%s", "get loc failed");
+		return -1;
+	}
+
+	xloc = get_gimple_loc(buf->payload, &gs->location);
+	snprintf(ret, retlen, "%s %d %d",
+			xloc ? xloc->file : NULL,
+			xloc ? xloc->line : 0,
+			xloc ? xloc->column : 0);
+	return 0;
 }
 
 /* get tree_identifier node name, the IDENTIFIER_NODE must not be NULL */
@@ -500,23 +949,30 @@ static inline void get_var_sinode(tree node, struct sinode **sn_ret, int flag)
 	return;
 }
 
-static inline void show_gimple(gimple_seq gs)
+static inline bool si_cmp_attribs(const char *attr1, size_t attr1_len,
+				  const char *attr2, size_t attr2_len)
 {
-	tree *ops = gimple_ops(gs);
-	enum gimple_code gc = gimple_code(gs);
-	si_log("Statement %s\n", gimple_code_name[gc]);
-	for (unsigned int i = 0; i < gimple_num_ops(gs); i++) {
-		if (ops[i]) {
-			enum tree_code tc = TREE_CODE(ops[i]);
-			si_log("\tOp: %s %p\n", tree_code_name[tc], ops[i]);
-		} else {
-			si_log("\tOp: null\n");
-		}
-	}
+	return (attr1_len == attr2_len) &&
+		(strncmp(attr1, attr2, attr1_len) == 0);
 }
 
-/* TODO: gcc/tree-cfg.c dump_function_to_file() */
-static inline void get_attributes(struct list_head *head, tree attr_node)
+static inline bool si_cxx11_attribute_p(const_tree attr)
+{
+	if ((attr == NULL_TREE) || ((TREE_CODE(attr) != TREE_LIST)))
+		return false;
+
+	return (TREE_CODE(TREE_PURPOSE(attr)) == TREE_LIST);
+}
+
+static inline tree si_get_attribute_name(const_tree attr)
+{
+	if (si_cxx11_attribute_p(attr))
+		return TREE_VALUE(TREE_PURPOSE(attr));
+	return TREE_PURPOSE(attr);
+}
+
+/* gcc/tree-cfg.c dump_function_to_file() */
+static inline void get_attributes(struct slist_head *head, tree attr_node)
 {
 	if (!attr_node)
 		return;
@@ -526,10 +982,10 @@ static inline void get_attributes(struct list_head *head, tree attr_node)
 
 	tree tl = attr_node;
 	while (tl) {
-		tree purpose = TREE_PURPOSE(tl);
-		BUG_ON(TREE_CODE(purpose) != IDENTIFIER_NODE);
+		tree attr_name = si_get_attribute_name(tl);
+		BUG_ON(TREE_CODE(attr_name) != IDENTIFIER_NODE);
 		memset(name, 0, NAME_MAX);
-		get_node_name(purpose, name);
+		get_node_name(attr_name, name);
 
 		struct attr_list *newal;
 		newal = attr_list_add(name);
@@ -542,14 +998,24 @@ static inline void get_attributes(struct list_head *head, tree attr_node)
 			newavl = attrval_list_new();
 			newavl->node = (void *)valnode;
 
-			list_add_tail(&newavl->sibling, &newal->values);
+			slist_add_tail(&newavl->sibling, &newal->values);
 
 			tl2 = TREE_CHAIN(tl2);
 		}
 
-		list_add_tail(&newal->sibling, head);
+		slist_add_tail(&newal->sibling, head);
 
 		tl = TREE_CHAIN(tl);
+	}
+}
+
+static inline tree si_lookup_attribute(const char *attr_name, tree list)
+{
+	if (list == NULL_TREE) {
+		return NULL_TREE;
+	} else {
+		size_t attr_len = strlen(attr_name);
+		return si_private_lookup_attribute(attr_name, attr_len, list);
 	}
 }
 
@@ -625,65 +1091,7 @@ static inline gphi_iterator si_gsi_start_phis(basic_block bb)
 	return i;
 }
 
-static inline void si_extract_true_false_edges_from_block(basic_block bb,
-							  edge *true_edge,
-							  edge *false_edge)
-{
-	edge e = EDGE_SUCC(bb, 0);
-
-	if (e->flags & EDGE_TRUE_VALUE) {
-		*true_edge = e;
-		*false_edge = EDGE_SUCC(bb, 1);
-	} else {
-		*false_edge = e;
-		*true_edge = EDGE_SUCC(bb, 1);
-	}
-}
-
-static inline gimple *si_last_stmt(basic_block bb)
-{
-	gimple_stmt_iterator i;
-	gimple *stmt = NULL;
-
-	i = gsi_last_bb(bb);
-	while ((!gsi_end_p(i)) &&
-		is_gimple_debug((stmt = gsi_stmt(i)))) {
-		gsi_prev(&i);
-		stmt = NULL;
-	}
-
-	return stmt;
-}
-
-/*
- * check tree_code gimple_code is not out-of-bound
- */
-static inline int check_tree_code(tree n)
-{
-	if (!n)
-		return 0;
-
-	size_t len = sizeof(tree_code_name) / sizeof(tree_code_name[0]);
-	enum tree_code tc = TREE_CODE(n);
-	if (tc >= len)
-		return 1;
-	else
-		return 0;
-}
-
-static inline int check_gimple_code(gimple_seq gs)
-{
-	if (!gs)
-		return 0;
-
-	enum gimple_code gc = gimple_code(gs);
-	size_t len = sizeof(gimple_code_name) / sizeof(gimple_code_name[0]);
-	if (gc >= len)
-		return 1;
-	else
-		return 0;
-}
-
+/* Check gimple_compare_field_offset() */
 static inline unsigned long get_field_offset(tree field)
 {
 	unsigned long ret = 0;
@@ -699,55 +1107,170 @@ static inline unsigned long get_field_offset(tree field)
 	return ret;
 }
 
-static inline int si_integer_zerop(tree expr)
-{
-	switch (TREE_CODE(expr)) {
-	case INTEGER_CST:
-	{
-		return wi::to_wide(expr) == 0;
-	}
-	case COMPLEX_CST:
-	{
-		return (si_integer_zerop(TREE_REALPART(expr)) &&
-			si_integer_zerop(TREE_IMAGPART(expr)));
-	}
-	case VECTOR_CST:
-	{
-		return ((VECTOR_CST_NPATTERNS(expr) == 1) &&
-			(VECTOR_CST_DUPLICATE_P(expr)) &&
-			(si_integer_zerop(VECTOR_CST_ENCODED_ELT(expr, 0))));
-	}
-	default:
-	{
-		return false;
-	}
-	}
-}
-
-static inline int si_tree_int_cst_equal(const_tree t1, const_tree t2)
-{
-	if (t1 == t2)
-		return 1;
-
-	if ((t1 == 0) || (t2 == 0))
-		return 0;
-
-	if ((TREE_CODE(t1) == INTEGER_CST) &&
-		(TREE_CODE(t2) == INTEGER_CST) &&
-		(wi::to_widest(t1) == wi::to_widest(t2)))
-		return 1;
-
-	return 0;
-}
-
 static inline tree si_get_containing_scope(const_tree t)
 {
 	return (TYPE_P(t) ? TYPE_CONTEXT(t) : DECL_CONTEXT(t));
 }
 
-C_SYM histogram_value si_gimple_histogram_value(struct function *, gimple *);
+static inline enum constraint_num si_lookup_constraint_1(const char *str)
+{
+	switch (str[0]) {
+	case '<':
+		return CONSTRAINT__l;
+	case '>':
+		return CONSTRAINT__g;
+	case 'A':
+		return CONSTRAINT_A;
+	case 'B':
+		if (!strncmp (str + 1, "g", 1))
+			return CONSTRAINT_Bg;
+		if (!strncmp (str + 1, "m", 1))
+			return CONSTRAINT_Bm;
+		if (!strncmp (str + 1, "c", 1))
+			return CONSTRAINT_Bc;
+		if (!strncmp (str + 1, "n", 1))
+			return CONSTRAINT_Bn;
+		if (!strncmp (str + 1, "s", 1))
+			return CONSTRAINT_Bs;
+		if (!strncmp (str + 1, "w", 1))
+			return CONSTRAINT_Bw;
+		if (!strncmp (str + 1, "z", 1))
+			return CONSTRAINT_Bz;
+		if (!strncmp (str + 1, "C", 1))
+			return CONSTRAINT_BC;
+		if (!strncmp (str + 1, "f", 1))
+			return CONSTRAINT_Bf;
+		break;
+	case 'C':
+		return CONSTRAINT_C;
+	case 'D':
+		return CONSTRAINT_D;
+	case 'E':
+		return CONSTRAINT_E;
+	case 'F':
+		return CONSTRAINT_F;
+	case 'G':
+		return CONSTRAINT_G;
+	case 'I':
+		return CONSTRAINT_I;
+	case 'J':
+		return CONSTRAINT_J;
+	case 'K':
+		return CONSTRAINT_K;
+	case 'L':
+		return CONSTRAINT_L;
+	case 'M':
+		return CONSTRAINT_M;
+	case 'N':
+		return CONSTRAINT_N;
+	case 'O':
+		return CONSTRAINT_O;
+	case 'Q':
+		return CONSTRAINT_Q;
+	case 'R':
+		return CONSTRAINT_R;
+	case 'S':
+		return CONSTRAINT_S;
+	case 'T':
+		if (!strncmp (str + 1, "s", 1))
+			return CONSTRAINT_Ts;
+		if (!strncmp (str + 1, "v", 1))
+			return CONSTRAINT_Tv;
+		break;
+	case 'U':
+		return CONSTRAINT_U;
+	case 'V':
+		return CONSTRAINT_V;
+	case 'W':
+		if (!strncmp (str + 1, "z", 1))
+			return CONSTRAINT_Wz;
+		if (!strncmp (str + 1, "d", 1))
+			return CONSTRAINT_Wd;
+		if (!strncmp (str + 1, "f", 1))
+			return CONSTRAINT_Wf;
+		if (!strncmp (str + 1, "e", 1))
+			return CONSTRAINT_We;
+		break;
+	case 'X':
+		return CONSTRAINT_X;
+	case 'Y':
+		if (!strncmp (str + 1, "z", 1))
+			return CONSTRAINT_Yz;
+		if (!strncmp (str + 1, "d", 1))
+			return CONSTRAINT_Yd;
+		if (!strncmp (str + 1, "p", 1))
+			return CONSTRAINT_Yp;
+		if (!strncmp (str + 1, "a", 1))
+			return CONSTRAINT_Ya;
+		if (!strncmp (str + 1, "b", 1))
+			return CONSTRAINT_Yb;
+		if (!strncmp (str + 1, "f", 1))
+			return CONSTRAINT_Yf;
+		if (!strncmp (str + 1, "r", 1))
+			return CONSTRAINT_Yr;
+		if (!strncmp (str + 1, "v", 1))
+			return CONSTRAINT_Yv;
+		if (!strncmp (str + 1, "k", 1))
+			return CONSTRAINT_Yk;
+		break;
+	case 'Z':
+		return CONSTRAINT_Z;
+	case 'a':
+		return CONSTRAINT_a;
+	case 'b':
+		return CONSTRAINT_b;
+	case 'c':
+		return CONSTRAINT_c;
+	case 'd':
+		return CONSTRAINT_d;
+	case 'e':
+		return CONSTRAINT_e;
+	case 'f':
+		return CONSTRAINT_f;
+	case 'i':
+		return CONSTRAINT_i;
+	case 'k':
+		return CONSTRAINT_k;
+	case 'l':
+		return CONSTRAINT_l;
+	case 'm':
+		return CONSTRAINT_m;
+	case 'n':
+		return CONSTRAINT_n;
+	case 'o':
+		return CONSTRAINT_o;
+	case 'p':
+		return CONSTRAINT_p;
+	case 'q':
+		return CONSTRAINT_q;
+	case 'r':
+		return CONSTRAINT_r;
+	case 's':
+		return CONSTRAINT_s;
+	case 't':
+		return CONSTRAINT_t;
+	case 'u':
+		return CONSTRAINT_u;
+	case 'v':
+		return CONSTRAINT_v;
+	case 'x':
+		return CONSTRAINT_x;
+	case 'y':
+		return CONSTRAINT_y;
+	default:
+		break;
+	}
 
-C_SYM tree si_build1(enum tree_code code, tree type, tree node);
+	return CONSTRAINT__UNKNOWN;
+}
+
+static inline enum constraint_num si_lookup_constraint(const char *p)
+{
+	unsigned int index = si_lookup_constraint_array[(unsigned char)*p];
+	return (index == UCHAR_MAX ? si_lookup_constraint_1(p) :
+			(enum constraint_num)index);
+}
+
 static inline tree si_build1_loc(location_t loc, enum tree_code code,
 				tree type, tree arg1)
 {
@@ -757,45 +1280,141 @@ static inline tree si_build1_loc(location_t loc, enum tree_code code,
 	return t;
 }
 
-C_SYM tree si_size_int_kind(poly_int64 number, enum size_type_kind kind);
+/* these two function may return NULL */
+static inline gimple_seq cp_first_gimple(struct code_path *cp)
+{
+	basic_block bb;
+	bb = (basic_block)cp->cp;
+	return bb->il.gimple.seq;
+}
 
-#define si_sizetype si_sizetype_tab[(int) stk_sizetype]
-#define si_bitsizetype si_sizetype_tab[(int) stk_bitsizetype]
-#define si_ssizetype si_sizetype_tab[(int) stk_ssizetype]
-#define si_sbitsizetype si_sizetype_tab[(int) stk_sbitsizetype]
-#define si_size_int(L) si_size_int_kind (L, stk_sizetype)
-#define si_ssize_int(L) si_size_int_kind (L, stk_ssizetype)
-#define si_bitsize_int(L) si_size_int_kind (L, stk_bitsizetype)
-#define si_sbitsize_int(L) si_size_int_kind (L, stk_sbitsizetype)
+static inline gimple_seq fn_first_gimple(struct func_node *fn)
+{
+	gimple_seq ret = NULL;
+	basic_block entry;
+	entry = DECL_STRUCT_FUNCTION((tree)fn->node)->cfg->x_entry_block_ptr;
+	ret = entry->next_bb->il.gimple.seq;
+	return ret;
+}
 
-#define si_error_mark_node		si_global_trees[TI_ERROR_MARK]
-#define si_integer_zero_node		si_global_trees[TI_INTEGER_ZERO]
+static inline u32 get_type_bits(tree node)
+{
+	tree type = NULL; 
+	if (TREE_CODE_CLASS(TREE_CODE(node)) == tcc_type)
+		type = node;
+	else
+		type = TREE_TYPE(node);
 
-C_SYM tree si_build0(enum tree_code code, tree tt);
-C_SYM tree si_ss_ph_in_expr(tree, tree);
+	return TREE_INT_CST_LOW(TYPE_SIZE(type));
+}
+
+static inline u32 get_type_bytes(tree node)
+{
+	tree type = NULL;
+	if (TREE_CODE_CLASS(TREE_CODE(node)) == tcc_type)
+		type = node;
+	else
+		type = TREE_TYPE(node);
+
+	return TREE_INT_CST_LOW(TYPE_SIZE_UNIT(type));
+}
+
+static inline bool
+si_gimple_cond_true_p(const gcond *gs)
+{
+	tree lhs = gimple_cond_lhs(gs);
+	tree rhs = gimple_cond_rhs(gs);
+	enum tree_code code = gimple_cond_code(gs);
+
+	if ((lhs != si_boolean_true_node((void *)gs)) &&
+		(lhs != si_boolean_false_node((void *)gs)))
+		return false;
+
+	if ((rhs != si_boolean_true_node((void *)gs)) &&
+		(rhs != si_boolean_false_node((void *)gs)))
+		return false;
+
+	if (code == NE_EXPR && lhs != rhs)
+		return true;
+
+	if (code == EQ_EXPR && lhs == rhs)
+		return true;
+
+	return false;
+}
+
+static inline bool
+si_gimple_cond_false_p(const gcond *gs)
+{
+	tree lhs = gimple_cond_lhs(gs);
+	tree rhs = gimple_cond_rhs(gs);
+	enum tree_code code = gimple_cond_code(gs);
+
+	if ((lhs != si_boolean_true_node((void *)gs)) &&
+		(lhs != si_boolean_false_node((void *)gs)))
+		return false;
+
+	if ((rhs != si_boolean_true_node((void *)gs)) &&
+		(rhs != si_boolean_false_node((void *)gs)))
+		return false;
+
+	if (code == NE_EXPR && lhs == rhs)
+		return true;
+
+	if (code == EQ_EXPR && lhs != rhs)
+		return true;
+
+	return false;
+}
+
+static inline
+struct code_path *find_cp_by_bb(struct func_node *fn, basic_block bb)
+{
+	struct code_path *ret = NULL;
+	for (int i = 0; i < fn->cp_cnt; i++) {
+		if (fn->cps[i]->cp != bb)
+			continue;
+		ret = fn->cps[i];
+		break;
+	}
+	return ret;
+}
+
+static inline
+struct code_path *find_cp_by_gs(struct func_node *fn, gimple_seq gs)
+{
+	return find_cp_by_bb(fn, gs->bb);
+}
+
+#define si_sch_test(c, bit) (si_sch_istable[(c) & 0xff] & (unsigned short)(bit))
+
+#define SI_ISALPHA(c)  si_sch_test(c, _sch_isalpha)
+#define SI_ISALNUM(c)  si_sch_test(c, _sch_isalnum)
+#define SI_ISBLANK(c)  si_sch_test(c, _sch_isblank)
+#define SI_ISCNTRL(c)  si_sch_test(c, _sch_iscntrl)
+#define SI_ISDIGIT(c)  si_sch_test(c, _sch_isdigit)
+#define SI_ISGRAPH(c)  si_sch_test(c, _sch_isgraph)
+#define SI_ISLOWER(c)  si_sch_test(c, _sch_islower)
+#define SI_ISPRINT(c)  si_sch_test(c, _sch_isprint)
+#define SI_ISPUNCT(c)  si_sch_test(c, _sch_ispunct)
+#define SI_ISSPACE(c)  si_sch_test(c, _sch_isspace)
+#define SI_ISUPPER(c)  si_sch_test(c, _sch_isupper)
+#define SI_ISXDIGIT(c) si_sch_test(c, _sch_isxdigit)
+#define SI_ISIDNUM(c)	si_sch_test(c, _sch_isidnum)
+#define SI_ISIDST(c)	si_sch_test(c, _sch_isidst)
+#define SI_IS_ISOBASIC(c)	si_sch_test(c, _sch_isbasic)
+#define SI_IS_VSPACE(c)	si_sch_test(c, _sch_isvsp)
+#define SI_IS_NVSPACE(c)	si_sch_test(c, _sch_isnvsp)
+#define SI_IS_SPACE_OR_NUL(c)	si_sch_test(c, _sch_iscppsp)
 
 #define	SI_SS_PH_IN_EXPR(EXP,OBJ) \
 	((EXP) == 0 || TREE_CONSTANT(EXP) ? (EXP) : \
 	 si_ss_ph_in_expr(EXP,OBJ))
 
-C_SYM tree si_fold_build1_loc(location_t loc, enum tree_code code,
-			tree type, tree op0);
-C_SYM tree si_fold_build2_loc(location_t loc, enum tree_code code,
-			tree type, tree op0, tree op1);
-C_SYM tree si_build_fixed(tree type, FIXED_VALUE_TYPE f);
-C_SYM tree si_build_poly_int_cst(tree type, const poly_wide_int_ref &values);
-C_SYM REAL_VALUE_TYPE si_real_value_from_int_cst(const_tree type, const_tree i);
-C_SYM tree si_build_real_from_int_cst(tree type, const_tree i);
-C_SYM tree si_fold_ignored_result(tree t);
-C_SYM tree si_build_vector_from_val(tree vectype, tree sc);
-C_SYM tree si_decl_function_context(const_tree decl);
-C_SYM bool si_decl_address_invariant_p(const_tree op);
-C_SYM bool si_tree_invariant_p(tree t);
-C_SYM tree si_skip_simple_arithmetic(tree expr);
-C_SYM bool si_contains_placeholder_p(const_tree exp);
-C_SYM tree si_save_expr(tree expr);
-C_SYM tree si_fold_convert_loc(location_t loc, tree type, tree arg);
-C_SYM tree si_component_ref_field_offset(tree exp);
+static inline int si_internal_fn_flags(enum internal_fn fn)
+{
+	return si_internal_fn_flags_array[(int)fn];
+}
 
 DECL_END
 
@@ -848,7 +1467,7 @@ static inline struct var_list *get_tn_field(struct type_node *tn, char *name)
 		return NULL;
 
 	struct var_list *tmp;
-	list_for_each_entry(tmp, &tn->children, sibling) {
+	slist_for_each_entry(tmp, &tn->children, sibling) {
 		if (!tmp->var.name)
 			continue;
 
@@ -858,7 +1477,5 @@ static inline struct var_list *get_tn_field(struct type_node *tn, char *name)
 
 	return NULL;
 }
-
-#endif
 
 #endif /* end of include guard: SI_GCC_H_LETQ5PZR */

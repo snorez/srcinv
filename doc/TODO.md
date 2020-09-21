@@ -1,8 +1,27 @@
 ### srcinv
+- documentation
+	- As of now, for 64bit little-endian systems only.
 + performance optimization
 + why crash when `si_global_trees` defined in `compiler_gcc.cc`? It seems that
 the `si_global_trees` memory area overlaps with the thread stack.
-+ why can't I skip over STEP1?
+- sample_can_run()		check if the chosen sample runnable.
+- sample_set_exists()		check if the current sample set exists.
+- sample_set_validate()		check if we choose the right branch to execute.
+- dec_special_call()		For linux kernel, handle kmalloc() kfree(), etc.
+- pick_related_func()
+- build_sample_state_till()
+- sample_set_stuck
+- sample_set_replay
+- functions without `GIMPLE_RETURN`		return err?
+- functions with `GIMPLE_ASM`			return err?
+- Add an extra field to track global var usage in sample set?
+- How to detect memory leak? `alloc_flag`(1) `refcount`(0) and no free()? check when function exits?
+- KCSAN and https://github.com/google/ktsan/wiki/READ_ONCE-and-WRITE_ONCE
+- How to reduce the repetition rate to make the branch suggestion more efficient?
+	- colorize all guessed data, use slist to show connections between them?
+- How to initialize all the global variables, and the whole system(sys-bootup)?
+
+
 
 ### collect
 + gcc/c.cc
@@ -108,8 +127,7 @@ the `si_global_trees` memory area overlaps with the thread stack.
 	 */
 	```
 
-+ We gen a name for a special type, what if the type from a expanded macro? e.g. DEFINE\_KFIFO.
-+ ~~ rewrite parse\_resfile() ~~
++ We gen a name for a special type, what if the type is in a expanded macro? e.g. DEFINE\_KFIFO in linux kernel.
 + gcc\_asm: TODOs
 	- indirect calls example, compute the real addr:
 	In arch/x86/entry_64.S

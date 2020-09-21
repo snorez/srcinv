@@ -17,7 +17,53 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "si_core.h"
-#include "./analysis.h"
+
+static const char *sample_set_flag_string[SAMPLE_SF_MAX] = {
+	"use-after-free",
+	"ignore return value",
+	"take void return value",
+	"uninitialized variable used",
+	"out-of-bound read",
+	"out-of-bound write",
+	"information leak",
+	"memory leak",
+	"dead lock",
+};
+
+const char *sample_set_flag_str(int nr)
+{
+	if (nr >= SAMPLE_SF_MAX)
+		return NULL;
+
+	return sample_set_flag_string[nr];
+}
+
+void sample_state_dump_cp(struct sample_state *sstate, int ident)
+{
+	struct cp_list *tmp;
+	slist_for_each_entry(tmp, &sstate->cp_list_head, sibling) {
+		char _ident[ident+1];
+		for (int i = 0; i < ident; i++)
+			_ident[i] = '\t';
+		_ident[ident] = 0;
+		si_log("%s%s %p\n", _ident, tmp->cp->func->name, tmp->cp);
+	}
+}
+
+void sample_set_dump(struct sample_set *sset)
+{
+	si_log("Dump sample set 0x%lx\n", sset->id);
+	si_log("Issues:\n");
+	for (int i = 0; i < SAMPLE_SF_MAX; i++) {
+		if (!sample_set_chk_flag(sset, i))
+			continue;
+		si_log("\t%s\n", sample_set_flag_str(i));
+	}
+	for (u64 i = 0; i < sset->count; i++) {
+		si_log("State[%d]:\n", i);
+		sample_state_dump_cp(sset->samples[i], 1);
+	}
+}
 
 /*
  * @sample: sample_state for current sample
@@ -29,25 +75,44 @@
  * Otherwise, take the last code_path in sample, and ignore @cp_entry and
  * @state_entry.
  */
-int build_sample_state_till(struct sample_state *sample,
+int build_sample_state_till(struct sample_set *sset, int idx,
 			  struct code_path *cp_entry,
-			  struct cp_state *state_entry,
 			  struct code_path *till)
 {
-	int ret = 0;
-	struct code_path *cur_cp;
+	si_log1_todo("not implemented yet\n");
+	return 0;
+}
 
-	cur_cp = sample_last_cp(sample);
-	if (!cur_cp)
-		cur_cp = cp_entry;
+int sample_can_run(struct sample_set *sset, int idx)
+{
+	if (sset->count == 1)
+		return 1;
 
-	if (cur_cp->state->status == CSS_EMPTY) {
-		si_log1_todo("CSS_EMPTY in %s\n", cur_cp->func->name);
-		return 0;
-	} else if (cur_cp->state->status == CSS_INITIALIZED) {
-		cp_state_copy(cur_cp->state, state_entry);
-	}
+	si_log1_todo("not implemented yet\n");
+	return 0;
+}
 
-	ret = analysis__dec_next(sample, cur_cp);
+int sample_set_exists(struct sample_set *sset)
+{
+	si_log1_todo("not implemented yet\n");
+	return 0;
+}
+
+int sample_set_stuck(struct sample_set *sset)
+{
+	si_log1_todo("not implemented yet\n");
+	return 0;
+}
+
+int sample_set_replay(struct sample_set *sset)
+{
+	si_log1_todo("not implemented yet\n");
+	return 0;
+}
+
+int sample_set_validate(struct sample_set *sset)
+{
+	/* In case we guess some wrong value, take to the wrong code path */
+	si_log1_todo("not implemented yet\n");
 	return 0;
 }

@@ -33,7 +33,6 @@
  */
 
 #include "si_gcc.h"
-#include "../analysis.h"
 
 #define CS_ARCH_X86	3
 #define	CS_MODE_64	(1 << 3)
@@ -85,7 +84,7 @@ enum jxx_2 {
 };
 
 static int parse(struct sibuf *, int);
-static int dec(struct sample_state *, struct code_path *);
+static int dec(struct sample_set *, int, struct func_node *);
 static struct lang_ops ops;
 
 CLIB_MODULE_NAME(asm);
@@ -114,7 +113,6 @@ static __thread struct sibuf *cur_sibuf;
 static __thread void *cur_ctx;
 static __thread char *cur_srcfile;
 static __thread struct sinode *cur_sn;
-static __thread struct code_path *cur_cp;
 
 static void getbase(void)
 {
@@ -130,7 +128,7 @@ static void getbase(void)
 	loc_file = analysis__sinode_search(TYPE_FILE, SEARCH_BY_SPEC,
 						(void *)cur_srcfile);
 	if (loc_file) {
-		si_log1_emer("Same srcfile, not supposed\n");
+		si_log1_err("Same srcfile, not supposed\n");
 		goto out;
 	}
 	loc_file = analysis__sinode_new(TYPE_FILE, cur_srcfile,
@@ -140,13 +138,13 @@ static void getbase(void)
 
 	ef = elf_parse_data(cur_ctx);
 	if (!ef) {
-		si_log1_emer("elf_parse_data err\n");
+		si_log1_err("elf_parse_data err\n");
 		goto out;
 	}
 
 	err = elf_get_syms(ef, &syms_head);
 	if (err == -1) {
-		si_log1_emer("elf_get_syms err\n");
+		si_log1_err("elf_get_syms err\n");
 		goto ef_out;
 	}
 
@@ -249,7 +247,6 @@ static void getbase(void)
 			sn_new->data = (char *)fn;
 			sn_new->datalen = sizeof(*fn);
 		}
-		sn_new->data_fmt = SI_TYPE_DF_ASM;
 		sn_new->weak_flag = (tmp->bind == STB_WEAK);
 
 		BUG_ON(analysis__sinode_insert(sn_new, behavior));
@@ -503,7 +500,7 @@ static void getdetail_match_cb(struct sinode *sn, void *arg)
 	}
 	default:
 	{
-		si_log1_emer("Not supposed to happen\n");
+		si_log1_err("Not supposed to happen\n");
 		break;
 	}
 	}
@@ -530,15 +527,12 @@ static void getdetail(void)
 
 static void phase4_func(struct sinode *sn)
 {
+#if 0
 	struct func_node *fn;
 	fn = (struct func_node *)sn->data;
+#endif
 
-	for (int i = 0; i < fn->cp_cnt; i++) {
-		cur_cp = fn->cps[i];
-		cur_cp->state = cp_state_new();
-		cur_cp->state->data_fmt = SI_TYPE_DF_ASM;
-		cur_cp->state->status = CSS_EMPTY;
-	}
+	/* TODO, data state */
 }
 
 static void phase4_match_cb(struct sinode *sn, void *arg)
@@ -584,7 +578,7 @@ static void phase4(void)
 static __thread struct sinode *addr2sinode_val;
 static void addr2sinode_match(struct sinode *sn, void *arg)
 {
-	if (sn->data_fmt != SI_TYPE_DF_ASM)
+	if (__si_data_fmt(sn->buf) != SI_TYPE_DF_ASM)
 		return;
 
 	CLIB_DBG_FUNC_ENTER();
@@ -619,13 +613,13 @@ static void addr2sinode_rel(char *addr)
 
 	ef = elf_parse_data(cur_ctx);
 	if (!ef) {
-		si_log1_emer("elf_parse_data err\n");
+		si_log1_err("elf_parse_data err\n");
 		return;
 	}
 
 	err = elf_get_syms(ef, &syms_head);
 	if (err == -1) {
-		si_log1_emer("elf_get_syms err\n");
+		si_log1_err("elf_get_syms err\n");
 		goto ef_out;
 	}
 
@@ -874,12 +868,12 @@ static void indcfg1_match_cb(struct sinode *sn, void *arg)
 					X86_X64_OPCODE_MAXLEN,
 					&opcode);
 		if (bytes == -1) {
-			si_log1_emer("disas_next err in %s\n", sn->name);
+			si_log1_err("disas_next err in %s\n", sn->name);
 			goto out;
 		}
 
 		if (bytes > X86_X64_OPCODE_MAXLEN) {
-			si_log1_emer("buffer too small, need %d\n", bytes);
+			si_log1_err("buffer too small, need %d\n", bytes);
 			goto out;
 		}
 
@@ -958,7 +952,7 @@ static int parse(struct sibuf *buf, int parse_mode)
 	struct file_content *fc = (struct file_content *)buf->load_addr;
 	if ((fc->gcc_ver_major != gcc_ver_major) ||
 		(fc->gcc_ver_minor > gcc_ver_minor)) {
-		si_log1_emer("gcc version not match, need %d.%d\n",
+		si_log1_err("gcc version not match, need %d.%d\n",
 				fc->gcc_ver_major, fc->gcc_ver_minor);
 		CLIB_DBG_FUNC_EXIT();
 		return -1;
@@ -1091,7 +1085,7 @@ static int parse(struct sibuf *buf, int parse_mode)
 	return 0;
 }
 
-static int dec(struct sample_state *, struct code_path *)
+static int dec(struct sample_set *sset, int idx, struct func_node *start_fn)
 {
 	/* TODO */
 	return 0;

@@ -15,12 +15,15 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-#include "si_core.h"
 #include "si_gcc.h"
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+
+CLIB_MODULE_NAME(itersn);
+CLIB_MODULE_NEEDED0();
+static char itersn_cmdname[] = "itersn";
 
 static FILE *s = NULL;
 
@@ -121,36 +124,36 @@ static void sinode_print_func(struct sinode *sin)
 	if (sin->loc_file)
 		clib_pretty_fprint(s, 108, "loc: %s %d %d", sin->loc_file->name,
 					sin->loc_line, sin->loc_col);
-	if (f && (!list_empty(&f->callers))) {
+	if (f && (!slist_empty(&f->callers))) {
 		struct callf_list *tmp;
-		list_for_each_entry(tmp, &f->callers, sibling) {
+		slist_for_each_entry(tmp, &f->callers, sibling) {
 			clib_pretty_fprint(s, 24, "caller: %d %08lx",
 						tmp->value_flag,
 						tmp->value);
 		}
 	}
 
-	if (f && (!list_empty(&f->callees))) {
+	if (f && (!slist_empty(&f->callees))) {
 		struct callf_list *tmp;
-		list_for_each_entry(tmp, &f->callees, sibling) {
+		slist_for_each_entry(tmp, &f->callees, sibling) {
 			clib_pretty_fprint(s, 24, "callee: %d %08lx",
 						tmp->value_flag,
 						tmp->value);
 		}
 	}
 
-	if (f && (!list_empty(&f->global_vars))) {
+	if (f && (!slist_empty(&f->global_vars))) {
 		struct id_list *tmp;
-		list_for_each_entry(tmp, &f->global_vars, sibling) {
+		slist_for_each_entry(tmp, &f->global_vars, sibling) {
 			clib_pretty_fprint(s, 24, "gvar: %d %08lx",
 						tmp->value_flag,
 						tmp->value);
 		}
 	}
 
-	if (f && (!list_empty(&f->local_vars))) {
+	if (f && (!slist_empty(&f->local_vars))) {
 		struct var_list *tmp;
-		list_for_each_entry(tmp, &f->local_vars, sibling) {
+		slist_for_each_entry(tmp, &f->local_vars, sibling) {
 			clib_pretty_fprint(s, 32, "lvar: %016lx",
 							(long)tmp->var.node);
 		}
@@ -250,4 +253,22 @@ long itersn_cb(int argc, char *argv[])
 		fclose(s);
 	s = NULL;
 	return 0;
+}
+
+CLIB_MODULE_INIT()
+{
+	int err;
+
+	err = clib_cmd_ac_add(itersn_cmdname, itersn_cb, itersn_usage);
+	if (err) {
+		err_msg("clib_cmd_ac_add err");
+		return -1;
+	}
+
+	return 0;
+}
+
+CLIB_MODULE_EXIT()
+{
+	clib_cmd_ac_del(itersn_cmdname);
 }

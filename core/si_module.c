@@ -17,11 +17,11 @@
  */
 #include "si_core.h"
 
-static struct list_head si_module_head[SI_PLUGIN_CATEGORY_MAX] = {
-	[SI_PLUGIN_CATEGORY_CORE] = LIST_HEAD_INIT(si_module_head[SI_PLUGIN_CATEGORY_CORE]),
-	[SI_PLUGIN_CATEGORY_COLLECT] = LIST_HEAD_INIT(si_module_head[SI_PLUGIN_CATEGORY_COLLECT]),
-	[SI_PLUGIN_CATEGORY_ANALYSIS] = LIST_HEAD_INIT(si_module_head[SI_PLUGIN_CATEGORY_ANALYSIS]),
-	[SI_PLUGIN_CATEGORY_HACKING] = LIST_HEAD_INIT(si_module_head[SI_PLUGIN_CATEGORY_HACKING]),
+static struct slist_head si_module_head[SI_PLUGIN_CATEGORY_MAX] = {
+	[SI_PLUGIN_CATEGORY_CORE] = SLIST_HEAD_INIT(si_module_head[SI_PLUGIN_CATEGORY_CORE]),
+	[SI_PLUGIN_CATEGORY_COLLECT] = SLIST_HEAD_INIT(si_module_head[SI_PLUGIN_CATEGORY_COLLECT]),
+	[SI_PLUGIN_CATEGORY_ANALYSIS] = SLIST_HEAD_INIT(si_module_head[SI_PLUGIN_CATEGORY_ANALYSIS]),
+	[SI_PLUGIN_CATEGORY_HACKING] = SLIST_HEAD_INIT(si_module_head[SI_PLUGIN_CATEGORY_HACKING]),
 };
 
 static char *si_module_category_strings[] = {
@@ -33,7 +33,7 @@ static char *si_module_category_strings[] = {
 
 void si_module_init(struct si_module *p)
 {
-	INIT_LIST_HEAD(&p->sibling);
+	INIT_SLIST_HEAD(&p->sibling);
 	p->name = NULL;
 	p->path = NULL;
 	p->comment = NULL;
@@ -81,7 +81,7 @@ int si_module_get_abs_path(char *buf, size_t len, int category, char *path)
 	}
 }
 
-struct list_head *si_module_get_head(int category)
+struct slist_head *si_module_get_head(int category)
 {
 	if ((category <= SI_PLUGIN_CATEGORY_MIN) ||
 			(category >= SI_PLUGIN_CATEGORY_MAX)) {
@@ -92,10 +92,10 @@ struct list_head *si_module_get_head(int category)
 	return &si_module_head[category];
 }
 
-struct si_module *si_module_find_by_name(char *name, struct list_head *head)
+struct si_module *si_module_find_by_name(char *name, struct slist_head *head)
 {
 	struct si_module *tmp;
-	list_for_each_entry(tmp, head, sibling) {
+	slist_for_each_entry(tmp, head, sibling) {
 		if (!strcmp(tmp->name, name))
 			return tmp;
 	}
@@ -154,7 +154,7 @@ out0:
 
 int si_module_add(struct si_module *p)
 {
-	struct list_head *head = si_module_get_head(p->category);
+	struct slist_head *head = si_module_get_head(p->category);
 	if (!head) {
 		err_msg("category err");
 		return -1;
@@ -172,8 +172,8 @@ int si_module_add(struct si_module *p)
 		return -1;
 	}
 
-	INIT_LIST_HEAD(&_new->sibling);
-	list_add_tail(&_new->sibling, head);
+	INIT_SLIST_HEAD(&_new->sibling);
+	slist_add_tail(&_new->sibling, head);
 	return 0;
 }
 
@@ -207,20 +207,20 @@ static int si_module_act(struct si_module *sm, int action)
 	return 0;
 }
 
-int si_module_load_all(struct list_head *head)
+int si_module_load_all(struct slist_head *head)
 {
 	struct si_module *tmp;
-	list_for_each_entry(tmp, head, sibling) {
+	slist_for_each_entry(tmp, head, sibling) {
 		if (si_module_act(tmp, 0))
 			return -1;
 	}
 	return 0;
 }
 
-int si_module_unload_all(struct list_head *head)
+int si_module_unload_all(struct slist_head *head)
 {
 	struct si_module *tmp;
-	list_for_each_entry(tmp, head, sibling) {
+	slist_for_each_entry(tmp, head, sibling) {
 		if (si_module_act(tmp, 1))
 			return -1;
 	}
@@ -239,11 +239,11 @@ int si_module_setup(void)
 	return 0;
 }
 
-static void si_module_cleanup_head(struct list_head *head)
+static void si_module_cleanup_head(struct slist_head *head)
 {
 	struct si_module *tmp, *next;
-	list_for_each_entry_safe(tmp, next, head, sibling) {
-		list_del_init(&tmp->sibling);
+	slist_for_each_entry_safe(tmp, next, head, sibling) {
+		slist_del(&tmp->sibling, head);
 		free(tmp->name);
 		free(tmp->path);
 		free(tmp->comment);
@@ -253,14 +253,14 @@ static void si_module_cleanup_head(struct list_head *head)
 
 void si_module_cleanup(void)
 {
-	struct list_head *h = si_module_get_head(SI_PLUGIN_CATEGORY_CORE);
+	struct slist_head *h = si_module_get_head(SI_PLUGIN_CATEGORY_CORE);
 	si_module_unload_all(h);
 	si_module_cleanup_head(h);
 
 	/* now, cleanup the collect/analysis/hacking modules, just list_head */
 	int i = SI_PLUGIN_CATEGORY_COLLECT;
 	for (; i <= SI_PLUGIN_CATEGORY_HACKING; i++) {
-		struct list_head *h = si_module_get_head(i);
+		h = si_module_get_head(i);
 		si_module_cleanup_head(h);
 	}
 }

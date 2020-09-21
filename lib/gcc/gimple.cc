@@ -1,6 +1,7 @@
 /*
- * TODO
- * Copyright (C) 2019  zerons
+ * copy from gcc/gcc/gimple.c with a little modification.
+ *
+ * Copyright (C) 2020 zerons
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,97 +17,33 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef TREE_CODES_H_3GN2AKZB
-#define TREE_CODES_H_3GN2AKZB
+#include "si_gcc.h"
 
-#ifndef FOR_CXX
-enum tree_code_class {
-  tcc_exceptional, /* An exceptional code (fits no category).  */
-  tcc_constant,    /* A constant.  */
-  /* Order of tcc_type and tcc_declaration is important.  */
-  tcc_type,        /* A type object code.  */
-  tcc_declaration, /* A declaration (also serving as variable refs).  */
-  tcc_reference,   /* A reference to storage.  */
-  tcc_comparison,  /* A comparison expression.  */
-  tcc_unary,       /* A unary arithmetic expression.  */
-  tcc_binary,      /* A binary arithmetic expression.  */
-  tcc_statement,   /* A statement expression, which have side effects
-		      but usually no interesting value.  */
-  tcc_vl_exp,      /* A function call or other expression with a
-		      variable-length operand vector.  */
-  tcc_expression   /* Any other expression.  */
-};
-#endif
-
-#ifndef FOR_CXX
-#define DEFTREECODE(SYM, NAME, TYPE, LENGTH) SYM,
-#define END_OF_BASE_TREE_CODES LAST_AND_UNUSED_TREE_CODE,
-enum tree_code {
-#include "all-tree.def"
-MAX_TREE_CODES
-};
-#undef DEFTREECODE
-#undef END_OF_BASE_TREE_CODES
-#endif
-
-#define DEFTREECODE(SYM, NAME, TYPE, LENGTH) TYPE,
-#define END_OF_BASE_TREE_CODES tcc_exceptional,
-const enum tree_code_class tree_code_type[] = {
-#include "all-tree.def"
-};
-#undef DEFTREECODE
-#undef END_OF_BASE_TREE_CODES
-
-#define DEFTREECODE(SYM, NAME, TYPE, LENGTH) LENGTH,
-#define END_OF_BASE_TREE_CODES 0,
-const unsigned char tree_code_length[] = {
-#include "all-tree.def"
-};
-#undef DEFTREECODE
-#undef END_OF_BASE_TREE_CODES
-
-#define DEFTREECODE(SYM, NAME, TYPE, LEN) NAME,
-#define END_OF_BASE_TREE_CODES "@dummy",
-static const char *const tree_code_name[] = {
-#include "all-tree.def"
-};
-#undef DEFTREECODE
-#undef END_OF_BASE_TREE_CODES
-
-#ifdef FOR_CXX
 #define DEFGSSTRUCT(SYM, STRUCT, HAS_TREE_OP) \
 	(HAS_TREE_OP ? sizeof (struct STRUCT) - sizeof (tree) : 0),
 EXPORTED_CONST size_t gimple_ops_offset_[] = {
 #include "gsstruct.def"
 };
 #undef DEFGSSTRUCT
-#endif
 
-#ifdef FOR_CXX
 #define DEFGSSTRUCT(SYM, STRUCT, HAS_TREE_OP) sizeof (struct STRUCT),
-static const size_t gsstruct_code_size[] = {
+const size_t gsstruct_code_size[] = {
 #include "gsstruct.def"
 };
 #undef DEFGSSTRUCT
-#endif
 
-#ifdef FOR_CXX
 #define DEFGSCODE(SYM, NAME, GSSCODE)	NAME,
 const char *const gimple_code_name[] = {
 #include "gimple.def"
 };
 #undef DEFGSCODE
-#endif
 
-#ifdef FOR_CXX
 #define DEFGSCODE(SYM, NAME, GSSCODE)	GSSCODE,
 EXPORTED_CONST enum gimple_statement_structure_enum gss_for_code_[] = {
 #include "gimple.def"
 };
 #undef DEFGSCODE
-#endif
 
-#ifdef FOR_CXX
 #if __GNUC__ < 9
 #define DEFTREECODE(SYM, STRING, TYPE, NARGS)   			    \
   (unsigned char)							    \
@@ -173,6 +110,31 @@ const unsigned char gimple_rhs_class_table[] = {
 };
 #undef DEFTREECODE
 #undef END_OF_BASE_TREE_CODES
-#endif
 
-#endif /* end of include guard: TREE_CODES_H_3GN2AKZB */
+void show_gimple(gimple_seq gs)
+{
+	tree *ops = gimple_ops(gs);
+	enum gimple_code gc = gimple_code(gs);
+	si_log("Statement %s\n", gimple_code_name[gc]);
+	for (unsigned int i = 0; i < gimple_num_ops(gs); i++) {
+		if (ops[i]) {
+			enum tree_code tc = TREE_CODE(ops[i]);
+			si_log("\tOp: %s %p\n", tree_code_name[tc], ops[i]);
+		} else {
+			si_log("\tOp: null\n");
+		}
+	}
+}
+
+int check_gimple_code(gimple_seq gs)
+{
+	if (!gs)
+		return 0;
+
+	enum gimple_code gc = gimple_code(gs);
+	size_t len = sizeof(gimple_code_name) / sizeof(gimple_code_name[0]);
+	if (gc >= len)
+		return 1;
+	else
+		return 0;
+}

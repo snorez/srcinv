@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "si_gcc.h"
-#include "./hacking.h"
 
 CLIB_MODULE_NAME(show_detail);
 CLIB_MODULE_NEEDED0();
@@ -135,7 +134,7 @@ static void output_func(struct sinode *sn)
 		fprintf(stdout, "Callers:\n");
 
 		struct callf_list *tmp;
-		list_for_each_entry(tmp, &fn->callers, sibling) {
+		slist_for_each_entry(tmp, &fn->callers, sibling) {
 			if (tmp->value_flag) /* TODO: this is a tree */
 				continue;
 
@@ -153,7 +152,7 @@ static void output_func(struct sinode *sn)
 		fprintf(stdout, "Callees:\n");
 
 		struct callf_list *tmp;
-		list_for_each_entry(tmp, &fn->callees, sibling) {
+		slist_for_each_entry(tmp, &fn->callees, sibling) {
 			if (tmp->value_flag) /* TODO: this is a tree */
 				continue;
 
@@ -173,12 +172,12 @@ static void output_func(struct sinode *sn)
 	}
 }
 
-static void output_used_at(struct list_head *head, char *name)
+static void output_used_at(struct slist_head *head, char *name)
 {
 	fprintf(stdout, "Used at(%s):\n", name);
 
 	struct use_at_list *tmp;
-	list_for_each_entry(tmp, head, sibling) {
+	slist_for_each_entry(tmp, head, sibling) {
 		struct sinode *fsn;
 		expanded_location *xloc;
 
@@ -244,7 +243,7 @@ static int find_target(struct type_node *tn, int level,
 	struct var_list *vl_tmp = NULL;
 
 	if (*name == '*') {
-		list_for_each_entry(vl_tmp, &tn->children, sibling) {
+		slist_for_each_entry(vl_tmp, &tn->children, sibling) {
 			if (find_target(vl_tmp->var.type, level+1,
 					res, entries, idx)) {
 				vl_add(vl_tmp, res, entries, idx);
@@ -299,7 +298,7 @@ static void output_type(struct sinode *sn)
 		}
 
 		if (all || (!strcmp(argv_opt, "offset"))) {
-			fprintf(stdout, "Offset:\n");
+			fprintf(stdout, "Offset(in bits):\n");
 
 			unsigned long offset;
 			tree field;
@@ -313,11 +312,11 @@ static void output_type(struct sinode *sn)
 		}
 
 		if (all || (!strcmp(argv_opt, "size"))) {
-			fprintf(stdout, "Size:\n");
+			fprintf(stdout, "Size(in bits):\n");
 
 			unsigned long sz = 0;
 			if (vl->var.type)
-				sz = vl->var.type->ofsize;
+				sz = vl->var.type->ofsize * 8;
 
 			fprintf(stdout, "\t%ld\n", sz);
 		}

@@ -19,7 +19,8 @@
  */
 
 #include "si_core.h"
-#include "./analysis.h"
+
+SLIST_HEAD(analysis_lang_ops_head);
 
 C_SYM int parse_resfile(char *path, int built_in, int step, int autoy);
 static char parse_cmdname[] = "parse";
@@ -176,7 +177,7 @@ static long load_sibuf_cb(int argc, char *argv[])
 	long addr = atol(argv[1]);
 	int found = 0;
 	struct sibuf *b;
-	list_for_each_entry(b, &si->sibuf_head, sibling) {
+	slist_for_each_entry(b, &si->sibuf_head, sibling) {
 		if ((long)b != addr)
 			continue;
 		found = 1;
@@ -191,7 +192,6 @@ static long load_sibuf_cb(int argc, char *argv[])
 SI_MOD_SUBENV_INIT()
 {
 	int err;
-	INIT_LIST_HEAD(&analysis_lang_ops_head);
 
 	err = clib_cmd_ac_add(parse_cmdname, parse_cb, parse_usage);
 	if (err) {
@@ -224,26 +224,8 @@ SI_MOD_SUBENV_INIT()
 		goto err3;
 	}
 
-	/*
-	 * load analysis modules first
-	 */
-	struct list_head *head;
-	head = si_module_get_head(SI_PLUGIN_CATEGORY_ANALYSIS);
-	if (!head) {
-		err_dbg(0, "si_module_get_head err");
-		goto errl;
-	}
-
-	err = si_module_load_all(head);
-	if (err) {
-		err_dbg(0, "si_module_load_all err");
-		goto errl;
-	}
-
 	return 0;
 
-errl:
-	clib_cmd_ac_del(load_sibuf_cmdname);
 err3:
 	clib_cmd_ac_del(one_sibuf_cmdname);
 err2:
@@ -257,9 +239,35 @@ err0:
 
 SI_MOD_SUBENV_DEINIT()
 {
-	struct list_head *head;
-	head = si_module_get_head(SI_PLUGIN_CATEGORY_ANALYSIS);
-	si_module_unload_all(head);
+	return;
 }
 
-SI_MOD_SUBENV_SETUP(analysis);
+SI_MOD_SUBENV_EARLY_INIT()
+{
+	INIT_SLIST_HEAD(&analysis_lang_ops_head);
+
+	struct slist_head *head;
+	head = si_module_get_head(SI_PLUGIN_CATEGORY_ANALYSIS);
+	if (!head) {
+		err_dbg(0, "si_module_get_head err");
+		return -1;
+	}
+
+	int err = si_module_load_all(head);
+	if (err) {
+		err_dbg(0, "si_module_load_all err");
+		return -1;
+	}
+
+	return 0;
+}
+
+SI_MOD_SUBENV_EARLY_DEINIT()
+{
+	struct slist_head *head;
+	head = si_module_get_head(SI_PLUGIN_CATEGORY_ANALYSIS);
+	si_module_unload_all(head);
+	return;
+}
+
+SI_MOD_SUBENV_SETUP(analysis, 0);

@@ -223,7 +223,7 @@ enum sinode_type {
 	/* types, has name and location */
 	TYPE_TYPE,
 
-	/* all functions, TODO, nested functions? */
+	/* all functions, FIXME, nested functions? */
 	TYPE_FUNC_GLOBAL,
 	TYPE_FUNC_STATIC,
 
@@ -256,12 +256,16 @@ enum sinode_type {
 
 /* for a whole project, all information unpacked here */
 struct src {
-	struct list_head	resfile_head;
+	struct slist_head	resfile_head;
 	/* sibuf, for one compiled file */
-	struct list_head	sibuf_head;
+	struct slist_head	sibuf_head;
 
 	/* global data states */
-	struct list_head	global_data_states;
+	struct slist_head	global_data_states;
+	struct slist_head	global_data_rw_states;
+
+	/* saved sample sets */
+	struct slist_head	sample_set_head;
 
 	atomic_t		sibuf_mem_usage;
 	union siid		id_idx[TYPE_MAX];
@@ -272,6 +276,7 @@ struct src {
 	/* next area to mmap */
 	uint64_t		next_mmap_area;
 
+	u64			sample_set_curid;
 	char			src_id[SRC_ID_LEN];
 
 	/* 
@@ -296,7 +301,7 @@ enum si_module_category {
 	SI_PLUGIN_CATEGORY_MAX,
 };
 struct si_module {
-	struct list_head	sibling;
+	struct slist_head	sibling;
 	char			*name;
 	char			*path;
 	char			*comment;
@@ -321,7 +326,7 @@ struct si_module {
 
 /* for just one resfile, a project could have many resfiles */
 struct resfile {
-	struct list_head	sibling;
+	struct slist_head	sibling;
 
 	int			fd;
 	/* resfile length */
@@ -346,7 +351,7 @@ struct resfile {
 
 /* presentation of file_content in memory */
 struct sibuf {
-	struct list_head	sibling;
+	struct slist_head	sibling;
 	/* for type(no location or no name) */
 	struct rb_root		file_types;
 	struct resfile		*rf;
@@ -366,9 +371,12 @@ struct sibuf {
 
 	struct timeval		access_at;
 
+	/* For some special global variables. CNT is handled by mod itself */
+	void			*globals;
+
 	/* unload if true, reduce memory usage */
-	uint8_t			need_unload: 1;
-	uint8_t			status: 4;
+	u8			need_unload: 1;
+	u8			status: 4;
 } __attribute__((packed));
 
 #define	SEARCH_BY_ID		0
@@ -404,7 +412,7 @@ struct sinode {
 	int			loc_line;
 	int			loc_col;
 
-	struct list_head	attributes;
+	struct slist_head	attributes;
 
 	char			*name;
 	size_t			namelen;
@@ -412,7 +420,6 @@ struct sinode {
 	char			*data;
 	size_t			datalen;
 	/* we need to know which module this sinode is from */
-	int8_t			data_fmt;
 	int8_t			weak_flag: 1;
 	int8_t			reserved: 7;
 } __attribute__((packed));
@@ -423,26 +430,19 @@ struct name_list {
 };
 
 struct attr_list {
-	struct list_head	sibling;
-	struct list_head	values;
+	struct slist_head	sibling;
+	struct slist_head	values;
 	char			*attr_name;
 };
 
 struct attrval_list {
-	struct list_head	sibling;
+	struct slist_head	sibling;
 	void			*node;
 };
 
 #define	ARG_VA_LIST_NAME	"__VA_ARGS__"
 struct type_node {
 	rwlock_t		lock;
-	uint16_t		type_code;
-
-	uint16_t		is_unsigned: 1;
-	uint16_t		is_variant: 1;
-	uint16_t		is_set: 1;
-	uint16_t		reserved: 13;
-
 	void			*node;
 	long			baselen;
 	/* sizeof value, in bits */
@@ -452,12 +452,18 @@ struct type_node {
 	char			*fake_name;
 
 	/* var_list for UNION_TYPE/RECORD_TYPE/ENUMERAL_TYPE/... */
-	struct list_head	children;
-	struct list_head	sibling;
+	struct slist_head	children;
+	struct slist_head	sibling;
 	/* POINTER_TYPE/ARRAY_TYPE/... */
 	struct type_node	*next;
 
-	struct list_head	used_at;
+	struct slist_head	used_at;
+
+	uint16_t		type_code;
+	uint16_t		is_unsigned: 1;
+	uint16_t		is_variant: 1;
+	uint16_t		is_set: 1;
+	uint16_t		reserved: 13;
 } __attribute__((packed));
 
 struct varnode_lft;
@@ -470,8 +476,8 @@ struct var_node {
 	char			*name;
 	char			*fake_name;
 
-	struct list_head	used_at;
-	struct list_head	possible_values;
+	struct slist_head	used_at;
+	struct slist_head	possible_values;
 
 	struct varnode_lft	*vn_lft;
 
@@ -482,11 +488,8 @@ struct var_node {
 	uint32_t		size;
 } __attribute__((packed));
 
-struct cp_state;
 struct code_path {
 	struct func_node	*func;
-	struct cp_state		*state;
-	struct list_head	insn_desc_head; /* list of insn_desc */
 
 	/*
 	 * for gcc, cp is basic_block
@@ -516,26 +519,27 @@ struct func_node {
 
 	struct type_node	*ret_type;
 	/* var_list */
-	struct list_head	args;
-	struct list_head	callees;
-	struct list_head	callers;
+	struct slist_head	args;
+	struct slist_head	local_vars;
 	/* id_list */
-	struct list_head	global_vars;
-	/* var_list */
-	struct list_head	local_vars;
+	struct slist_head	global_vars;
+	struct slist_head	callees;
+	struct slist_head	callers;
 
 	/* this function used in other function exclude GIMPLE_CALL op[1] */
-	struct list_head	used_at;
+	struct slist_head	used_at;
 
-	/* how deep this function is */
-	uint64_t		call_level;
+	/* data state */
+	struct slist_head	data_state_list;
 
-	uint16_t		detailed: 1;
-	uint16_t		padding: 15;
-	uint16_t		cp_cnt;
+	u64			call_depth;
 
 	/* the memory size of this function, useful in asm mode */
-	uint32_t		size;
+	u32			size;
+
+	u16			cp_cnt;
+	u16			detailed: 1;
+	u16			padding: 15;
 } __attribute__((packed));
 
 struct sibuf_typenode {
@@ -551,158 +555,289 @@ struct sibuf_typenode {
 
 /* most use for global vars used in functions */
 struct id_list {
-	struct list_head	sibling;
+	struct slist_head	sibling;
 	uint64_t		value;
 	/* 0 for siid, 1 for tree node */
 	uint64_t		value_flag;
 } __attribute__((packed));
 
 struct var_list {
-	struct list_head	sibling;
+	struct slist_head	sibling;
 	struct var_node		var;
 } __attribute__((packed));
 
 struct callf_list {
-	struct list_head	sibling;
+	struct slist_head	sibling;
 	/* if id_type is TYPE_FILE, this is an internal_fn call */
 	uint64_t		value;
 	/* 0: siid, 1: tree */
 	uint64_t		value_flag;
 	/* for callee, check whether the function has a body or not */
-	struct list_head	stmts;
+	struct slist_head	stmts;
 	uint64_t		body_missing: 1;
 } __attribute__((packed));
 
 struct callf_stmt_list {
-	struct list_head	sibling;
+	struct slist_head	sibling;
 	void			*where;
 	int8_t			type;
 } __attribute__((packed));
 
 struct use_at_list {
-	struct list_head	sibling;
+	struct slist_head	sibling;
 	union siid		func_id;
 	void			*where;
 	uint64_t		extra_info;
 	int8_t			type;		/* may not need this field */
 } __attribute__((packed));
 
-#define	CALL_LEVEL_DEEP		64
-struct funcp_list {
-	struct list_head	sibling;
-	struct sinode		*fsn;
-};
-
-struct path_list {
-	struct list_head	sibling;
-	struct list_head	path_head;
-};
-
 struct cp_list {
-	struct list_head	sibling;
+	struct slist_head	sibling;
 	struct code_path	*cp;
 };
 
-#define	VALUE_IS_UNSPEC		0
-#define	VALUE_IS_INT_CST	1
-#define	VALUE_IS_STR_CST	2
-#define	VALUE_IS_FUNC		3
-#define	VALUE_IS_VAR_ADDR	4
-#define	VALUE_IS_TREE		5
-#define	VALUE_IS_EXPR		6
-#define	VALUE_IS_REAL_CST	7
+struct fn_list {
+	struct slist_head	sibling;
+	struct slist_head	data_state_list;
+	struct slist_head	cp_list;
+	struct func_node	*fn;
+	void			*curpos;
+};
+
+enum possible_list_val {
+	VALUE_IS_UNSPEC = 0,
+	VALUE_IS_INT_CST,
+	VALUE_IS_STR_CST,
+	VALUE_IS_FUNC,
+	VALUE_IS_VAR_ADDR,
+	VALUE_IS_TREE,
+	VALUE_IS_EXPR,	
+	VALUE_IS_REAL_CST
+};
 struct possible_list {
-	struct list_head	sibling;
+	struct slist_head	sibling;
 	uint64_t		value_flag;
 	uint64_t		value;
 };
 
-struct sample_state {
-	struct list_head	cp_list_head;
-	struct list_head	alloced_data_states;
+enum data_state_ref_reg {
+	DSRT_REG_INVALID,
+
+	/* RAX */
+	DSRT_REG_0,
+	/* RBX */
+	DSRT_REG_1,
+	/* RCX */
+	DSRT_REG_2,
+	/* RDX */
+	DSRT_REG_3,
+	/* RSI */
+	DSRT_REG_4,
+	/* RDI */
+	DSRT_REG_5,
+	/* RBP */
+	DSRT_REG_6,
+	/* RSP */
+	DSRT_REG_7,
+	/* R8 */
+	DSRT_REG_8,
+	/* R9 */
+	DSRT_REG_9,
+	/* R10 */
+	DSRT_REG_10,
+	/* R11 */
+	DSRT_REG_11,
+	/* R12 */
+	DSRT_REG_12,
+	/* R13 */
+	DSRT_REG_13,
+	/* R14 */
+	DSRT_REG_14,
+	/* R15 */
+	DSRT_REG_15,
+
+	/* Reserved */
+	DSRT_REG_16,
+	DSRT_REG_17,
+	DSRT_REG_18,
+	DSRT_REG_19,
+	DSRT_REG_20,
+	DSRT_REG_21,
+	DSRT_REG_22,
+	DSRT_REG_23,
+	DSRT_REG_24,
+	DSRT_REG_25,
+	DSRT_REG_26,
+	DSRT_REG_27,
+	DSRT_REG_28,
+	DSRT_REG_29,
+	DSRT_REG_30,
+	DSRT_REG_31,
+	DSRT_REG_32,
 };
 
-enum cp_state_status {
-	CSS_EMPTY,
-	CSS_INITIALIZED,
-	CSS_GUESSED,
-	CSS_SIMULATION,
+enum data_state_ref_type {
+	DSRT_UNK,
+	DSRT_VN,
+	DSRT_FN,
+	DSRT_RAW,	/* for gcc, this is tree node */
+	DSRT_REG,
 };
-struct cp_state {
-	struct list_head	data_state_list;
 
-	void			*cur_point;
-
-	u8			data_fmt;
-	u8			status: 3;
-	u8			padding: 5;
+/*
+ * In list:
+ *	si->global_data_states
+ *	func_node->data_state_list
+ */
+struct data_state_base {
+	struct slist_head	sibling;
+	/* data_state_ref */
+	u64			ref_base: 48;
+	u64			ref_type: 8;
+	u64			ref_padding: 8;
 };
+
+enum data_state_val_type {
+	/* section 0 */
+	DSVT_UNK,
+
+	/* section 1 */
+	DSVT_INT_CST,
+	DSVT_STR_CST,
+	DSVT_REAL_CST,
+
+	/* section 2 */
+	DSVT_ADDR,	/* address of some other data_state */
+	DSVT_REF,	/* value stored in some other data_state */
+
+	/* section 3: data_state_val1 */
+	DSVT_ARRAY,
+	DSVT_COMPONENT,
+};
+
+enum data_state_val_compare_flag {
+	DSV_COMP_F_UNK,
+	DSV_COMP_F_EQ,
+	DSV_COMP_F_NE,
+	DSV_COMP_F_GE,
+	DSV_COMP_F_GT,
+	DSV_COMP_F_LE,
+	DSV_COMP_F_LT,
+};
+
+#define	DSV_SEC1_VAL(dsv)	((dsv)->value.v1)
+#define	DSV_SEC2_VAL(dsv)	((dsv)->value.v2)
+#define	DSV_SEC3_VAL(dsv)	(&((dsv)->value.v3))
+#define	DSV_TYPE(dsv)		((dsv)->type)
+
+#define	DS_SEC1_VAL(ds)		DSV_SEC1_VAL(&ds->val)
+#define	DS_SEC2_VAL(ds)		DSV_SEC2_VAL(&ds->val)
+#define	DS_SEC3_VAL(ds)		DSV_SEC3_VAL(&ds->val)
+#define	DS_VTYPE(ds)		DSV_TYPE(&ds->val)
 
 struct data_state_val {
-	u64			size: 2;
-	u64			type: 6;
-	u64			padding: 58;
+	union {
+		void				*v1;	/* section 1 */
+		struct data_state_val_ref	*v2;	/* section 2 */
+		struct slist_head		v3;	/* section 3 */
+	} value;
 
-	u64			val[3];
+	/* Make sure all data_state nodes have @raw set. */
+	u64					raw: 48;
+	u64					type: 8;
+	u64					padding: 8;
+
+	struct slist_head			trace_id_head;
+
+	union {
+		struct {
+			u32			bytes;
+			u32			sign: 1;
+		} v1_info;
+	} info;
 };
 
-struct data_state_ref {
-	/*
-	 * TODO: we may need a reason here to show the connection.
-	 * However, the reason is quite unique in different path.
-	 */
-	void			*addr;
-	u64			offset;
-	u64			bits;
-	s8			data_fmt;
+struct data_state_flag {
+	atomic_t		refcount;
+
+	u8			allocated: 1;
+
+	/* if this is set and refcount not 0, may be a uaf */
+	u8			freed: 1;
+
+	/* first r/w on this data. write: set both, read: set used only. */
+	u8			init: 1;
+	u8			used: 1;
 };
 
-struct data_state {
-	struct list_head	sibling;
+/*
+ * This is the runtime data_state.
+ * If it is in some slist, then should remove it first then free it.
+ */
+struct data_state_rw {
+	/* MUST be first field */
+	struct data_state_base	base;
 
-	struct data_state_ref	*ref;
-	struct data_state_val	*val;
+	atomic_t		refcnt;
+
+	struct data_state_val	val;
+
+	struct data_state_flag	flag;
 };
 
-enum insn_source_type {
-	INSN_SRCT_UNK,
-	INSN_SRCT_DSTATE,
-	INSN_SRCT_IMM,
+/* for DSVT_ADDR and DSVT_REF */
+struct data_state_val_ref {
+	struct data_state_rw	*ds;
+	s32			offset;
+	u32			bits;
 };
 
-struct insn_desc_source {
-	struct list_head	sibling;
-	unsigned long		source;
-	enum insn_source_type	type;
+/* for DSVT_ARRAY and DSVT_COMPONENT */
+struct data_state_val1 {
+	struct slist_head	sibling;
+	s32			offset;		/* offset in data_state_rw */
+	u32			bits;		/* efficient bits in val1 */
+	struct data_state_val	val;
 };
 
-enum insn_action {
-	INSN_ACT_UNK,
-	INSN_ACT_READ_REG,
-	INSN_ACT_WRITE_REG,
-	INSN_ACT_READ_MEM,
-	INSN_ACT_WRITE_MEM,
-	INSN_ACT_GET_ADDR,
-	INSN_ACT_CMP,
-	INSN_ACT_CALL,
-	INSN_ACT_JMP,
-	INSN_ACT_RET,
-	INSN_ACT_XCHG,
-	INSN_ACT_PREFETCH,
-	INSN_ACT_UND,
+#define	VOID_RETVAL		((void *)-1)
+struct sample_state {
+	struct slist_head	fn_list_head;
+	struct slist_head	cp_list_head;	/* saved into src */
+
+	struct slist_head	arg_head;
+	struct data_state_rw	*retval;
 };
 
-struct insn_desc_action {
-	struct list_head	sibling;
-	struct list_head	sources;
-	/* FIXME: only one result? */
-	struct data_state	*result;
-	enum insn_action	action;
+enum sample_set_flag {
+	SAMPLE_SF_UAF = 0,
+	SAMPLE_SF_NCHKRV,	/* ignore return value */
+	SAMPLE_SF_VOIDRV,	/* not ignore void return value */
+	SAMPLE_SF_UNINIT,	/* use uninitialized variables */
+	SAMPLE_SF_OOBR,		/* out-of-bound read */
+	SAMPLE_SF_OOBW,		/* out-of-bound write */
+	SAMPLE_SF_INFOLK,	/* info leak */
+	SAMPLE_SF_MEMLK,	/* memory leak */
+	SAMPLE_SF_DEADLK,	/* dead lock */
+
+	SAMPLE_SF_MAX = 32,
 };
 
-struct insn_desc {
-	struct list_head	sibling;
-	struct list_head	actions;
+/*
+ * sample_set saved in struct src.
+ * use the index in the list_head as the id of the sample set.
+ */
+struct sample_set {
+	struct slist_head	sibling;
+	struct slist_head	allocated_data_states;
+
+	u64			id;
+
+	u32			count;	
+	u32			flag;
+
+	/* XXX: must be last field */
+	struct sample_state	*samples[0];
 };
 
 struct varnode_lft {

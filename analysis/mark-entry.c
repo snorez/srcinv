@@ -41,14 +41,14 @@ static int do_mark_entry(union siid *tid, char *string, int flag)
 		if (strncmp(fn->name, string, strlen(string)))
 			break;
 		
-		test_and_set_bit(0, (long *)&fn->call_level);
+		test_and_set_bit(0, (long *)&fn->call_depth);
 		break;
 	case 1:
 		/* all match */
 		if (strcmp(fn->name, string))
 			break;
 
-		test_and_set_bit(0, (long *)&fn->call_level);
+		test_and_set_bit(0, (long *)&fn->call_depth);
 		break;
 	default:
 		err_dbg(0, "flag: %d not handled", flag);

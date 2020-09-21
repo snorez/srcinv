@@ -118,7 +118,7 @@ static long show_cb(int argc, char *argv[])
 	char *given_path = argv[2];
 
 	struct si_module *mod;
-	struct list_head *head;
+	struct slist_head *head;
 	head = si_module_get_head(SI_PLUGIN_CATEGORY_COLLECT);
 	if (!head) {
 		err_dbg(0, "si_module_get_head err");
@@ -163,4 +163,14 @@ SI_MOD_SUBENV_DEINIT()
 	return;
 }
 
-SI_MOD_SUBENV_SETUP(collect);
+SI_MOD_SUBENV_EARLY_INIT()
+{
+	return 0;
+}
+
+SI_MOD_SUBENV_EARLY_DEINIT()
+{
+	return;
+}
+
+SI_MOD_SUBENV_SETUP(collect, 0);

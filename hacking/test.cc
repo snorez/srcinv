@@ -1,6 +1,7 @@
 /*
  * TODO
- * Copyright (C) 2018  zerons
+ *
+ * Copyright (C) 2020 zerons
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,85 +16,103 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+
 #include "si_gcc.h"
-#include "./hacking.h"
+#include "si_hacking.h"
 
 CLIB_MODULE_NAME(test);
 CLIB_MODULE_NEEDED0();
-static void test_cb(void);
-static struct hacking_module test;
+
+static char modname[] = "test";
+
+static void usage(void)
+{
+	fprintf(stdout, "\t(subcmd)\n"
+			"\tFor test case\n");
+}
+
+static void __test_cond_or_goto_is_tail(struct sinode *sn, void *arg)
+{
+	if (!sn->data)
+		return;
+
+	analysis__resfile_load(sn->buf);
+
+	struct func_node *fn;
+	fn = (struct func_node *)sn->data;
+	fprintf(stdout, "__test_cond_or_goto_is_tail %s\n", fn->name);
+	for (int i = 0; i < fn->cp_cnt; i++) {
+		basic_block bb;
+		gimple_seq gs;
+
+		bb = (basic_block)fn->cps[i]->cp;
+		gs = bb->il.gimple.seq;
+		while (gs) {
+			enum gimple_code gc = gimple_code(gs);
+			if ((gc == GIMPLE_COND) && gs->next) {
+				fprintf(stdout, "COND is not tail\n");
+				goto out;
+			}
+			if ((gc == GIMPLE_GOTO) && gs->next) {
+				fprintf(stdout, "GOTO is not tail\n");
+				goto out;
+			}
+			gs = gs->next;
+		}
+	}
+
+out:
+	fprintf(stdout, "__test_cond_or_goto_is_tail %s done\n", fn->name);
+	fprintf(stdout, "\n");
+}
+
+static void test_cond_or_goto_is_tail(void)
+{
+	analysis__sinode_match("func", __test_cond_or_goto_is_tail, NULL);
+}
+
+struct test_subcmd {
+	const char	*cmd;
+	void		(*cb)(void);
+} subcmds[] = {
+	{"cond_or_goto_is_tail", test_cond_or_goto_is_tail},
+};
+
+static long cb(int argc, char *argv[])
+{
+	if (argc != 2) {
+		usage();
+		err_msg("argc invalid");
+		return -1;
+	}
+
+	char *subcmd = argv[1];
+	for (size_t i = 0; i < sizeof(subcmds) / sizeof(subcmds[0]); i++) {
+		if (strcmp(subcmd, subcmds[i].cmd))
+			continue;
+		if (subcmds[i].cb)
+			subcmds[i].cb();
+		break;
+	}
+
+	return 0;
+}
 
 CLIB_MODULE_INIT()
 {
-	test.flag = HACKING_FLAG_STATIC;
-	test.callback = test_cb;
-	test.name = this_module_name;
-	register_hacking_module(&test);
+	int err;
+
+	err = clib_cmd_ac_add(modname, cb, usage);
+	if (err == -1) {
+		err_msg("clib_cmd_ac_add err");
+		return -1;
+	}
+
 	return 0;
 }
 
 CLIB_MODULE_EXIT()
 {
-	unregister_hacking_module(&test);
-	return;
-}
-
-static void test_fsn(struct sinode *fsn)
-{
-	if (strncmp(fsn->name, "main", fsn->namelen))
-		return;
-
-	analysis__resfile_load(fsn->buf);
-
-	struct func_node *fn;
-	fn = (struct func_node *)fsn->data;
-
-	struct code_path *next_cp;
-	analysis__get_func_code_paths_start(fn->cps[0]);
-	while ((next_cp = analysis__get_func_next_code_path())) {
-		basic_block bb;
-		gimple_seq gs;
-
-		bb = (basic_block)next_cp->cp;
-		gs = bb->il.gimple.seq;
-
-		si_log2("For BB: %p\n", bb);
-		for (; gs; gs = gs->next) {
-			show_gimple(gs);
-		}
-	}
-	return;
-}
-
-static void test_cb(void)
-{
-	si_log2("run test\n");
-
-	unsigned long func_id = 0;
-	union siid *tid = (union siid *)&func_id;
-
-	tid->id0.id_type = TYPE_FUNC_GLOBAL;
-	for (; func_id < si->id_idx[TYPE_FUNC_GLOBAL].id1; func_id++) {
-		struct sinode *fsn;
-		fsn = analysis__sinode_search(siid_type(tid),
-						SEARCH_BY_ID, tid);
-		if (!fsn)
-			continue;
-		test_fsn(fsn);
-	}
-
-	func_id = 0;
-	tid->id0.id_type = TYPE_FUNC_STATIC;
-	for (; func_id < si->id_idx[TYPE_FUNC_STATIC].id1; func_id++) {
-		struct sinode *fsn;
-		fsn = analysis__sinode_search(siid_type(tid),
-						SEARCH_BY_ID, tid);
-		if (!fsn)
-			continue;
-		test_fsn(fsn);
-	}
-
-
-	si_log2("run test done\n");
+	clib_cmd_ac_del(modname);
 	return;
 }

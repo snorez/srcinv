@@ -24,7 +24,57 @@
 
 DECL_BEGIN
 
-/* Nothing here yet */
+C_SYM struct slist_head hacking_module_head;
+enum hacking_flag {
+	HACKING_FLAG_NONE,
+	HACKING_FLAG_STATIC,
+	HACKING_FLAG_FUZZ,
+	HACKING_FLAG_OTHER,
+};
+
+struct hm_arg {
+	long			sid;
+	struct sample_set	*sset;
+	struct sample_state	*sstate;
+};
+
+/*
+ * handle all hacking modules, fuzz type module are at last
+ */
+struct hacking_module {
+	struct slist_head	sibling;
+	char			*name;
+	enum hacking_flag	flag;
+	void			(*callback)(struct hm_arg *arg);
+	int			(*check_id)(unsigned long id);
+};
+
+static inline struct hacking_module *hacking_module_find(struct slist_head *h,
+							 struct hacking_module *m)
+{
+	struct hacking_module *tmp;
+	slist_for_each_entry(tmp, h, sibling) {
+		if (tmp->callback == m->callback)
+			return tmp;
+	}
+	return NULL;
+}
+
+static inline void register_hacking_module(struct hacking_module *m)
+{
+	struct slist_head *h = &hacking_module_head;
+	if (hacking_module_find(h, m))
+		return;
+	if (m->flag == HACKING_FLAG_FUZZ)
+		slist_add_tail(&m->sibling, h);
+	else
+		slist_add(&m->sibling, h);
+}
+
+static inline void unregister_hacking_module(struct hacking_module *m)
+{
+	slist_del(&m->sibling, &hacking_module_head);
+}
 
 DECL_END
 

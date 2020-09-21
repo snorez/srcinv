@@ -17,9 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "si_core.h"
-#include "./analysis.h"
 
-LIST_HEAD(analysis_lang_ops_head);
 lock_t getbase_lock;
 
 static int parse_sibuf(struct sibuf *buf, int step, int force)
@@ -373,8 +371,7 @@ redo1:
 		case STEP6:
 		{
 			struct sibuf *tmp;
-			list_for_each_entry_reverse(tmp, &si->sibuf_head,
-							sibling) {
+			slist_for_each_entry(tmp, &si->sibuf_head, sibling) {
 				if (tmp->rf != newrf)
 					continue;
 
@@ -455,7 +452,7 @@ redo2:
 int parse_sibuf_bypath(char *srcpath, int step, int force)
 {
 	struct sibuf *tmp;
-	list_for_each_entry_reverse(tmp, &si->sibuf_head, sibling) {
+	slist_for_each_entry(tmp, &si->sibuf_head, sibling) {
 		analysis__resfile_load(tmp);
 
 		struct file_content *fc;

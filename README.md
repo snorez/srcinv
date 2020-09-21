@@ -4,7 +4,10 @@ Tested linux-5.3.y with gcc 8.3.0, both vmlinux and single module.
 
 Two branches: [master](https://github.com/hardenedlinux/srcinv/tree/master) and [dev](https://github.com/hardenedlinux/srcinv/tree/dev)
 
-[Implementation English doc](https://github.com/hardenedlinux/srcinv/blob/master/doc/README_en.md)
+[Implementation English doc](https://github.com/hardenedlinux/srcinv/blob/dev/doc/README_en.md)
+
+# TODO
+[TODO list](https://github.com/hardenedlinux/srcinv/blob/dev/doc/TODO.md)
 
 ### Build srcinv
 Dependencies to build this project:
@@ -79,28 +82,25 @@ to skip over STEP1. So I just put it on TODO lists.
 
 
 ### screenshots parsing linux kernel
-![step_1_0](https://github.com/hardenedlinux/srcinv/blob/master/doc/phase1_0.png)
-![step_1_1](https://github.com/hardenedlinux/srcinv/blob/master/doc/phase1_1.png)
-![step_1_2](https://github.com/hardenedlinux/srcinv/blob/master/doc/phase1_2.png)
-![step_1_3](https://github.com/hardenedlinux/srcinv/blob/master/doc/phase1_3.png)
-![step_1_4](https://github.com/hardenedlinux/srcinv/blob/master/doc/phase1_4.png)
-![step_2_0](https://github.com/hardenedlinux/srcinv/blob/master/doc/phase2_0.png)
-![step_2_1](https://github.com/hardenedlinux/srcinv/blob/master/doc/phase2_1.png)
-![step_3_0](https://github.com/hardenedlinux/srcinv/blob/master/doc/phase3_0.png)
-![step_3_1](https://github.com/hardenedlinux/srcinv/blob/master/doc/phase3_1.png)
-![step_3_2](https://github.com/hardenedlinux/srcinv/blob/master/doc/phase3_2.png)
-![step_3_3](https://github.com/hardenedlinux/srcinv/blob/master/doc/phase3_3.png)
-![step_4_0](https://github.com/hardenedlinux/srcinv/blob/master/doc/phase4_0.png)
-![step_4_1](https://github.com/hardenedlinux/srcinv/blob/master/doc/phase4_1.png)
-![step_5_0](https://github.com/hardenedlinux/srcinv/blob/master/doc/phase5_0.png)
-![step_5_1](https://github.com/hardenedlinux/srcinv/blob/master/doc/phase5_1.png)
-![step_5_2](https://github.com/hardenedlinux/srcinv/blob/master/doc/phase5_2.png)
-![step_6_0](https://github.com/hardenedlinux/srcinv/blob/master/doc/phase6_0.png)
-![indcfg_0](https://github.com/hardenedlinux/srcinv/blob/master/doc/indcfg_0.png)
-![indcfg_1](https://github.com/hardenedlinux/srcinv/blob/master/doc/indcfg_1.png)
-
-# TODO
-[TODO list](https://github.com/hardenedlinux/srcinv/blob/master/doc/TODO.md)
+![step_1_0](https://github.com/hardenedlinux/srcinv/blob/dev/doc/phase1_0.png)
+![step_1_1](https://github.com/hardenedlinux/srcinv/blob/dev/doc/phase1_1.png)
+![step_1_2](https://github.com/hardenedlinux/srcinv/blob/dev/doc/phase1_2.png)
+![step_1_3](https://github.com/hardenedlinux/srcinv/blob/dev/doc/phase1_3.png)
+![step_1_4](https://github.com/hardenedlinux/srcinv/blob/dev/doc/phase1_4.png)
+![step_2_0](https://github.com/hardenedlinux/srcinv/blob/dev/doc/phase2_0.png)
+![step_2_1](https://github.com/hardenedlinux/srcinv/blob/dev/doc/phase2_1.png)
+![step_3_0](https://github.com/hardenedlinux/srcinv/blob/dev/doc/phase3_0.png)
+![step_3_1](https://github.com/hardenedlinux/srcinv/blob/dev/doc/phase3_1.png)
+![step_3_2](https://github.com/hardenedlinux/srcinv/blob/dev/doc/phase3_2.png)
+![step_3_3](https://github.com/hardenedlinux/srcinv/blob/dev/doc/phase3_3.png)
+![step_4_0](https://github.com/hardenedlinux/srcinv/blob/dev/doc/phase4_0.png)
+![step_4_1](https://github.com/hardenedlinux/srcinv/blob/dev/doc/phase4_1.png)
+![step_5_0](https://github.com/hardenedlinux/srcinv/blob/dev/doc/phase5_0.png)
+![step_5_1](https://github.com/hardenedlinux/srcinv/blob/dev/doc/phase5_1.png)
+![step_5_2](https://github.com/hardenedlinux/srcinv/blob/dev/doc/phase5_2.png)
+![step_6_0](https://github.com/hardenedlinux/srcinv/blob/dev/doc/phase6_0.png)
+![indcfg_0](https://github.com/hardenedlinux/srcinv/blob/dev/doc/indcfg_0.png)
+![indcfg_1](https://github.com/hardenedlinux/srcinv/blob/dev/doc/indcfg_1.png)
 
 # LICENSE
 This project is under GPL v3 license. See the LICENSE for more details.

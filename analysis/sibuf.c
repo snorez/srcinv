@@ -26,14 +26,14 @@ struct sibuf *sibuf_new(void)
 void sibuf_insert(struct sibuf *b)
 {
 	si_lock_w();
-	list_add_tail(&b->sibling, &si->sibuf_head);
+	slist_add_tail(&b->sibling, &si->sibuf_head);
 	si_unlock_w();
 }
 
 void sibuf_remove(struct sibuf *b)
 {
 	si_lock_w();
-	list_del(&b->sibling);
+	slist_del(&b->sibling, &si->sibuf_head);
 	si_unlock_w();
 }
 
@@ -147,4 +147,24 @@ struct type_node *sibuf_typenode_search(struct sibuf *b, int tc, void *addr)
 
 	sibuf_unlock_r(b);
 	return ret;
+}
+
+void *sibuf_get_global(struct sibuf *b, const char *string, int *len)
+{
+	struct file_content *fc;
+	struct lang_ops * ops;
+
+	if (!b->globals)
+		return NULL;
+
+	fc = (struct file_content *)b->load_addr;
+	ops = lang_ops_find(&analysis_lang_ops_head, &fc->type);
+	if (!ops) {
+		si_log1_todo("lang_ops_find return NULL\n");
+		return NULL;
+	}
+
+	if (ops->get_global)
+		return ops->get_global(b, string, len);
+	return NULL;
 }

@@ -1,5 +1,5 @@
 /*
- * Helper functions to trace var, param, etc.
+ * Replay a sample_set.
  *
  * Copyright (C) 2020 zerons
  *
@@ -16,4 +16,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-#include "si_core.h"
+
+#include "si_gcc.h"
+#include "si_hacking.h"

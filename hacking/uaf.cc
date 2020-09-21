@@ -1,6 +1,11 @@
 /*
- * TODO
- * Copyright (C) 2019  zerons
+ * detect UAF bugs statically, NOTICE: check the project kernel or userspace
+ *
+ * TODO:
+ *	Increase the refcnt while the address is set to some other variables.
+ *		Like, ADDR_EXPR?
+ *
+ * Copyright (C) 2020 zerons
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,46 +20,27 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-#include "si_core.h"
+#include "si_gcc.h"
 
-SLIST_HEAD(hacking_module_head);
+CLIB_MODULE_NAME(uaf);
+CLIB_MODULE_NEEDED0();
+static struct hacking_module uaf;
 
-SI_MOD_SUBENV_INIT()
-{
-	int err;
-
-	INIT_SLIST_HEAD(&hacking_module_head);
-
-	/* load all hacking modules */
-	struct slist_head *head;
-	head = si_module_get_head(SI_PLUGIN_CATEGORY_HACKING);
-	err = si_module_load_all(head);
-	if (err) {
-		err_dbg(0, "si_module_load_all err");
-		goto err1;
-	}
-
-	return 0;
-
-err1:
-	return -1;
-}
-
-SI_MOD_SUBENV_DEINIT()
-{
-	struct slist_head *head;
-	head = si_module_get_head(SI_PLUGIN_CATEGORY_HACKING);
-	si_module_unload_all(head);
-}
-
-SI_MOD_SUBENV_EARLY_INIT()
-{
-	return 0;
-}
-
-SI_MOD_SUBENV_EARLY_DEINIT()
+static void uaf_cb(struct hm_arg *arg)
 {
 	return;
 }
 
-SI_MOD_SUBENV_SETUP(hacking, 1, "analysis");
+CLIB_MODULE_INIT()
+{
+	uaf.flag = HACKING_FLAG_STATIC;
+	uaf.callback = uaf_cb;
+	uaf.name = this_module_name;
+	register_hacking_module(&uaf);
+	return 0;
+}
+
+CLIB_MODULE_EXIT()
+{
+	unregister_hacking_module(&uaf);
+}

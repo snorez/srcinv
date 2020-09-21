@@ -24,6 +24,51 @@
 
 DECL_BEGIN
 
+#define	STEP1			MODE_ADJUST
+#define	STEP2			MODE_GETBASE
+#define	STEP3			MODE_GETDETAIL
+#define	STEP4			MODE_GETSTEP4
+#define	STEP5			MODE_GETINDCFG1
+#define	STEP6			MODE_GETINDCFG2
+#define	STEPMAX			MODE_MAX
+
+C_SYM struct slist_head analysis_lang_ops_head;
+C_SYM lock_t getbase_lock;
+
+struct lang_ops {
+	struct slist_head	sibling;
+	struct si_type		type;
+	int			(*parse)(struct sibuf *buf, int parse_mode);
+	int			(*dec)(struct sample_set *, int idx,
+					struct func_node *start_fn);
+	void			*(*get_global)(struct sibuf *, const char *,
+					int *);
+};
+
+static inline struct lang_ops *lang_ops_find(struct slist_head *h,
+						struct si_type *type)
+{
+	struct lang_ops *tmp;
+	slist_for_each_entry(tmp, h, sibling) {
+		if (si_type_match(&tmp->type, type))
+			return tmp;
+	}
+	return NULL;
+}
+
+static inline void register_lang_ops(struct lang_ops *ops)
+{
+	struct slist_head *h = &analysis_lang_ops_head;
+	if (lang_ops_find(h, &ops->type))
+		return;
+	slist_add_tail(&ops->sibling, h);
+}
+
+static inline void unregister_lang_ops(struct lang_ops *ops)
+{
+	slist_del(&ops->sibling, &analysis_lang_ops_head);
+}
+
 CLIB_MODULE_CALL_FUNC(analysis, sinode_new, struct sinode *,
 		(enum sinode_type type, char *name, size_t namelen,
 		 char *data, size_t datalen),
@@ -76,6 +121,11 @@ CLIB_MODULE_CALL_FUNC(analysis, add_possible, void,
 		 unsigned long value),
 		3, vn, value_flag, value);
 
+CLIB_MODULE_CALL_FUNC(analysis, pick_related_func, void,
+		(struct sinode *first, struct func_node **fn_array,
+		 size_t array_cnt),
+		3, first, fn_array, array_cnt);
+
 CLIB_MODULE_CALL_FUNC0(analysis, sibuf_new, struct sibuf *);
 
 CLIB_MODULE_CALL_FUNC(analysis, sibuf_insert, void,
@@ -93,6 +143,10 @@ CLIB_MODULE_CALL_FUNC(analysis, sibuf_typenode_insert, int,
 CLIB_MODULE_CALL_FUNC(analysis, sibuf_typenode_search, struct type_node *,
 		(struct sibuf *b, int tc, void *addr),
 		3, b, tc, addr);
+
+CLIB_MODULE_CALL_FUNC(analysis, sibuf_get_global, void *,
+		(struct sibuf *b, const char *string, int *maxlen),
+		3, b, string, maxlen);
 
 CLIB_MODULE_CALL_FUNC(analysis, resfile_new, struct resfile *,
 		(char *path, int built_in),
@@ -130,41 +184,60 @@ CLIB_MODULE_CALL_FUNC(analysis, resfile_get_fc, struct file_content *,
 		(char *path, char *targetfile, int *idx),
 		3, path, targetfile, idx);
 
-CLIB_MODULE_CALL_FUNC(analysis, get_func_code_paths_start, void,
-		(struct code_path *codes),
-		1, codes);
-
-CLIB_MODULE_CALL_FUNC0(analysis, get_func_next_code_path, struct code_path *);
-
-CLIB_MODULE_CALL_FUNC(analysis, trace_var, int,
-		(struct sinode *fsn, void *var_parm,
-		 struct sinode **target_fsn, void **target_vn),
-		4, fsn, var_parm, target_fsn, target_vn);
-
-CLIB_MODULE_CALL_FUNC(analysis, gen_func_paths, void,
-		(struct sinode *from, struct sinode *to,
-		 struct list_head *head, int idx),
-		4, from, to, head, idx);
-
-CLIB_MODULE_CALL_FUNC(analysis, drop_func_paths, void,
-		(struct list_head *head),
-		1, head);
-
-/* XXX, for now, we only handle max to FUNC_CP_MAX paths */
-#define FUNC_CP_MAX	0x100000
-CLIB_MODULE_CALL_FUNC(analysis, gen_code_paths, void,
-		(void *arg, struct clib_rw_pool *pool),
-		2, arg, pool);
-
-CLIB_MODULE_CALL_FUNC(analysis, drop_code_path, void,
-		(struct path_list *head),
-		1, head);
-
 CLIB_MODULE_CALL_FUNC0(analysis, mark_entry, int);
 
 CLIB_MODULE_CALL_FUNC(analysis, dec_next, int,
-		(struct sample_state *sample, struct code_path *cp),
-		2, sample, cp);
+		(struct sample_set *sset, int idx, struct func_node *fn),
+		3, sample, idx, fn);
+
+CLIB_MODULE_CALL_FUNC(analysis, dec_special_call, int,
+		(struct sample_set *sset, int idx, struct fn_list *fnl,
+		 struct func_node *call_fn),
+		4, sset, idx, fnl, call_fn);
+
+CLIB_MODULE_CALL_FUNC(analysis, sample_set_flag_str, const char *,
+		(int nr),
+		1, nr);
+
+CLIB_MODULE_CALL_FUNC(analysis, sample_state_dump_cp, void,
+		(struct sample_state *sstate, int ident),
+		2, sstate, ident);
+
+CLIB_MODULE_CALL_FUNC(analysis, sample_set_dump, void,
+		(struct sample_set *sset),
+		1, sset);
+
+CLIB_MODULE_CALL_FUNC(analysis, build_sample_state_till, int,
+		(struct sample_set *sset, int idx, struct code_path *cp_entry,
+		 struct code_path *till),
+		4, sset, idx, cp_entry, till);
+
+CLIB_MODULE_CALL_FUNC(analysis, sample_can_run, int,
+		(struct sample_set *sset, int idx),
+		2, sset, idx);
+
+CLIB_MODULE_CALL_FUNC(analysis, sample_set_exists, int,
+		(struct sample_set *sset),
+		1, sset);
+
+CLIB_MODULE_CALL_FUNC(analysis, sample_set_stuck, int,
+		(struct sample_set *sset),
+		1, sset);
+
+CLIB_MODULE_CALL_FUNC(analysis, sample_set_replay, int,
+		(struct sample_set *sset),
+		1, sset);
+
+CLIB_MODULE_CALL_FUNC(analysis, sample_set_validate, int,
+		(struct sample_set *sset),
+		1, sset);
+
+CLIB_MODULE_CALL_FUNC0(analysis, sys_bootup, int);
+
+CLIB_MODULE_CALL_FUNC(analysis, dsv_compute, int,
+		(struct data_state_val *l, struct data_state_val *r, int flag,
+		 int extra_flag, cur_max_signint *retval),
+		5, l, r, flag, extra_flag, retval);
 
 DECL_END
 

@@ -20,10 +20,10 @@
  */
 #include "si_core.h"
 
-static struct resfile *resfile_find(char *path, struct list_head *head)
+static struct resfile *resfile_find(char *path, struct slist_head *head)
 {
 	struct resfile *tmp;
-	list_for_each_entry(tmp, head, sibling) {
+	slist_for_each_entry(tmp, head, sibling) {
 		if (strcmp(tmp->path, path) == 0)
 			return tmp;
 	}
@@ -57,15 +57,15 @@ void resfile_add(struct resfile *rf)
 		return;
 
 	if (rf->built_in)
-		list_add(&rf->sibling, &si->resfile_head);
+		slist_add(&rf->sibling, &si->resfile_head);
 	else
-		list_add_tail(&rf->sibling, &si->resfile_head);
+		slist_add_tail(&rf->sibling, &si->resfile_head);
 }
 
 static void prepare_unmap(void *addr, size_t len)
 {
 	struct sibuf *tmp;
-	list_for_each_entry(tmp, &si->sibuf_head, sibling) {
+	slist_for_each_entry(tmp, &si->sibuf_head, sibling) {
 		if ((tmp->load_addr >= (unsigned long)addr) &&
 			(tmp->load_addr < (unsigned long)(addr+len))) {
 			tmp->need_unload = 0;
@@ -321,7 +321,7 @@ void resfile_unload_all(void)
 {
 	mutex_lock(&gc_lock);
 	struct sibuf *tmp;
-	list_for_each_entry(tmp, &si->sibuf_head, sibling) {
+	slist_for_each_entry(tmp, &si->sibuf_head, sibling) {
 		analysis__resfile_unload(tmp);
 	}
 	atomic_set(&si->sibuf_mem_usage, 0);
@@ -338,7 +338,7 @@ int resfile_gc(void)
 
 	mutex_lock(&gc_lock);
 	struct sibuf *tmp;
-	list_for_each_entry(tmp, &si->sibuf_head, sibling) {
+	slist_for_each_entry(tmp, &si->sibuf_head, sibling) {
 		if (!tmp->need_unload)
 			continue;
 		if (!tv_old.tv_sec) {

@@ -1,6 +1,7 @@
 /*
  * TODO
- * Copyright (C) 2018  zerons
+ *
+ * Copyright (C) 2020 zerons
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,15 +16,27 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+
 #include "si_gcc.h"
 
-CLIB_MODULE_NAME(gensample);
-CLIB_MODULE_NEEDED1(getinfo);
-CLIB_MODULE_INIT()
+int call_expr_flags(const_tree t)
 {
-	return 0;
-}
-CLIB_MODULE_EXIT()
-{
-	return;
+	int flags;
+	tree decl = get_callee_fndecl(t);
+
+	if (decl)
+		flags = flags_from_decl_or_type(decl);
+	else if (CALL_EXPR_FN (t) == NULL_TREE)
+		flags = internal_fn_flags(CALL_EXPR_IFN(t));
+	else {
+		tree type = TREE_TYPE(CALL_EXPR_FN(t));
+		if (type && TREE_CODE(type) == POINTER_TYPE)
+			flags = flags_from_decl_or_type(TREE_TYPE(type));
+		else
+			flags = 0;
+		if (CALL_EXPR_BY_DESCRIPTOR(t))
+			flags |= ECF_BY_DESCRIPTOR;
+	}
+
+	return flags;
 }
