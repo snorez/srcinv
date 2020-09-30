@@ -1,0 +1,2 @@
+*) 64bit and little-endian systems
+*) One byte = 8 bits

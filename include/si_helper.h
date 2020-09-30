@@ -801,8 +801,7 @@ static inline int ds_get_section(u8 val_type)
 	} else if ((val_type >= DSVT_ADDR) &&
 			(val_type <= DSVT_REF)) {
 		return 2;
-	} else if ((val_type >= DSVT_ARRAY) &&
-			(val_type <= DSVT_COMPONENT)) {
+	} else if (val_type >= DSVT_CONSTRUCTOR) {
 		return 3;
 	} else {
 		BUG();
@@ -843,7 +842,7 @@ static inline struct data_state_rw *data_state_rw_new(u64 addr, u8 type,
 }
 
 static inline void data_state_drop(struct data_state_rw *ds);
-static inline void data_state_val_free(struct data_state_val *dsv)
+static inline void dsv_free_data(struct data_state_val *dsv)
 {
 	switch (ds_get_section(DSV_TYPE(dsv))) {
 	case 0:
@@ -872,7 +871,7 @@ static inline void data_state_val_free(struct data_state_val *dsv)
 		slist_for_each_entry_safe(tmp, next, DSV_SEC3_VAL(dsv),
 					  sibling) {
 			slist_del(&tmp->sibling, DSV_SEC3_VAL(dsv));
-			data_state_val_free(&tmp->val);
+			dsv_free_data(&tmp->val);
 			free(tmp);
 		}
 		break;
@@ -886,10 +885,10 @@ static inline void data_state_val_free(struct data_state_val *dsv)
 	return;
 }
 
-static inline void data_state_val_alloc(struct data_state_val *dsv, u8 val_type,
-					u32 bytes)
+static inline void dsv_alloc_data(struct data_state_val *dsv, u8 val_type,
+				  u32 bytes)
 {
-	data_state_val_free(dsv);
+	dsv_free_data(dsv);
 
 	switch (ds_get_section(val_type)) {
 	case 0:
@@ -935,7 +934,7 @@ static inline struct data_state_val1 *data_state_val1_alloc(void *raw)
 
 static inline void data_state_destroy(struct data_state_rw *ds)
 {
-	data_state_val_free(&ds->val);
+	dsv_free_data(&ds->val);
 	free(ds);
 }
 
@@ -959,6 +958,67 @@ static inline void data_state_drop(struct data_state_rw *ds)
 	return;
 }
 
+static inline
+void dsv_copy_data(struct data_state_val *dst, struct data_state_val *src)
+{
+	if (dst == src)
+		return;
+
+	dsv_free_data(dst);
+
+	switch (ds_get_section(DSV_TYPE(src))) {
+	case 0:
+	{
+		break;
+	}
+	case 1:
+	{
+		size_t sz = src->info.v1_info.bytes;
+
+		dsv_alloc_data(dst, DSV_TYPE(src), sz);
+		clib_memcpy_bits(DSV_SEC1_VAL(dst), sz * 8,
+				 DSV_SEC1_VAL(src),
+				 src->info.v1_info.bytes * 8);
+		break;
+	}
+	case 2:
+	{
+		/* FIXME: increase the target ds refcount if DSVT_ADDR */
+		dsv_alloc_data(dst, DSV_TYPE(src), 0);
+		DSV_SEC2_VAL(dst)->ds = DSV_SEC2_VAL(src)->ds;
+		data_state_hold(DSV_SEC2_VAL(dst)->ds);
+		DSV_SEC2_VAL(dst)->offset = DSV_SEC2_VAL(src)->offset;
+		DSV_SEC2_VAL(dst)->bits = DSV_SEC2_VAL(src)->bits;
+		break;
+	}
+	case 3:
+	{
+		struct data_state_val1 *tmp;
+		dsv_alloc_data(dst, DSV_TYPE(src), 0);
+		slist_for_each_entry(tmp, DSV_SEC3_VAL(src), sibling) {
+			struct data_state_val1 *_tmp;
+			void *raw = (void *)(long)tmp->val.raw;
+			_tmp = data_state_val1_alloc(raw);
+			_tmp->bits = tmp->bits;
+			_tmp->offset = tmp->offset;
+			dsv_copy_data(&_tmp->val, &tmp->val);
+			slist_add_tail(&_tmp->sibling, DSV_SEC3_VAL(dst));
+		}
+		break;
+	}
+	default:
+	{
+		BUG();
+	}
+	}
+
+	dsv_set_raw(dst, (void *)(long)src->raw);
+	/* TODO: trace_id_head */
+	memcpy(&dst->info, &src->info, sizeof(src->info));
+
+	return;
+}
+
 static inline void __ds_vref_setv(struct data_state_val *t,
 				struct data_state_rw *ds, s32 offset, u32 bits)
 {
@@ -978,7 +1038,7 @@ static inline void ds_vref_setv(struct data_state_val *t,
 		struct data_state_val_ref *dsvr;
 		dsvr = DS_SEC2_VAL(ds);
 		data_state_hold(dsvr->ds);
-		__ds_vref_setv(t, dsvr->ds, offset, bits);
+		__ds_vref_setv(t, dsvr->ds, offset + dsvr->offset, bits);
 		data_state_drop(ds);
 		break;
 	}
@@ -1287,14 +1347,25 @@ static inline struct sample_state *sample_state_alloc(int dyn)
 	return _new;
 }
 
-static inline
-void sample_empty_arg_head(struct sample_state *sample)
+static inline void sample_empty_arg_head(struct sample_state *sample)
 {
 	struct data_state_rw *tmp, *next;
 	slist_for_each_entry_safe(tmp, next, &sample->arg_head, base.sibling) {
 		slist_del(&tmp->base.sibling, &sample->arg_head);
 		data_state_drop(tmp);
 	}
+}
+
+static inline void sample_state_cleanup_loopinfo(struct sample_state *sstate)
+{
+	if (sstate->loop_info.lhs_val.value.v1)
+		dsv_free_data(&sstate->loop_info.lhs_val);
+	if (sstate->loop_info.rhs_val.value.v1)
+		dsv_free_data(&sstate->loop_info.rhs_val);
+	memset(&sstate->loop_info.lhs_val, 0, sizeof(sstate->loop_info.lhs_val));
+	memset(&sstate->loop_info.rhs_val, 0, sizeof(sstate->loop_info.rhs_val));
+	sstate->loop_info.head = NULL;
+	sstate->loop_info.tail = NULL;
 }
 
 static inline void sample_state_free(struct sample_state *state)
@@ -1313,6 +1384,11 @@ static inline void sample_state_free(struct sample_state *state)
 	}
 
 	sample_empty_arg_head(state);
+
+	if (state->retval && (state->retval != VOID_RETVAL))
+		data_state_drop(state->retval);
+
+	sample_state_cleanup_loopinfo(state);
 
 	free(state);
 }
@@ -1459,6 +1535,15 @@ static inline void sample_set_clear_flag(struct sample_set *sset, int nr)
 	if (nr >= SAMPLE_SF_MAX)
 		return;
 	test_and_clear_bit(nr, (long *)&sset->flag);
+}
+
+static inline int sample_set_check_nullptr(void **pptr)
+{
+	void *ptr = *(pptr);
+	size_t pagesize = PAGE_SIZE;
+	if (ptr < (void *)pagesize)
+		return 1;
+	return 0;
 }
 
 static inline void src_init(int empty)

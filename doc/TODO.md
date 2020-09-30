@@ -4,14 +4,29 @@
 + performance optimization
 + why crash when `si_global_trees` defined in `compiler_gcc.cc`? It seems that
 the `si_global_trees` memory area overlaps with the thread stack.
-- sample_can_run()		check if the chosen sample runnable.
+- dsv_copy_data() copy the trace_id_head data
+- sample_init_globals()
+	- How to initialize all the global variables, and the whole system(sys-bootup)?
+	- we need to init variables when run check on a single function, e.g.
+	```c
+	void test_func(struct list_head *head)
+	{
+		struct elem *n;
+		list_for_each_entry(n, head, sibling) {
+			/* do something */
+		}
+	}
+	```
+	The head, if not inited, this will be infinite loop cause we compare
+	the addresses of the data_state_rw(in analysis/data-state.c).
+	~~ Or, we return error if NULL-deref detected(added in get_ds_via_tree()). ~~
 - sample_set_exists()		check if the current sample set exists.
 - sample_set_validate()		check if we choose the right branch to execute.
 - dec_special_call()		For linux kernel, handle kmalloc() kfree(), etc.
 - pick_related_func()
 - build_sample_state_till()
-- sample_set_stuck
 - sample_set_replay
+- handle REAL_TYPE, in analysis/data-state.c
 - functions without `GIMPLE_RETURN`		return err?
 - functions with `GIMPLE_ASM`			return err?
 - Add an extra field to track global var usage in sample set?
@@ -19,7 +34,8 @@ the `si_global_trees` memory area overlaps with the thread stack.
 - KCSAN and https://github.com/google/ktsan/wiki/READ_ONCE-and-WRITE_ONCE
 - How to reduce the repetition rate to make the branch suggestion more efficient?
 	- colorize all guessed data, use slist to show connections between them?
-- How to initialize all the global variables, and the whole system(sys-bootup)?
+- ~~ sample_can_run()		check if the chosen sample runnable. ~~
+- ~~ sample_set_stuck ~~
 
 
 

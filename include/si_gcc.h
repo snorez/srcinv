@@ -84,6 +84,7 @@
 #include <tree-dfa.h>
 #include <dfp.h>
 #include <calls.h>
+#include <stor-layout.h>
 
 #include "si_core.h"
 
@@ -1280,12 +1281,50 @@ static inline tree si_build1_loc(location_t loc, enum tree_code code,
 	return t;
 }
 
+static inline int in_phi_nodes(basic_block bb, gimple_seq gimple)
+{
+	gimple_seq first = bb->il.gimple.phi_nodes;
+	while (first) {
+		if (first == gimple)
+			return 1;
+		first = first->next;
+	}
+	return 0;
+}
+
+static inline
+struct code_path *find_cp_by_bb(struct func_node *fn, basic_block bb)
+{
+	struct code_path *ret = NULL;
+	for (int i = 0; i < fn->cp_cnt; i++) {
+		if (fn->cps[i]->cp != bb)
+			continue;
+		ret = fn->cps[i];
+		break;
+	}
+	return ret;
+}
+
+static inline
+struct code_path *find_cp_by_gs(struct func_node *fn, gimple_seq gs)
+{
+	return find_cp_by_bb(fn, gs->bb);
+}
+
 /* these two function may return NULL */
+static inline gimple_seq bb_first_gimple(basic_block bb)
+{
+	if (bb->il.gimple.phi_nodes)
+		return bb->il.gimple.phi_nodes;
+	else
+		return bb->il.gimple.seq;
+}
+
 static inline gimple_seq cp_first_gimple(struct code_path *cp)
 {
 	basic_block bb;
 	bb = (basic_block)cp->cp;
-	return bb->il.gimple.seq;
+	return bb_first_gimple(bb);
 }
 
 static inline gimple_seq fn_first_gimple(struct func_node *fn)
@@ -1295,6 +1334,27 @@ static inline gimple_seq fn_first_gimple(struct func_node *fn)
 	entry = DECL_STRUCT_FUNCTION((tree)fn->node)->cfg->x_entry_block_ptr;
 	ret = entry->next_bb->il.gimple.seq;
 	return ret;
+}
+
+static inline gimple_seq bb_next_gimple(basic_block bb, gimple_seq cur_gimple)
+{
+	gimple_seq next_gimple = cur_gimple->next;
+
+	if ((!next_gimple) && (in_phi_nodes(bb, cur_gimple)))
+		return bb->il.gimple.seq;
+	return next_gimple;
+}
+
+static inline gimple_seq cp_next_gimple(struct func_node *fn,
+					gimple_seq cur_gimple)
+{
+	struct code_path *cur_cp;
+	basic_block bb;
+
+	cur_cp = find_cp_by_gs(fn, cur_gimple);
+	bb = (basic_block)cur_cp->cp;
+
+	return bb_next_gimple(bb, cur_gimple);
 }
 
 static inline u32 get_type_bits(tree node)
@@ -1365,25 +1425,6 @@ si_gimple_cond_false_p(const gcond *gs)
 		return true;
 
 	return false;
-}
-
-static inline
-struct code_path *find_cp_by_bb(struct func_node *fn, basic_block bb)
-{
-	struct code_path *ret = NULL;
-	for (int i = 0; i < fn->cp_cnt; i++) {
-		if (fn->cps[i]->cp != bb)
-			continue;
-		ret = fn->cps[i];
-		break;
-	}
-	return ret;
-}
-
-static inline
-struct code_path *find_cp_by_gs(struct func_node *fn, gimple_seq gs)
-{
-	return find_cp_by_bb(fn, gs->bb);
 }
 
 #define si_sch_test(c, bit) (si_sch_istable[(c) & 0xff] & (unsigned short)(bit))

@@ -1,3 +1,9 @@
+2020-10-01
+	* srcinv: code for v1.0
+
+2020-09-27
+	* srcinv: reset DSVT_ARRAY/DSVT_COMPONENT as DSVT_CONSTRUCTOR
+
 2020-09-21
 	* srcinv: prepare for v1.0
 	* hacking/staticchk: mishandle the return value of chk_func()

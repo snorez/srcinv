@@ -232,6 +232,12 @@ CLIB_MODULE_CALL_FUNC(analysis, sample_set_validate, int,
 		(struct sample_set *sset),
 		1, sset);
 
+CLIB_MODULE_CALL_FUNC(analysis, sample_state_check_loop, int,
+		(struct sample_set *sset, int idx,
+		 struct data_state_val *lhs_dsv, struct data_state_val *rhs_dsv,
+		 struct code_path *next_cp),
+		5, sset, idx, lhs_dsv, rhs_dsv, next_cp);
+
 CLIB_MODULE_CALL_FUNC0(analysis, sys_bootup, int);
 
 CLIB_MODULE_CALL_FUNC(analysis, dsv_compute, int,

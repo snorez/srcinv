@@ -458,3 +458,105 @@ int si_tree_int_cst_equal(const_tree t1, const_tree t2)
 
 	return 0;
 }
+
+bool tree_fits_uhwi_p(const_tree t)
+{
+	return ((t != NULL_TREE) && (TREE_CODE(t) == INTEGER_CST) &&
+			wi::fits_uhwi_p(wi::to_widest(t)));
+}
+
+HOST_WIDE_INT int_size_in_bytes(const_tree type)
+{
+	tree t;
+
+	if (type == si_error_mark_node((void *)type))
+		return 0;
+
+	type = TYPE_MAIN_VARIANT(type);
+	t = TYPE_SIZE_UNIT(type);
+	if (t && tree_fits_uhwi_p(t))
+		return TREE_INT_CST_LOW(t);
+	else
+		return -1;
+}
+
+bool tree_nop_conversion_p(const_tree outer_type, const_tree inner_type)
+{
+	if ((POINTER_TYPE_P(outer_type)) &&
+		(TYPE_ADDR_SPACE(TREE_TYPE(outer_type)) != ADDR_SPACE_GENERIC)) {
+		if (!POINTER_TYPE_P(inner_type) ||
+			(TYPE_ADDR_SPACE(TREE_TYPE(outer_type)) !=
+			 TYPE_ADDR_SPACE(TREE_TYPE(inner_type))))
+			return false;
+	} else if (POINTER_TYPE_P(inner_type) &&
+			(TYPE_ADDR_SPACE(TREE_TYPE(inner_type)) !=
+			 ADDR_SPACE_GENERIC)) {
+		return false;
+	}
+
+	if ((INTEGRAL_TYPE_P(outer_type) || POINTER_TYPE_P(outer_type) ||
+		TREE_CODE(outer_type) == OFFSET_TYPE) &&
+		(INTEGRAL_TYPE_P(inner_type) || POINTER_TYPE_P(inner_type) ||
+		 TREE_CODE(inner_type) == OFFSET_TYPE))
+		return TYPE_PRECISION(outer_type) == TYPE_PRECISION(inner_type);
+
+	return TYPE_MODE(outer_type) == TYPE_MODE(inner_type);
+}
+
+static inline bool tree_nop_conversion(const_tree exp)
+{
+	tree outer_type, inner_type;
+
+	if (location_wrapper_p(exp))
+		return true;
+	if ((!CONVERT_EXPR_P(exp)) && (TREE_CODE(exp) != NON_LVALUE_EXPR))
+		return false;
+
+	outer_type = TREE_TYPE(exp);
+	inner_type = TREE_TYPE(TREE_OPERAND(exp, 0));
+	if ((!inner_type) ||
+		(inner_type == si_error_mark_node((void *)inner_type)))
+		return false;
+
+	return tree_nop_conversion_p(outer_type, inner_type);
+}
+
+tree tree_strip_nop_conversions(tree exp)
+{
+	while (tree_nop_conversion(exp))
+		exp = TREE_OPERAND(exp, 0);
+	return exp;
+}
+
+tree bit_position(const_tree field)
+{
+	return bit_from_pos(DECL_FIELD_OFFSET(field),
+				DECL_FIELD_BIT_OFFSET(field));
+}
+
+tree byte_position(const_tree field)
+{
+	return byte_from_pos(DECL_FIELD_OFFSET(field),
+				DECL_FIELD_BIT_OFFSET(field));
+}
+
+HOST_WIDE_INT int_byte_position(const_tree field)
+{
+	return tree_to_shwi(byte_position(field));
+}
+
+bool tree_fits_shwi_p(const_tree t)
+{
+	return ((t != NULL_TREE) && (TREE_CODE(t) == INTEGER_CST) &&
+			wi::fits_shwi_p(wi::to_widest(t)));
+}
+
+HOST_WIDE_INT tree_to_shwi(const_tree t)
+{
+	return TREE_INT_CST_LOW(t);
+}
+
+unsigned HOST_WIDE_INT tree_to_uhwi(const_tree t)
+{
+	return TREE_INT_CST_LOW(t);
+}

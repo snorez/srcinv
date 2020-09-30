@@ -16,7 +16,8 @@ CXX_SRCS = compiler_gcc.cc \
 	   calls.cc \
 	   tree-cfg.cc \
 	   cfganal.cc \
-	   tree-pretty-print.cc
+	   tree-pretty-print.cc \
+	   stor-layout.cc
 
 CC_OBJS += $(CC_SRCS:%.c=%.o)
 CXX_OBJS += $(CXX_SRCS:%.cc=%.o)

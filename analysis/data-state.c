@@ -16,20 +16,9 @@
  */
 #include "si_core.h"
 
-int dsv_compute(struct data_state_val *l, struct data_state_val *r,
-		int flag, int extra_flag, cur_max_signint *retval)
+static int __dsv_compute(struct data_state_val *l, struct data_state_val *r,
+			 int flag, int extra_flag, cur_max_signint *retval)
 {
-	if (DSV_TYPE(l) != DSV_TYPE(r)) {
-		si_log1_todo("type of lhs and rhs are not the same\n");
-		return -1;
-	}
-
-	if (DSV_TYPE(l) != DSVT_INT_CST) {
-		/* TODO: DSVT_REAL_CST */
-		si_log1_todo("miss %d\n", DSV_TYPE(l));
-		return -1;
-	}
-
 	int res;
 	cur_max_signint _retval;
 	void *lpos = DSV_SEC1_VAL(l);
@@ -112,4 +101,72 @@ int dsv_compute(struct data_state_val *l, struct data_state_val *r,
 	}
 
 	return 0;
+}
+
+int dsv_compute(struct data_state_val *l, struct data_state_val *r,
+		int flag, int extra_flag, cur_max_signint *retval)
+{
+	int err = 0;
+	struct data_state_val fake_l, fake_r;
+	memset(&fake_l, 0, sizeof(fake_l));
+	memset(&fake_r, 0, sizeof(fake_r));
+
+	DSV_TYPE(&fake_l) = DSVT_UNK;
+	DSV_TYPE(&fake_r) = DSVT_UNK;
+	dsv_copy_data(&fake_l, l);
+	dsv_copy_data(&fake_r, r);
+
+	for (int i = 0; i < 2; i++) {
+		struct data_state_val *cur_dsv, *fake_dsv;
+		if (!i) {
+			cur_dsv = l;
+			fake_dsv = &fake_l;
+		} else {
+			cur_dsv = r;
+			fake_dsv = &fake_r;
+		}
+
+		switch (DSV_TYPE(cur_dsv)) {
+		case DSVT_INT_CST:
+		case DSVT_REAL_CST:
+		{
+			break;
+		}
+		case DSVT_ADDR:
+		{
+			dsv_free_data(fake_dsv);
+			dsv_alloc_data(fake_dsv, DSVT_INT_CST, sizeof(void *));
+			void *ptr;
+			ptr = (void *)DSV_SEC2_VAL(cur_dsv)->ds;
+			ptr = (char *)ptr + DSV_SEC2_VAL(cur_dsv)->offset;
+			*(void **)DSV_SEC1_VAL(fake_dsv) = ptr;
+			break;
+		}
+		default:
+		{
+			si_log1_warn("should not happen, %d\n",
+					DSV_TYPE(cur_dsv));
+			err = -1;
+			goto out;
+		}
+		}
+	}
+
+	if (DSV_TYPE(&fake_l) != DSV_TYPE(&fake_r)) {
+		si_log1_todo("type of lhs and rhs are not the same\n");
+		return -1;
+	}
+
+	if (DSV_TYPE(&fake_l) != DSVT_INT_CST) {
+		/* TODO: DSVT_REAL_CST */
+		si_log1_todo("miss %d\n", DSV_TYPE(&fake_l));
+		return -1;
+	}
+
+	err = __dsv_compute(&fake_l, &fake_r, flag, extra_flag, retval);
+
+out:
+	dsv_free_data(&fake_l);
+	dsv_free_data(&fake_r);
+	return err;
 }

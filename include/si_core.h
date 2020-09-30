@@ -620,6 +620,10 @@ struct possible_list {
 	uint64_t		value;
 };
 
+#ifdef CONFIG_GUESS_DSV_RANDOM
+#define GUESS_DSV_RANDOM
+#endif
+
 enum data_state_ref_reg {
 	DSRT_REG_INVALID,
 
@@ -711,8 +715,8 @@ enum data_state_val_type {
 	DSVT_REF,	/* value stored in some other data_state */
 
 	/* section 3: data_state_val1 */
-	DSVT_ARRAY,
-	DSVT_COMPONENT,
+	/* DSVT_ARRAY, DSVT_COMPONENT, */
+	DSVT_CONSTRUCTOR,
 };
 
 enum data_state_val_compare_flag {
@@ -788,15 +792,15 @@ struct data_state_rw {
 /* for DSVT_ADDR and DSVT_REF */
 struct data_state_val_ref {
 	struct data_state_rw	*ds;
-	s32			offset;
+	s32			offset;	/* in bits */
 	u32			bits;
 };
 
 /* for DSVT_ARRAY and DSVT_COMPONENT */
 struct data_state_val1 {
 	struct slist_head	sibling;
-	s32			offset;		/* offset in data_state_rw */
-	u32			bits;		/* efficient bits in val1 */
+	s32			offset;	/* offset(in bits) in data_state_rw */
+	u32			bits;	/* efficient bits in val1 */
 	struct data_state_val	val;
 };
 
@@ -807,6 +811,15 @@ struct sample_state {
 
 	struct slist_head	arg_head;
 	struct data_state_rw	*retval;
+
+	struct {
+		struct cp_list		*start;	/* the pos to search at */
+
+		struct cp_list		*head;
+		struct cp_list		*tail;
+		struct data_state_val	lhs_val;
+		struct data_state_val	rhs_val;
+	} loop_info;
 };
 
 enum sample_set_flag {
@@ -819,6 +832,8 @@ enum sample_set_flag {
 	SAMPLE_SF_INFOLK,	/* info leak */
 	SAMPLE_SF_MEMLK,	/* memory leak */
 	SAMPLE_SF_DEADLK,	/* dead lock */
+	SAMPLE_SF_NULLREF,	/* NULL deref, maybe not inited well */
+	SAMPLE_SF_INFLOOP,	/* infinite loop */
 
 	SAMPLE_SF_MAX = 32,
 };
