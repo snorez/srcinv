@@ -121,11 +121,6 @@ CLIB_MODULE_CALL_FUNC(analysis, add_possible, void,
 		 unsigned long value),
 		3, vn, value_flag, value);
 
-CLIB_MODULE_CALL_FUNC(analysis, pick_related_func, void,
-		(struct sinode *first, struct func_node **fn_array,
-		 size_t array_cnt),
-		3, first, fn_array, array_cnt);
-
 CLIB_MODULE_CALL_FUNC0(analysis, sibuf_new, struct sibuf *);
 
 CLIB_MODULE_CALL_FUNC(analysis, sibuf_insert, void,
@@ -187,8 +182,8 @@ CLIB_MODULE_CALL_FUNC(analysis, resfile_get_fc, struct file_content *,
 CLIB_MODULE_CALL_FUNC0(analysis, mark_entry, int);
 
 CLIB_MODULE_CALL_FUNC(analysis, dec_next, int,
-		(struct sample_set *sset, int idx, struct func_node *fn),
-		3, sample, idx, fn);
+		(struct sample_set *sset, int idx),
+		2, sample, idx);
 
 CLIB_MODULE_CALL_FUNC(analysis, dec_special_call, int,
 		(struct sample_set *sset, int idx, struct fn_list *fnl,
@@ -237,6 +232,10 @@ CLIB_MODULE_CALL_FUNC(analysis, sample_state_check_loop, int,
 		 struct data_state_val *lhs_dsv, struct data_state_val *rhs_dsv,
 		 struct code_path *next_cp),
 		5, sset, idx, lhs_dsv, rhs_dsv, next_cp);
+
+CLIB_MODULE_CALL_FUNC(analysis, sample_set_select_entries, int,
+		(struct sample_set *sset),
+		1, sset);
 
 CLIB_MODULE_CALL_FUNC0(analysis, sys_bootup, int);
 

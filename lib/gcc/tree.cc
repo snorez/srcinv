@@ -51,19 +51,6 @@ const char *get_tree_code_name(enum tree_code code)
 	return tree_code_name[code];
 }
 
-int check_tree_code(tree n)
-{
-	if (!n)
-		return 0;
-
-	size_t len = sizeof(tree_code_name) / sizeof(tree_code_name[0]);
-	enum tree_code tc = TREE_CODE(n);
-	if (tc >= len)
-		return 1;
-	else
-		return 0;
-}
-
 tree get_base_address(tree t)
 {
 	while (handled_component_p(t))

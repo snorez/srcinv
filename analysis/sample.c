@@ -30,6 +30,8 @@ static const char *sample_set_flag_string[SAMPLE_SF_MAX] = {
 	"dead lock",
 	"NULL-deref(maybe not init well?)",
 	"infinite loop",
+
+	"dec*() mishandled data_states?",
 };
 
 const char *sample_set_flag_str(int nr)
@@ -94,10 +96,80 @@ int sample_can_run(struct sample_set *sset, int idx)
 	return 1;
 }
 
+static int sample_state_same(struct sample_state *state0,
+				struct sample_state *state1)
+{
+	size_t cnt0 = slist_count(&state0->cp_list_head);
+	size_t cnt1 = slist_count(&state1->cp_list_head);
+	if (cnt0 != cnt1)
+		return 0;
+
+	struct cp_list *tmp0, *tmp1;
+	for (int i = 0; i < (int)cnt0; i++) {
+		tmp0 = slist_entry(slist_idx_ele(&state0->cp_list_head, i),
+					struct cp_list, sibling);
+		tmp1 = slist_entry(slist_idx_ele(&state1->cp_list_head, i),
+					struct cp_list, sibling);
+		if (tmp0->cp != tmp1->cp)
+			return 0;
+	}
+
+	return 1;
+}
+
+static int sample_set_same(struct sample_set *saved, struct sample_set *_new)
+{
+	if (saved->count != _new->count)
+		return 0;
+
+	struct sample_state *tmp0, *tmp1;
+	int matched_idx[saved->count];
+	int matched_idx_i = 0;
+	memset(matched_idx, 0xff, sizeof(matched_idx[0]) * saved->count);
+
+	for (u32 i = 0; i < saved->count; i++) {
+		int matched = 0;
+		for (u32 j = 0; j < saved->count; j++) {
+			int ignore = 0;
+			for (u32 k = 0; k < matched_idx_i; k++) {
+				if (j == matched_idx[k]) {
+					ignore = 1;
+					break;
+				}
+			}
+			if (ignore)
+				continue;
+
+			tmp0 = saved->samples[i];
+			tmp1 = saved->samples[j];
+			matched = sample_state_same(tmp0, tmp1);
+			if (matched) {
+				matched_idx[matched_idx_i] = j;
+				matched_idx_i++;
+			}
+		}
+		if (!matched)
+			return 0;
+	}
+
+	return 1;
+}
+
 int sample_set_exists(struct sample_set *sset)
 {
-	si_log1_todo("not implemented yet\n");
-	return 0;
+	int ret = 0;
+	struct sample_set *tmp;
+
+	si_lock_r();
+	slist_for_each_entry(tmp, &si->sample_set_head, sibling) {
+		if (sample_set_same(tmp, sset)) {
+			ret = 1;
+			break;
+		}
+	}
+	si_unlock_r();
+
+	return ret;
 }
 
 int sample_set_stuck(struct sample_set *sset)
@@ -117,8 +189,7 @@ int sample_set_replay(struct sample_set *sset)
 
 int sample_set_validate(struct sample_set *sset)
 {
-	/* In case we guess some wrong value, take to the wrong code path */
-	si_log1_todo("not implemented yet\n");
+	/* TODO */
 	return 0;
 }
 
@@ -211,5 +282,11 @@ not_infinite:
 		slist_entry(slist_idx_ele(&sstate->cp_list_head, count - 1),
 				struct cp_list, sibling);
 	sample_state_cleanup_loopinfo(sstate);
+	return 0;
+}
+
+int sample_set_select_entries(struct sample_set *sset)
+{
+	si_log1_todo("not implemented yet\n");
 	return 0;
 }

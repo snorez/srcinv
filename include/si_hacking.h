@@ -32,12 +32,6 @@ enum hacking_flag {
 	HACKING_FLAG_OTHER,
 };
 
-struct hm_arg {
-	long			sid;
-	struct sample_set	*sset;
-	struct sample_state	*sstate;
-};
-
 /*
  * handle all hacking modules, fuzz type module are at last
  */
@@ -45,16 +39,17 @@ struct hacking_module {
 	struct slist_head	sibling;
 	char			*name;
 	enum hacking_flag	flag;
-	void			(*callback)(struct hm_arg *arg);
-	int			(*check_id)(unsigned long id);
+	void			(*doit)(struct sample_set *sset, int idx);
+	void			(*done)(struct sample_set *sset, int idx);
 };
 
-static inline struct hacking_module *hacking_module_find(struct slist_head *h,
-							 struct hacking_module *m)
+static inline
+struct hacking_module *hacking_module_find(struct slist_head *h,
+					   struct hacking_module *m)
 {
 	struct hacking_module *tmp;
 	slist_for_each_entry(tmp, h, sibling) {
-		if (tmp->callback == m->callback)
+		if (tmp->doit == m->doit)
 			return tmp;
 	}
 	return NULL;

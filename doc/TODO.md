@@ -1,6 +1,7 @@
 ### srcinv
 - documentation
 	- As of now, for 64bit little-endian systems only.
+	- gcc-9 only. gcc-8 compile failed.
 + performance optimization
 + why crash when `si_global_trees` defined in `compiler_gcc.cc`? It seems that
 the `si_global_trees` memory area overlaps with the thread stack.
@@ -23,7 +24,7 @@ the `si_global_trees` memory area overlaps with the thread stack.
 - sample_set_exists()		check if the current sample set exists.
 - sample_set_validate()		check if we choose the right branch to execute.
 - dec_special_call()		For linux kernel, handle kmalloc() kfree(), etc.
-- pick_related_func()
+- sample_set_select_entries()
 - build_sample_state_till()
 - sample_set_replay
 - handle REAL_TYPE, in analysis/data-state.c

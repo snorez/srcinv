@@ -19,6 +19,38 @@
 
 #include "si_core.h"
 
+static void mark_subcall_entry(struct func_node *fn, int call_level)
+{
+	int call_level_max = (1 << (sizeof(fn->call_depth) * BITS_PER_UNIT)) - 1;
+	if (call_level > call_level_max) {
+		si_log1_warn("call_level exceed %d\n", call_level_max);
+		return;
+	}
+
+	if ((fn->call_depth) && (fn->call_depth <= call_level))
+		return;
+
+	fn->call_depth = call_level;
+
+	struct id_list *tmp;
+	slist_for_each_entry(tmp, &fn->callees, sibling) {
+		struct sinode *sub_fsn;
+		if (tmp->value_flag)
+			continue;
+		union siid *this_id = (union siid *)&tmp->value;
+		sub_fsn = analysis__sinode_search(siid_type(this_id),
+						  SEARCH_BY_ID, this_id);
+		if (!sub_fsn)
+			continue;
+		if (!sub_fsn->data)
+			continue;
+		mark_subcall_entry((struct func_node *)sub_fsn->data,
+				   call_level+1);
+	}
+
+	return;
+}
+
 static int do_mark_entry(union siid *tid, char *string, int flag)
 {
 	int retval = 0;
@@ -41,14 +73,14 @@ static int do_mark_entry(union siid *tid, char *string, int flag)
 		if (strncmp(fn->name, string, strlen(string)))
 			break;
 		
-		test_and_set_bit(0, (long *)&fn->call_depth);
+		mark_subcall_entry(fn, 1);
 		break;
 	case 1:
 		/* all match */
 		if (strcmp(fn->name, string))
 			break;
 
-		test_and_set_bit(0, (long *)&fn->call_depth);
+		mark_subcall_entry(fn, 1);
 		break;
 	default:
 		err_dbg(0, "flag: %d not handled", flag);
@@ -59,6 +91,7 @@ static int do_mark_entry(union siid *tid, char *string, int flag)
 	return retval;
 }
 
+/* TODO: this is only for linux kernel, amd64 */
 static int mark_linux_kern_entry(void)
 {
 	int retval = 0;
@@ -71,45 +104,43 @@ static int mark_linux_kern_entry(void)
 
 	tid->id0.id_type = TYPE_FUNC_GLOBAL;
 	for (; func_id < si->id_idx[TYPE_FUNC_GLOBAL].id1; func_id++) {
-		do_mark_entry(tid, "__do_sys_", 0);
+		do_mark_entry(tid, "__x64_sys_", 0);
 	}
 
 	return retval;
 }
 
-static int mark_kern_entry(void)
+/* For projects we don't know its si_type */
+static int mark_unknown_entry(void)
 {
-	int retval = 0;
+	/* find all global functions with zero callers */
+	unsigned long _id = 0;
+	union siid *id = (union siid *)&_id;
 
-	switch (si->type.os_type) {
-	case SI_TYPE_OS_LINUX:
-		retval = mark_linux_kern_entry();
-		break;
-	default:
-		err_dbg(0, "SRC si_type.os_type not handled: %d",
-				si->type.os_type);
-		retval = -1;
-		break;
+	id->id0.id_type = TYPE_FUNC_GLOBAL;
+	for (; _id < si->id_idx[TYPE_FUNC_GLOBAL].id1; _id++) {
+		struct sinode *fsn;
+		struct func_node *fn;
+
+		fsn = analysis__sinode_search(siid_type(id), SEARCH_BY_ID, id);
+		if ((!fsn) || (!fsn->data))
+			continue;
+
+		fn = (struct func_node *)fsn->data;
+		if (!slist_empty(&fn->callers))
+			continue;
+
+		mark_subcall_entry(fn, 1);
 	}
 
-	return retval;
-}
-
-static int mark_user_entry(void)
-{
-	/* TODO */
-	err_dbg(0, "SRC SI_TYPE_USER not handled yet.");
 	return 0;
 }
 
 int mark_entry(void)
 {
-	if (si->type.kernel == SI_TYPE_KERN) {
-		return mark_kern_entry();
-	} else if (si->type.kernel == SI_TYPE_USER) {
-		return mark_user_entry();
+	if (src_is_linux_kernel()) {
+		return mark_linux_kern_entry();
 	} else {
-		err_dbg(0, "SRC si_type.kernel err: %d", si->type.kernel);
-		return -1;
+		return mark_unknown_entry();
 	}
 }

@@ -125,16 +125,3 @@ void show_gimple(gimple_seq gs)
 		}
 	}
 }
-
-int check_gimple_code(gimple_seq gs)
-{
-	if (!gs)
-		return 0;
-
-	enum gimple_code gc = gimple_code(gs);
-	size_t len = sizeof(gimple_code_name) / sizeof(gimple_code_name[0]);
-	if (gc >= len)
-		return 1;
-	else
-		return 0;
-}

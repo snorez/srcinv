@@ -170,6 +170,8 @@ static void output_func(struct sinode *sn)
 		fprintf(stdout, "Body:\n"
 				"\t%p\n", fn);
 	}
+
+	fprintf(stdout, "Call depth: %d\n", fn->call_depth);
 }
 
 static void output_used_at(struct slist_head *head, char *name)
@@ -316,7 +318,7 @@ static void output_type(struct sinode *sn)
 
 			unsigned long sz = 0;
 			if (vl->var.type)
-				sz = vl->var.type->ofsize * 8;
+				sz = vl->var.type->ofsize * BITS_PER_UNIT;
 
 			fprintf(stdout, "\t%ld\n", sz);
 		}

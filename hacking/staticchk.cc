@@ -22,202 +22,269 @@
 
 CLIB_MODULE_NAME(staticchk);
 CLIB_MODULE_NEEDED0();
-static char modname[] = "staticchk";
-static int cur_thread_cnt = 1;
-static char *request_submodname = NULL;
+static char modname0[] = "staticchk";
+static char modname1[] = "staticchk_quick";
 
-#define	SUB_MOD_MAX	64
-static struct hacking_module *submods[SUB_MOD_MAX];
-
-static void usage(void)
+static int staticchk_sample_set(struct sample_set *sset, char *modname)
 {
-	fprintf(stdout, "\t(thread cnt) (submodule) [funcid]\n"
-			"\tRun submodule for static checks.\n"
-			"\tsubmodule could be 'all' or any specific module.\n");
-}
-
-static int chk_func(struct sinode *fsn)
-{
-	struct func_node *fn;
-	fn = (struct func_node *)fsn->data;
-	if (!fn)
-		return 0;
-
+	int threads = (int)sset->count;
 	int err = 0;
-	struct sample_set *sset;
-	struct hm_arg arg;
-	struct func_node *fn_array[cur_thread_cnt];
-
-	sset = sample_set_alloc(1, cur_thread_cnt);
-	sset->id = src_get_sset_curid();
-	analysis__pick_related_func(fsn, fn_array, cur_thread_cnt);
-
-	/* XXX: init sample states */
-	for (int i = 0; i < cur_thread_cnt; i++) {
-		err = analysis__dec_next(sset, i, fn_array[i]);
-		if (err == -1) {
-			si_log2_todo("dec_next(%d) err\n", i);
-			goto out;
-		}
-	}
 
 	while (1) {
-		/* choose a sample to run */
-		int i = s_random() % cur_thread_cnt;
+		int i = s_random() % threads;
+		int done = 0;
+		struct hacking_module *tmp_mod;
 
 		if (analysis__sample_set_stuck(sset)) {
 			/* deadlock happens */
 			sample_set_set_flag(sset, SAMPLE_SF_DEADLK);
-			break;
+			goto check_saved;
 		}
 
 		if (!analysis__sample_can_run(sset, i))
 			continue;
 
-		err = analysis__dec_next(sset, i, fn_array[i]);
+		err = analysis__dec_next(sset, i);
 		if (err == -1) {
-			si_log2_todo("dec_next(%d) err\n", i);
+			si_log2_todo("analysis__dec_next(%d) err\n", i);
 			goto out;
 		}
 
-		/* Time to do the check */
-		arg.sid = sset->id;
-		arg.sset = sset;
-		arg.sstate = sset->samples[i];
-
-		for (int mod_i = 0; mod_i < SUB_MOD_MAX; mod_i++) {
-			if (!submods[mod_i])
-				break;
-			submods[mod_i]->callback(&arg);
+		done = sample_set_done(sset);
+		if (modname) {
+			slist_for_each_entry(tmp_mod, &hacking_module_head,
+						sibling) {
+				if (tmp_mod->flag != HACKING_FLAG_STATIC)
+					continue;
+				if ((strcmp(modname, "all")) &&
+					(strcmp(modname, tmp_mod->name)))
+					continue;
+				if (done && tmp_mod->done)
+					tmp_mod->done(sset, i);
+				else if ((!done) && tmp_mod->doit)
+					tmp_mod->doit(sset, i);
+			}
 		}
 
-		if ((!sample_set_zeroflag(sset)) || sample_set_done(sset))
+		if (done)
+			break;
+
+		if (!sample_set_zeroflag(sset))
 			break;
 	}
 
-	if ((!analysis__sample_set_exists(sset)) &&
+check_saved:
+	if (modname && (!analysis__sample_set_exists(sset)) &&
 		(!analysis__sample_set_validate(sset))) {
 		if (!sample_set_zeroflag(sset))
 			analysis__sample_set_dump(sset);
+		err = 1;
 		save_sample_set(sset);
 		src_set_sset_curid(sset->id+1);
 	}
 
 out:
-	sample_set_free(sset);
 	return err;
 }
 
-static void check_funcid_for_submods(unsigned long func_id)
+/*
+ * return value:
+ * 0: sample_set not saved
+ * 1: sample_set saved
+ */
+static int _do_staticchk(int threads, char *modname)
 {
-	int i = 0;
-	for (i = 0; i < SUB_MOD_MAX; i++) {
-		if (!submods[i])
-			break;
-		submods[i] = NULL;
-	}
+	struct sample_set *sset;
 
-	i = 0;
-	struct hacking_module *tmp;
-	slist_for_each_entry(tmp, &hacking_module_head, sibling) {
-		if (tmp->flag != HACKING_FLAG_STATIC)
-			continue;
-		if (request_submodname && strcmp(request_submodname, tmp->name))
-			continue;
-		if (tmp->check_id && (!tmp->check_id(func_id)))
-			continue;
-		if (!tmp->callback)
-			continue;
-		if (i >= SUB_MOD_MAX) {
-			fprintf(stderr, "submods exceeds SUB_MOD_MAX\n");
-			return;
-		}
-		submods[i] = tmp;
-		i++;
-	}
+	int err = 0;
+	sset = sample_set_alloc(1, threads);
+	sset->id = src_get_sset_curid();
+	sset->staticchk_mode = SAMPLE_SET_STATICCHK_MODE_FULL;
+
+	err = analysis__sample_set_select_entries(sset);
+	if (err == -1)
+		goto out;
+
+	err = staticchk_sample_set(sset, modname);
+
+out:
+	sample_set_free(sset);
+	return (err == 1) ? 1 : 0;
 }
 
-static void chk_funcid(unsigned long func_id)
+static void staticchk_usage(void)
 {
-	union siid *tid = (union siid *)&func_id;
-	struct sinode *fsn;
-
-	check_funcid_for_submods(func_id);
-	if (!submods[0])
-		return;
-
-	fsn = analysis__sinode_search(siid_type(tid), SEARCH_BY_ID, tid);
-	if (!fsn)
-		return;
-	fprintf(stdout, "checking %s ", fsn->name);
-	fflush(stdout);
-	si_log2("checking %s\n", fsn->name);
-	if (!chk_func(fsn)) {
-		fprintf(stdout, "done\n");
-		si_log2("checking %s done\n", fsn->name);
-	} else {
-		fprintf(stdout, "err\n");
-		si_log2("checking %s err\n", fsn->name);
-	}
-	fflush(stdout);
+	fprintf(stdout, "\t(thread cnt) (submodule) [how_many_sset]\n"
+			"\tRun submodule for static checks.\n"
+			"\tSubmodule could be 'all' or any specific module.\n"
+			"\tPlease run this using (thread cnt)=1 first.\n");
 }
 
-static long cb(int argc, char *argv[])
+/*
+ * @threads: how many threads(sample_states) for this sample_set.
+ * @modname: the target sub static module to run. NULL for all.
+ * @how_many_sset: count of sample_set to save. If 0, run forever.
+ *
+ * TODO:
+ * 	add a signal to stop the loop, till the next sample_set saved.
+ *
+ * ) generate a new sample_set, and sample_states.
+ * ) check saved sample_sets, select entries.
+ * 	) if all saved sample_sets are full-coverage tested, choose a new entry,
+ * 	and related entries.
+ * 	) if not, trigger the new branch for this sample_set.
+ * ) Once entries are selected, we are ready to go.
+ */
+static long staticchk_cb(int argc, char *argv[])
 {
 	if ((argc != 3) && (argc != 4)) {
-		usage();
+		staticchk_usage();
 		err_msg("argc invalid");
 		return -1;
 	}
 
-	cur_thread_cnt = atoi(argv[1]);
-	request_submodname = argv[2];
-
-	if (!cur_thread_cnt)
-		cur_thread_cnt = 1;
-
-	if (!strcmp(request_submodname, "all"))
-		request_submodname = NULL;
+	analysis__mark_entry();
 
 	si_log2("run staticchk\n");
 
-	unsigned long func_id = 0;
-	if (argc == 4) {
-		func_id = atol(argv[3]);
-		chk_funcid(func_id);
-	} else {
-		union siid *tid = (union siid *)&func_id;
+	int threads = atoi(argv[1]);
+	char *modname = argv[2];
+	size_t how_many_sset = 0;
+	if (argc == 4)
+		how_many_sset = atol(argv[3]);
 
-		tid->id0.id_type = TYPE_FUNC_GLOBAL;
-		for (; func_id < si->id_idx[TYPE_FUNC_GLOBAL].id1; func_id++)
-			chk_funcid(func_id);
+	int saved = 0;
+	size_t num_saved = 0;
+	while (1) {
+		saved = _do_staticchk(threads, modname);
+		if (saved)
+			num_saved++;
 
-		func_id = 0;
-		tid->id0.id_type = TYPE_FUNC_STATIC;
-		for (; func_id < si->id_idx[TYPE_FUNC_STATIC].id1; func_id++)
-			chk_funcid(func_id);
+		if (!how_many_sset)
+			continue;
+		else if (how_many_sset == num_saved)
+			break;
 	}
+
+	fprintf(stdout, "%ld sample_set(s) saved\n", num_saved);
 
 	si_log2("run staticchk done\n");
 
 	return 0;
 }
 
-CLIB_MODULE_INIT()
+static void staticchk_quick_single_func(unsigned long funcid)
 {
-	int err;
+	int err = 0;
+	int threads = 1;
+	int entry_count = 1;
+	struct sample_set *sset;
+	struct sinode **entries;
+	struct sinode *target_fsn;
+	union siid *id = (union siid *)&funcid;
 
-	err = clib_cmd_ac_add(modname, cb, usage);
-	if (err) {
-		err_msg("clib_cmd_ac_add err");
+	target_fsn = analysis__sinode_search(siid_type(id), SEARCH_BY_ID, id);
+	if (!target_fsn)
+		return;
+
+	sset = sample_set_alloc(1, threads);
+	entries = sample_state_entry_alloc(entry_count, 1);
+	sset->staticchk_mode = SAMPLE_SET_STATICCHK_MODE_QUICK;
+
+	entries[0] = target_fsn;
+	sset->samples[0]->entries = entries;
+	sset->samples[0]->entry_count = entry_count;
+
+	fprintf(stdout, "checking %s ", target_fsn->name);
+	fflush(stdout);
+	si_log2("checking %s\n", target_fsn->name);
+
+	err = staticchk_sample_set(sset, NULL);
+	(void)err;
+	sample_set_free(sset);
+
+	if (!err) {
+		fprintf(stdout, "done\n");
+		si_log2("checking %s done\n", target_fsn->name);
+	} else {
+		fprintf(stdout, "err\n");
+		si_log2("checking %s err\n", target_fsn->name);
+	}
+	fflush(stdout);
+
+	return;
+}
+
+static void staticchk_quick_usage(void)
+{
+	fprintf(stdout, "\t[funcid]\n"
+			"\trun staticchk(quick) for each/specific function\n");
+}
+
+static long staticchk_quick_cb(int argc, char *argv[])
+{
+	if ((argc != 1) && (argc != 2)) {
+		staticchk_quick_usage();
+		err_msg("argc invalid");
 		return -1;
 	}
+
+	analysis__mark_entry();
+
+	si_log2("run staticchk(quick mode)\n");
+
+	unsigned long funcid = 0;
+	if (argc == 2) {
+		funcid = atol(argv[1]);
+		staticchk_quick_single_func(funcid);
+	} else {
+		union siid *id = (union siid *)&funcid;
+
+		id->id0.id_type = TYPE_FUNC_GLOBAL;
+		for (; funcid < si->id_idx[TYPE_FUNC_GLOBAL].id1; funcid++)
+			staticchk_quick_single_func(funcid);
+
+		funcid = 0;
+		id->id0.id_type = TYPE_FUNC_STATIC;
+		for (; funcid < si->id_idx[TYPE_FUNC_STATIC].id1; funcid++)
+			staticchk_quick_single_func(funcid);
+	}
+
+	si_log2("run staticchk(quick mode) done\n");
 
 	return 0;
 }
 
+CLIB_MODULE_INIT()
+{
+	int err = 0;
+
+	err = clib_cmd_ac_add(modname0, staticchk_cb, staticchk_usage);
+	if (err) {
+		err_msg("clib_cmd_ac_add err");
+		err = -1;
+		goto out;
+	}
+
+	err = clib_cmd_ac_add(modname1, staticchk_quick_cb,
+				staticchk_quick_usage);
+	if (err) {
+		err_msg("clib_cmd_ac_add err");
+		err = -1;
+		goto del_0;
+	}
+
+	return err;
+
+del_0:
+	clib_cmd_ac_del(modname0);
+out:
+	return err;
+}
+
 CLIB_MODULE_EXIT()
 {
-	clib_cmd_ac_del(modname);
+	clib_cmd_ac_del(modname0);
+	clib_cmd_ac_del(modname1);
 	return;
 }

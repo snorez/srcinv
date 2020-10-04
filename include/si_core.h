@@ -38,6 +38,14 @@ DECL_BEGIN
  * structures and macros and variables declare
  * ************************************************************************
  */
+#ifndef BITS_PER_UNIT
+#ifndef CONFIG_BITS_PER_UNIT
+#define	BITS_PER_UNIT		8
+#else
+#define	BITS_PER_UNIT		(CONFIG_BITS_PER_UNIT)
+#endif
+#endif
+
 #ifndef CONFIG_ID_VALUE_BITS
 #define	ID_VALUE_BITS		28
 #else
@@ -532,14 +540,13 @@ struct func_node {
 	/* data state */
 	struct slist_head	data_state_list;
 
-	u64			call_depth;
-
 	/* the memory size of this function, useful in asm mode */
 	u32			size;
 
 	u16			cp_cnt;
-	u16			detailed: 1;
-	u16			padding: 15;
+	u8			call_depth;	/* 0: not set */
+	u8			detailed: 1;
+	u8			padding: 7;
 } __attribute__((packed));
 
 struct sibuf_typenode {
@@ -729,6 +736,26 @@ enum data_state_val_compare_flag {
 	DSV_COMP_F_LT,
 };
 
+enum dsv_flag_action {
+	DS_F_ACT_READ,
+	DS_F_ACT_WRITE,
+	DS_F_ACT_ALLOCATED,
+	DS_F_ACT_FREED,
+	DS_F_ACT_INCREF,
+	DS_F_ACT_DECREF,
+};
+
+struct dsv_flag {
+	atomic_t		refcount;
+
+	u8			allocated: 1;
+	u8			freed: 1;
+
+	/* first r/w on this data. write: set both, read: set used only. */
+	u8			init: 1;
+	u8			used: 1;
+};
+
 #define	DSV_SEC1_VAL(dsv)	((dsv)->value.v1)
 #define	DSV_SEC2_VAL(dsv)	((dsv)->value.v2)
 #define	DSV_SEC3_VAL(dsv)	(&((dsv)->value.v3))
@@ -753,25 +780,14 @@ struct data_state_val {
 
 	struct slist_head			trace_id_head;
 
+	struct dsv_flag				flag;
+
 	union {
 		struct {
 			u32			bytes;
 			u32			sign: 1;
 		} v1_info;
 	} info;
-};
-
-struct data_state_flag {
-	atomic_t		refcount;
-
-	u8			allocated: 1;
-
-	/* if this is set and refcount not 0, may be a uaf */
-	u8			freed: 1;
-
-	/* first r/w on this data. write: set both, read: set used only. */
-	u8			init: 1;
-	u8			used: 1;
 };
 
 /*
@@ -785,8 +801,6 @@ struct data_state_rw {
 	atomic_t		refcnt;
 
 	struct data_state_val	val;
-
-	struct data_state_flag	flag;
 };
 
 /* for DSVT_ADDR and DSVT_REF */
@@ -820,21 +834,33 @@ struct sample_state {
 		struct data_state_val	lhs_val;
 		struct data_state_val	rhs_val;
 	} loop_info;
+
+	struct sinode		**entries;
+	u8			entry_count;
+	s8			entry_curidx;
 };
 
 enum sample_set_flag {
+	SAMPLE_SF_OK = -1,
+
+	/* 0 - 3 */
 	SAMPLE_SF_UAF = 0,
 	SAMPLE_SF_NCHKRV,	/* ignore return value */
 	SAMPLE_SF_VOIDRV,	/* not ignore void return value */
 	SAMPLE_SF_UNINIT,	/* use uninitialized variables */
+
+	/* 4 - 7 */
 	SAMPLE_SF_OOBR,		/* out-of-bound read */
 	SAMPLE_SF_OOBW,		/* out-of-bound write */
 	SAMPLE_SF_INFOLK,	/* info leak */
 	SAMPLE_SF_MEMLK,	/* memory leak */
+
+	/* 8 - 11 */
 	SAMPLE_SF_DEADLK,	/* dead lock */
 	SAMPLE_SF_NULLREF,	/* NULL deref, maybe not inited well */
 	SAMPLE_SF_INFLOOP,	/* infinite loop */
 
+	SAMPLE_SF_DECERR = 31,	/* dec_*() mishandled the data states */
 	SAMPLE_SF_MAX = 32,
 };
 
@@ -842,14 +868,19 @@ enum sample_set_flag {
  * sample_set saved in struct src.
  * use the index in the list_head as the id of the sample set.
  */
+#define	SAMPLE_SET_STATICCHK_MODE_FULL		0
+#define	SAMPLE_SET_STATICCHK_MODE_QUICK		1
 struct sample_set {
 	struct slist_head	sibling;
 	struct slist_head	allocated_data_states;
 
 	u64			id;
-
-	u32			count;	
 	u32			flag;
+	u8			count;
+	u8			staticchk_mode: 1;	/* 0: full, 1: quick */
+	u8			reserved0: 7;
+	u8			reserved1;
+	u8			reserved2;
 
 	/* XXX: must be last field */
 	struct sample_state	*samples[0];

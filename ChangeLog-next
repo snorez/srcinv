@@ -1,3 +1,7 @@
+2020-10-04
+	* srcinv: USE BITS_PER_UNIT instead of 8
+	* srcinv: fix collect libraries errors
+
 2020-10-01
 	* srcinv: code for v1.0
 

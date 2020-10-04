@@ -26,15 +26,29 @@ CLIB_MODULE_NAME(uaf);
 CLIB_MODULE_NEEDED0();
 static struct hacking_module uaf;
 
-static void uaf_cb(struct hm_arg *arg)
+static void uaf_doit(struct sample_set *sset, int idx)
 {
+	return;
+}
+
+static void uaf_done(struct sample_set *sset, int idx)
+{
+	struct data_state_rw *tmp;
+	slist_for_each_entry(tmp, &sset->allocated_data_states, base.sibling) {
+		if (!tmp->val.flag.freed)
+			continue;
+		if (!atomic_read(&tmp->val.flag.refcount))
+			continue;
+		sample_set_set_flag(sset, SAMPLE_SF_UAF);
+	}
 	return;
 }
 
 CLIB_MODULE_INIT()
 {
 	uaf.flag = HACKING_FLAG_STATIC;
-	uaf.callback = uaf_cb;
+	uaf.doit = uaf_doit;
+	uaf.done = uaf_done;
 	uaf.name = this_module_name;
 	register_hacking_module(&uaf);
 	return 0;

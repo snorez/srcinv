@@ -976,9 +976,9 @@ void dsv_copy_data(struct data_state_val *dst, struct data_state_val *src)
 		size_t sz = src->info.v1_info.bytes;
 
 		dsv_alloc_data(dst, DSV_TYPE(src), sz);
-		clib_memcpy_bits(DSV_SEC1_VAL(dst), sz * 8,
+		clib_memcpy_bits(DSV_SEC1_VAL(dst), sz * BITS_PER_UNIT,
 				 DSV_SEC1_VAL(src),
-				 src->info.v1_info.bytes * 8);
+				 src->info.v1_info.bytes * BITS_PER_UNIT);
 		break;
 	}
 	case 2:
@@ -1344,7 +1344,30 @@ static inline struct sample_state *sample_state_alloc(int dyn)
 	INIT_SLIST_HEAD(&_new->fn_list_head);
 	INIT_SLIST_HEAD(&_new->cp_list_head);
 	INIT_SLIST_HEAD(&_new->arg_head);
+
+	_new->entry_curidx = -1;
 	return _new;
+}
+
+static inline struct sinode **sample_state_entry_alloc(u32 count, int use_malloc)
+{
+	struct sinode **_ret;
+	size_t total_len = count * sizeof(*_ret);
+
+	if (use_malloc) {
+		_ret = (struct sinode **)xmalloc(total_len);
+	} else {
+		_ret = (struct sinode **)src_buf_get(total_len);
+	}
+	memset(_ret, 0, total_len);
+
+	return _ret;
+}
+
+static inline void sample_state_entry_free(struct sample_state *sstate)
+{
+	free(sstate->entries);
+	sstate->entry_count = 0;
 }
 
 static inline void sample_empty_arg_head(struct sample_state *sample)
@@ -1390,6 +1413,8 @@ static inline void sample_state_free(struct sample_state *state)
 
 	sample_state_cleanup_loopinfo(state);
 
+	sample_state_entry_free(state);
+
 	free(state);
 }
 
@@ -1413,13 +1438,31 @@ struct cp_list *sample_add_new_cp(struct sample_state *sample,
 	return cpl;
 }
 
-static inline struct fn_list *sample_last_fnl(struct sample_state *sample)
+static inline
+struct fn_list *sample_state_last_fnl(struct sample_state *sstate)
 {
 	struct fn_list *fnl = NULL;
-	if (!slist_empty(&sample->fn_list_head))
-		fnl = slist_last_entry(&sample->fn_list_head,
+	if (!slist_empty(&sstate->fn_list_head))
+		fnl = slist_last_entry(&sstate->fn_list_head,
 					struct fn_list, sibling);
 	return fnl;
+}
+
+static inline
+struct sinode *sample_state_cur_entry(struct sample_state *sstate)
+{
+	if (sstate->entry_curidx == -1) {
+		sstate->entry_curidx = 0;
+		return sstate->entries[0];
+	}
+
+	if (!sample_state_last_fnl(sstate))
+		sstate->entry_curidx++;
+
+	if (sstate->entry_curidx == sstate->entry_count)
+		return NULL;
+	else
+		return sstate->entries[sstate->entry_curidx];
 }
 
 static inline
@@ -1437,6 +1480,136 @@ static inline struct cp_list *fnl_last_cpl(struct fn_list *fnl)
 	if (!slist_empty(&fnl->cp_list))
 		cpl = slist_last_entry(&fnl->cp_list, struct cp_list, sibling);
 	return cpl;
+}
+
+static inline 
+enum sample_set_flag check_dsv_flag(struct data_state_val *dsv, int action)
+{
+	enum sample_set_flag ret = SAMPLE_SF_OK;
+
+	switch (action) {
+	case DS_F_ACT_READ:
+	{
+		if (!dsv->flag.init) {
+			ret = SAMPLE_SF_UNINIT;
+			break;
+		}
+
+		if (dsv->flag.freed) {
+			ret = SAMPLE_SF_UAF;
+			break;
+		}
+
+		break;
+	}
+	case DS_F_ACT_WRITE:
+	{
+		if (dsv->flag.freed) {
+			ret = SAMPLE_SF_UAF;
+			break;
+		}
+
+		break;
+	}
+	case DS_F_ACT_ALLOCATED:
+	{
+		break;
+	}
+	case DS_F_ACT_FREED:
+	{
+		if (dsv->flag.freed) {
+			/* double free */
+			ret = SAMPLE_SF_UAF;
+			break;
+		}
+
+		break;
+	}
+	case DS_F_ACT_INCREF:
+	{
+		if (dsv->flag.freed) {
+			ret = SAMPLE_SF_UAF;
+			break;
+		}
+
+		break;
+	}
+	case DS_F_ACT_DECREF:
+	{
+		if (atomic_read(&dsv->flag.refcount) == 0) {
+			ret = SAMPLE_SF_DECERR;
+			break;
+		}
+
+		if ((dsv->flag.allocated) && (!dsv->flag.freed) &&
+			(atomic_read(&dsv->flag.refcount) == 1)) {
+			ret = SAMPLE_SF_MEMLK;
+			break;
+		}
+
+		break;
+	}
+	default:
+	{
+		BUG();
+	}
+	}
+
+	return ret;
+}
+
+static inline void set_dsv_flag(struct data_state_val *dsv, int action)
+{
+	switch (action) {
+	case DS_F_ACT_READ:
+	{
+		dsv->flag.used = 1;
+		break;
+	}
+	case DS_F_ACT_WRITE:
+	{
+		dsv->flag.init = 1;
+		dsv->flag.used = 1;
+		break;
+	}
+	case DS_F_ACT_ALLOCATED:
+	{
+		dsv->flag.allocated = 1;
+		break;
+	}
+	case DS_F_ACT_FREED:
+	{
+		dsv->flag.freed = 1;
+		break;
+	}
+	case DS_F_ACT_INCREF:
+	{
+		atomic_inc(&dsv->flag.refcount);
+		break;
+	}
+	case DS_F_ACT_DECREF:
+	{
+		atomic_dec(&dsv->flag.refcount);
+		break;
+	}
+	default:
+	{
+		BUG();
+	}
+	}
+}
+
+static inline
+enum sample_set_flag check_and_set_dsv_flag(struct data_state_val *dsv,
+					    int action)
+{
+	enum sample_set_flag ret;
+
+	ret = check_dsv_flag(dsv, action);
+	if (ret == SAMPLE_SF_OK)
+		set_dsv_flag(dsv, action);
+
+	return ret;
 }
 
 static inline struct sample_set *sample_set_alloc(int dyn, u64 count)
@@ -1483,6 +1656,13 @@ static inline void save_sample_state(struct sample_state *dst,
 		new_cpl = cp_list_new(0, tmp->cp);
 		slist_add_tail(&new_cpl->sibling, &dst->cp_list_head);
 	}
+
+	if (src->entry_count) {
+		dst->entries = sample_state_entry_alloc(src->entry_count, 0);
+		dst->entry_count = src->entry_count;
+		memcpy(dst->entries, src->entries,
+				dst->entry_count * sizeof(*dst->entries));
+	}
 }
 
 static inline void save_sample_set(struct sample_set *set)
@@ -1509,9 +1689,10 @@ static inline int sample_set_zeroflag(struct sample_set *sset)
 static inline int sample_set_done(struct sample_set *sset)
 {
 	for (u64 i = 0; i < sset->count; i++) {
-		struct fn_list *fnl;
-		fnl = sample_last_fnl(sset->samples[i]);
-		if (fnl)
+		struct sample_state *sstate = sset->samples[i];
+		struct sinode *sn;
+		sn = sample_state_cur_entry(sstate);
+		if (sn)
 			return 0;
 	}
 
@@ -1580,6 +1761,14 @@ static inline void src_set_sset_curid(u64 id)
 	si_lock_w();
 	si->sample_set_curid = id;
 	si_unlock_w();
+}
+
+static inline int src_is_linux_kernel(void)
+{
+	if ((si->type.os_type == SI_TYPE_OS_LINUX) &&
+		(si->type.kernel == SI_TYPE_KERN))
+		return 1;
+	return 0;
 }
 
 #include "defdefine.h"

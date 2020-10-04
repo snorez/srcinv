@@ -475,13 +475,13 @@ static inline tree si_gcc_global(const char *str, void *n, int idx)
 
 DECL_BEGIN
 
+#ifndef GCC_COLLECT
 C_SYM const char *const tree_code_name[];
 C_SYM const size_t gsstruct_code_size[];
+#endif
 C_SYM void show_gimple(gimple_seq);
 C_SYM tree si_private_lookup_attribute(const char *attr_name, size_t attr_len,
 					tree list);
-C_SYM int check_tree_code(tree n);
-C_SYM int check_gimple_code(gimple_seq gs);
 C_SYM const unsigned char si_lookup_constraint_array[];
 C_SYM histogram_value si_gimple_histogram_value(struct function *, gimple *);
 C_SYM tree si_build1(enum tree_code code, tree type, tree node);
@@ -531,6 +531,40 @@ void symtab_node::dump_table(FILE *f)
 {
 }
 #endif
+
+static inline int check_tree_code(tree n)
+{
+	if (!n)
+		return 0;
+
+#if 0
+	size_t len = sizeof(tree_code_name) / sizeof(tree_code_name[0]);
+	enum tree_code tc = TREE_CODE(n);
+	if (tc >= len)
+		return 1;
+	else
+		return 0;
+#else
+	return 0;
+#endif
+}
+
+static inline int check_gimple_code(gimple_seq gs)
+{
+	if (!gs)
+		return 0;
+
+#if 0
+	enum gimple_code gc = gimple_code(gs);
+	size_t len = sizeof(gimple_code_name) / sizeof(gimple_code_name[0]);
+	if (gc >= len)
+		return 1;
+	else
+		return 0;
+#else
+	return 0;
+#endif
+}
 
 static inline int check_file_type(tree node)
 {
@@ -1098,7 +1132,8 @@ static inline unsigned long get_field_offset(tree field)
 	unsigned long ret = 0;
 
 	if (DECL_FIELD_OFFSET(field)) {
-		ret += TREE_INT_CST_LOW(DECL_FIELD_OFFSET(field)) * 8;
+		ret += TREE_INT_CST_LOW(DECL_FIELD_OFFSET(field)) *
+			BITS_PER_UNIT;
 	}
 
 	if (DECL_FIELD_BIT_OFFSET(field)) {

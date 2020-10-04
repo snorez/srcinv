@@ -32,7 +32,124 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#define	GCC_COLLECT
 #include "si_gcc.h"
+
+#define DEFTREECODE(SYM, NAME, TYPE, LENGTH) TYPE,
+#define END_OF_BASE_TREE_CODES tcc_exceptional,
+const enum tree_code_class tree_code_type[] = {
+#include "all-tree.def"
+};
+#undef DEFTREECODE
+#undef END_OF_BASE_TREE_CODES
+
+#define DEFTREECODE(SYM, NAME, TYPE, LENGTH) LENGTH,
+#define END_OF_BASE_TREE_CODES 0,
+const unsigned char tree_code_length[] = {
+#include "all-tree.def"
+};
+#undef DEFTREECODE
+#undef END_OF_BASE_TREE_CODES
+
+#define DEFTREECODE(SYM, NAME, TYPE, LEN) NAME,
+#define END_OF_BASE_TREE_CODES "@dummy",
+static const char *const tree_code_name[] = {
+#include "all-tree.def"
+};
+#undef DEFTREECODE
+#undef END_OF_BASE_TREE_CODES
+
+#define DEFGSSTRUCT(SYM, STRUCT, HAS_TREE_OP) \
+	(HAS_TREE_OP ? sizeof (struct STRUCT) - sizeof (tree) : 0),
+EXPORTED_CONST size_t gimple_ops_offset_[] = {
+#include "gsstruct.def"
+};
+#undef DEFGSSTRUCT
+
+#define DEFGSSTRUCT(SYM, STRUCT, HAS_TREE_OP) sizeof (struct STRUCT),
+static const size_t gsstruct_code_size[] = {
+#include "gsstruct.def"
+};
+#undef DEFGSSTRUCT
+
+#define DEFGSCODE(SYM, NAME, GSSCODE)	NAME,
+const char *const gimple_code_name[] = {
+#include "gimple.def"
+};
+#undef DEFGSCODE
+
+#define DEFGSCODE(SYM, NAME, GSSCODE)	GSSCODE,
+EXPORTED_CONST enum gimple_statement_structure_enum gss_for_code_[] = {
+#include "gimple.def"
+};
+#undef DEFGSCODE
+
+#if __GNUC__ < 9
+#define DEFTREECODE(SYM, STRING, TYPE, NARGS)   			    \
+  (unsigned char)							    \
+  ((TYPE) == tcc_unary ? GIMPLE_UNARY_RHS				    \
+   : ((TYPE) == tcc_binary						    \
+      || (TYPE) == tcc_comparison) ? GIMPLE_BINARY_RHS   		    \
+   : ((TYPE) == tcc_constant						    \
+      || (TYPE) == tcc_declaration					    \
+      || (TYPE) == tcc_reference) ? GIMPLE_SINGLE_RHS			    \
+   : ((SYM) == TRUTH_AND_EXPR						    \
+      || (SYM) == TRUTH_OR_EXPR						    \
+      || (SYM) == TRUTH_XOR_EXPR) ? GIMPLE_BINARY_RHS			    \
+   : (SYM) == TRUTH_NOT_EXPR ? GIMPLE_UNARY_RHS				    \
+   : ((SYM) == COND_EXPR						    \
+      || (SYM) == WIDEN_MULT_PLUS_EXPR					    \
+      || (SYM) == WIDEN_MULT_MINUS_EXPR					    \
+      || (SYM) == DOT_PROD_EXPR						    \
+      || (SYM) == SAD_EXPR						    \
+      || (SYM) == REALIGN_LOAD_EXPR					    \
+      || (SYM) == VEC_COND_EXPR						    \
+      || (SYM) == VEC_PERM_EXPR                                             \
+      || (SYM) == BIT_INSERT_EXPR					    \
+      || (SYM) == FMA_EXPR) ? GIMPLE_TERNARY_RHS			    \
+   : ((SYM) == CONSTRUCTOR						    \
+      || (SYM) == OBJ_TYPE_REF						    \
+      || (SYM) == ASSERT_EXPR						    \
+      || (SYM) == ADDR_EXPR						    \
+      || (SYM) == WITH_SIZE_EXPR					    \
+      || (SYM) == SSA_NAME) ? GIMPLE_SINGLE_RHS				    \
+   : GIMPLE_INVALID_RHS),
+#else
+#define DEFTREECODE(SYM, STRING, TYPE, NARGS)   			    \
+  (unsigned char)							    \
+  ((TYPE) == tcc_unary ? GIMPLE_UNARY_RHS				    \
+   : ((TYPE) == tcc_binary						    \
+      || (TYPE) == tcc_comparison) ? GIMPLE_BINARY_RHS   		    \
+   : ((TYPE) == tcc_constant						    \
+      || (TYPE) == tcc_declaration					    \
+      || (TYPE) == tcc_reference) ? GIMPLE_SINGLE_RHS			    \
+   : ((SYM) == TRUTH_AND_EXPR						    \
+      || (SYM) == TRUTH_OR_EXPR						    \
+      || (SYM) == TRUTH_XOR_EXPR) ? GIMPLE_BINARY_RHS			    \
+   : (SYM) == TRUTH_NOT_EXPR ? GIMPLE_UNARY_RHS				    \
+   : ((SYM) == COND_EXPR						    \
+      || (SYM) == WIDEN_MULT_PLUS_EXPR					    \
+      || (SYM) == WIDEN_MULT_MINUS_EXPR					    \
+      || (SYM) == DOT_PROD_EXPR						    \
+      || (SYM) == SAD_EXPR						    \
+      || (SYM) == REALIGN_LOAD_EXPR					    \
+      || (SYM) == VEC_COND_EXPR						    \
+      || (SYM) == VEC_PERM_EXPR                                             \
+      || (SYM) == BIT_INSERT_EXPR) ? GIMPLE_TERNARY_RHS			    \
+   : ((SYM) == CONSTRUCTOR						    \
+      || (SYM) == OBJ_TYPE_REF						    \
+      || (SYM) == ASSERT_EXPR						    \
+      || (SYM) == ADDR_EXPR						    \
+      || (SYM) == WITH_SIZE_EXPR					    \
+      || (SYM) == SSA_NAME) ? GIMPLE_SINGLE_RHS				    \
+   : GIMPLE_INVALID_RHS),
+#endif
+#define END_OF_BASE_TREE_CODES (unsigned char) GIMPLE_INVALID_RHS,
+const unsigned char gimple_rhs_class_table[] = {
+#include "all-tree.def"
+};
+#undef DEFTREECODE
+#undef END_OF_BASE_TREE_CODES
 
 static struct plugin_info this_plugin_info = {
 	.version = "0.1",
