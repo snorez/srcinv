@@ -1,3 +1,8 @@
+2020-10-05
+	* analysis: fix a bug in parse 4. Some trees are not used in neither
+	phi_nodes nor seq.
+	* analysis: guess_ds_val() check SSA_NAMEs def_stmt.
+
 2020-10-04
 	* srcinv: USE BITS_PER_UNIT instead of 8
 	* srcinv: fix collect libraries errors

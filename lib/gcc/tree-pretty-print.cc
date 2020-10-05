@@ -137,8 +137,10 @@ int op_code_prio(enum tree_code code)
 	case VEC_UNPACK_LO_EXPR:
 	case VEC_UNPACK_FLOAT_HI_EXPR:
 	case VEC_UNPACK_FLOAT_LO_EXPR:
+#if __GNUC__ >= 9
 	case VEC_UNPACK_FIX_TRUNC_HI_EXPR:
 	case VEC_UNPACK_FIX_TRUNC_LO_EXPR:
+#endif
 	case VEC_PACK_TRUNC_EXPR:
 	case VEC_PACK_SAT_EXPR:
 		return 16;

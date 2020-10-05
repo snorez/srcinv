@@ -1462,6 +1462,36 @@ si_gimple_cond_false_p(const gcond *gs)
 	return false;
 }
 
+static inline
+bool gimple_in_func_stmts(struct func_node *fn, gimple_seq gs)
+{
+	if (!gs)
+		return 1;
+
+	tree fndecl = (tree)fn->node;
+	struct function *f = DECL_STRUCT_FUNCTION(fndecl);
+	basic_block bb;
+	FOR_EACH_BB_FN(bb, f) {
+		gimple_seq g;
+
+		g = bb->il.gimple.phi_nodes;
+		while (g) {
+			if (g == gs)
+				return 1;
+			g = g->next;
+		}
+
+		g = bb->il.gimple.seq;
+		while (g) {
+			if (g == gs)
+				return 1;
+			g = g->next;
+		}
+	}
+
+	return 0;
+}
+
 #define si_sch_test(c, bit) (si_sch_istable[(c) & 0xff] & (unsigned short)(bit))
 
 #define SI_ISALPHA(c)  si_sch_test(c, _sch_isalpha)

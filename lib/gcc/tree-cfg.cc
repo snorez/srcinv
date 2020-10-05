@@ -53,7 +53,11 @@ void extract_true_false_edges_from_block(basic_block b,
 	}
 }
 
+#if __GNUC__ == 8
+basic_block label_to_block_fn(struct function *ifun, tree dest)
+#elif __GNUC__ >= 9
 basic_block label_to_block(struct function *ifun, tree dest)
+#endif
 {
 	int uid = LABEL_DECL_UID(dest);
 
@@ -113,8 +117,13 @@ edge si_find_taken_edge_switch_expr(struct func_node *fn,
 		else
 			taken_case = find_case_label_for_value(switch_stmt,val);
 	}
+#if __GNUC__ == 8
+	dest_bb = label_to_block_fn(DECL_STRUCT_FUNCTION((tree)fn->node),
+				 CASE_LABEL(taken_case));
+#elif __GNUC__ >= 9
 	dest_bb = label_to_block(DECL_STRUCT_FUNCTION((tree)fn->node),
 				 CASE_LABEL(taken_case));
+#endif
 
 	e = find_edge(gimple_bb(switch_stmt), dest_bb);
 	BUG_ON(!e);
@@ -127,7 +136,11 @@ static edge si_find_taken_edge_computed_goto(struct func_node *fn,
 	basic_block dest;
 	edge e = NULL;
 
+#if __GNUC__ == 8
+	dest = label_to_block_fn(DECL_STRUCT_FUNCTION((tree)fn->node), val);
+#elif __GNUC__ >= 9
 	dest = label_to_block(DECL_STRUCT_FUNCTION((tree)fn->node), val);
+#endif
 	if (dest)
 		e = find_edge(bb, dest);
 

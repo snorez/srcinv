@@ -7252,6 +7252,9 @@ static void __4_mark_gimple(gimple_seq gs)
 
 	CLIB_DBG_FUNC_ENTER();
 
+	for (size_t i = 0; i < obj_cnt; i++)
+		phase4_obj_checked[i] = NULL;
+
 	tree *ops = gimple_ops(gs);
 	for (unsigned i = 0; i < gimple_num_ops(gs); i++) {
 		if (!ops[i])
@@ -7270,6 +7273,16 @@ static void __4_mark_gimple(gimple_seq gs)
 		 * in do_tree().
 		 */
 		do_tree(ops[i]);
+	}
+
+	/* need to handle GIMPLE_PHIs */
+	if (gc == GIMPLE_PHI) {
+		unsigned nargs = gimple_phi_num_args(gs);
+		for (unsigned i = 0; i < nargs; i++) {
+			tree def;
+			def = gimple_phi_arg_def(gs, i);
+			do_tree(def);
+		}
 	}
 
 	CLIB_DBG_FUNC_EXIT();
@@ -8619,6 +8632,8 @@ static struct data_state_rw *get_ds_via_constructor(struct sample_set *sset,
 	return ret;
 }
 
+static int do_dec(struct sample_set *sset, int idx, struct fn_list *fnl,
+		  gimple_seq gs);
 static int guess_ds_val(struct sample_set *sset, int idx, struct fn_list *fnl,
 			struct data_state_val *dsv, tree node)
 {
@@ -8628,7 +8643,15 @@ static int guess_ds_val(struct sample_set *sset, int idx, struct fn_list *fnl,
 	/*
 	 * FIXME: what if the node is CONSTRUCTOR, and the val is not set?
 	 * Is it right to check the type?
+	 * If node is SSA_NAME, and DSV_TYPE is DSVT_UNK, then the def_stmt
+	 * is not parsed yet.
 	 */
+	if (TREE_CODE(node) == SSA_NAME) {
+		if (!gimple_in_func_stmts(fnl->fn, SSA_NAME_DEF_STMT(node))) {
+			err = do_dec(sset, idx, fnl, SSA_NAME_DEF_STMT(node));
+			return err;
+		}
+	}
 
 	tree type = NULL;
 	if (TREE_CODE_CLASS(TREE_CODE(node)) == tcc_type)
@@ -10672,6 +10695,35 @@ static struct {
 	{GIMPLE_NOP,			NULL},
 };
 
+static int do_dec(struct sample_set *sset, int idx, struct fn_list *fnl,
+		  gimple_seq gs)
+{
+	int ret = 0;
+	enum gimple_code gc = gimple_code(gs);
+	struct func_node *fn = fnl->fn;
+	unsigned i = 0;
+	for (; i < (sizeof(dec_cbs) / sizeof(dec_cbs[0])); i++) {
+		if (gc != dec_cbs[i].gc)
+			continue;
+		if (dec_cbs[i].cb) {
+			ret = dec_cbs[i].cb(sset, idx, fnl, gs);
+		} else {
+			si_log1_todo("miss %s in %s at %p\n",
+					gimple_code_name[gc],
+					fnl->fn->name, gs);
+		}
+		break;
+	}
+
+	if (i == (sizeof(dec_cbs) / sizeof(dec_cbs[0]))) {
+		si_log1_todo("miss %s in %s at %p\n",
+				gimple_code_name[gc], fn->name, gs);
+		ret = -1;
+	}
+
+	return ret;
+}
+
 static int dec(struct sample_set *sset, int idx, struct func_node *start_fn)
 {
 	struct sample_state *sample = sset->samples[idx];
@@ -10681,7 +10733,6 @@ static int dec(struct sample_set *sset, int idx, struct func_node *start_fn)
 		if (fnl_init(sset, idx, fnl))
 			return -1;
 	}
-	struct func_node *fn = fnl->fn;
 
 	int ret = 0;
 	gimple_seq gs = (gimple_seq)fnl->curpos;
@@ -10698,27 +10749,8 @@ static int dec(struct sample_set *sset, int idx, struct func_node *start_fn)
 		si_log1_todo("curpos still NULL\n");
 		return -1;
 	}
-	enum gimple_code gc = gimple_code(gs);
 
-	unsigned i = 0;
-	for (; i < sizeof(dec_cbs) / sizeof(dec_cbs[0]); i++) {
-		if (gc != dec_cbs[i].gc)
-			continue;
-		if (dec_cbs[i].cb) {
-			ret = dec_cbs[i].cb(sset, idx, fnl, gs);
-		} else {
-			si_log1_todo("miss %s in %s at %p\n",
-					gimple_code_name[gc],
-					fnl->fn->name, gs);
-		}
-		break;
-	}
-
-	if (i == sizeof(dec_cbs) / sizeof(dec_cbs[0])) {
-		si_log1_todo("miss %s in %s at %p\n",
-				gimple_code_name[gc], fn->name, gs);
-		ret = -1;
-	}
+	ret = do_dec(sset, idx, fnl, gs);
 
 	return ret;
 }
