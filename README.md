@@ -9,6 +9,9 @@ Two branches: [master](https://github.com/hardenedlinux/srcinv/tree/master) and 
 # TODO
 [TODO list](https://github.com/hardenedlinux/srcinv/blob/dev/doc/TODO.md)
 
+# How TO Fix A Bug In SRCINV
+[How-to-fix-a-bug-in-srcinv.txt](https://github.com/hardenedlinux/srcinv/blob/dev/doc/How-to-fix-a-bug-in-srcinv.txt)
+
 ### Build srcinv
 Dependencies to build this project:
 +	libncurses

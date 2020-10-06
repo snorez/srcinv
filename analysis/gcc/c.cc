@@ -138,7 +138,8 @@ static inline void __get_real_addr(void **fake_addr, int *do_next, int reverse)
 	if (unlikely(reverse && (loop_limit > (MAX_OBJS_PER_FILE / 8)))) {
 		loop_limit = MAX_OBJS_PER_FILE / 8;
 		for (i = loop_limit; i < obj_cnt; i++) {
-			if (unlikely(fake_addrs[i] == *fake_addr)) {
+			if (unlikely((fake_addrs[i] == *fake_addr) &&
+					objs[i].real_addr)) {
 				*fake_addr = (void *)(unsigned long)
 						objs[i].real_addr;
 				if (!objs[i].is_adjusted)
@@ -148,9 +149,8 @@ static inline void __get_real_addr(void **fake_addr, int *do_next, int reverse)
 		}
 	}
 	for (i = 0; i < loop_limit; i++) {
-		if (unlikely(fake_addrs[i] == *fake_addr)) {
-			*fake_addr = (void *)(unsigned long)
-					objs[i].real_addr;
+		if (unlikely((fake_addrs[i] == *fake_addr) && objs[i].real_addr)) {
+			*fake_addr = (void *)(unsigned long)objs[i].real_addr;
 			if (!objs[i].is_adjusted)
 				*do_next = 1;
 			return;
@@ -8296,6 +8296,9 @@ static int c_parse(struct sibuf *buf, int parse_mode)
 
 		void *raddrs[obj_cnt];
 		void *faddrs[obj_cnt];
+		/* add an extra check on the obj_cnt */
+		BUG_ON((obj_cnt * sizeof(raddrs[0]) * 2) >= THREAD_STACKSZ);
+
 		for (size_t i = 0; i < obj_cnt; i++) {
 			objs[i].is_adjusted = 0;
 			/* XXX: fixup the gcc global vars real_addr */

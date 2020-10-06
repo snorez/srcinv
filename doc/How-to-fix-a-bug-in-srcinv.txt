@@ -1,0 +1,137 @@
+How to fix a bug in srcinv?
+This is a working journal for testing centos kernel 4.18.0-193.
+GCC version is 8.4.0(analysis side), 8.3.1(collect side).
+
+
+
+1) parse phase 1: adjust pointers.
+
+1.1)
+Crash report message:
+	0x7fffd6ffe700 net/core/dev.c (99%)
+	0x7fffd6ffe700 net/core/dev.c (100%)
+	0x7fff92ffe700 net/ipv4/icmp.c (0%)
+	0x7fff93fff700 lib/stackdepot.c (0%)
+	0x7fffdeddd700 kernel/time/timekeeping.c (0%)
+	0x7fffddddc700 lib/asn1_decoder.c (0%)
+	0x7fffd7fff700 lib/oid_registry.c (0%)
+	0x7fffd6ffe700 lib/ucs2_string.c (0%)
+	0x7fffd5ffd700 kernel/time/ntp.c (0%)
+	0x7fffc3fff700 lib/ubsan.c (0%)
+	0x7fffc2ffe700 kernel/time/clocksource.c (0%)
+	0x7fffc1ffd700 drivers/base/property.c (0%)
+	0x7fffb3fff700 kernel/time/jiffies.c (0%)
+	0x7fffb2ffe700 lib/sbitmap.c (0%)
+	0x7fffb1ffd700 net/netlink/genetlink.c (0%)
+	0x7fffa3fff700 lib/argv_split.c (0%)
+	0x7fffa2ffe700 kernel/time/timer_list.c (0%)
+	0x7fffa1ffd700 lib/bug.c (0%)
+	PHASE1 processed(1461) total(2277)
+	PHASE1 processed(1461) total(2277)
+	0x7fff92ffe700 net/ipv4/icmp.c (16%)
+	0x7fff93fff700 lib/stackdepot.c (0%)
+	0x7fffdeddd700 kernel/time/timekeeping.c (21%)
+	0x7fffddddc700 lib/asn1_decoder.c (44%)
+	PHASE1 processed(1461) total(2277)
+	0x7fffd7fff700 lib/oid_registry.c (57%)
+	0x7fffd6ffe700 lib/ucs2_string.c (62%)
+	0x7fffd5ffd700 kernel/time/ntp.c (29%)
+	0x7fffc3fff700 lib/ubsan.c (55%)
+	0x7fffc2ffe700 kernel/time/clocksource.c (32%)
+	0x7fffc1ffd700 drivers/base/property.c (15%)
+	0x7fffb3fff700 kernel/time/jiffies.c (42%)
+	0x7fffb2ffe700 lib/sbitmap.c (26%)
+	0x7fffb1ffd700 net/netlink/genetlink.c (13%)
+	0x7fffa3fff700 lib/argv_split.c (40%)
+	0x7fffa2ffe700 kernel/time/timer_list.c (25%)
+	0x7fffa1ffd700 lib/bug.c (35%)
+	*** stack smashing detected ***: terminated
+	Aborted (core dumped)
+
+Handle the crash:
+	Stack smashing. We may have exceed the recursion limit.
+
+	*) Find the resources we need to reproduce the crash.
+	Use getoffs command in analysis to get the 1460th and 1492th file offsets.
+	Use cp-file to copy the 32 files' contents, save to subresfile.0/subresfile.
+	Analysis the subresfile:
+		<1> analysis> parse subresfile 1 1
+		[done] take a preview of the resfile
+		PHASE1 processed(0) total(32)
+		0x7fffdeddd700 net/netlink/af_netlink.c (0%)
+		0x7fffddddc700 net/ipv4/icmp.c (0%)
+		0x7fffd7fff700 lib/stackdepot.c (0%)
+		0x7fffd6ffe700 kernel/time/timekeeping.c (0%)
+		0x7fffcbfff700 lib/oid_registry.c (0%)
+		0x7fffc3fff700 lib/ubsan.c (0%)
+		0x7fffcaffe700 lib/ucs2_string.c (0%)
+		0x7fffd5ffd700 lib/asn1_decoder.c (0%)
+		0x7fffc9ffd700 kernel/time/ntp.c (0%)
+		0x7fffc2ffe700 kernel/time/clocksource.c (0%)
+		0x7fffbaffe700 lib/sbitmap.c (0%)
+		0x7fffbbfff700 kernel/time/jiffies.c (0%)
+		0x7fffb2ffe700 kernel/time/timer_list.c (0%)
+		0x7fffb9ffd700 net/netlink/genetlink.c (0%)
+		0x7fffc1ffd700 drivers/base/property.c (0%)
+		0x7fffb3fff700 lib/argv_split.c (0%)
+		PHASE1 processed(0) total(32)
+		PHASE1 processed(0) total(32)
+		PHASE1 processed(0) total(32)
+		0x7fffdeddd700 net/netlink/af_netlink.c (8%)
+		0x7fffddddc700 net/ipv4/icmp.c (11%)
+		0x7fffd7fff700 lib/stackdepot.c (0%)
+		0x7fffd6ffe700 kernel/time/timekeeping.c (16%)
+		0x7fffcbfff700 lib/oid_registry.c (39%)
+		0x7fffc3fff700 lib/ubsan.c (45%)
+		0x7fffcaffe700 lib/ucs2_string.c (41%)
+		0x7fffd5ffd700 lib/asn1_decoder.c (38%)
+		0x7fffc9ffd700 kernel/time/ntp.c (21%)
+		0x7fffc2ffe700 kernel/time/clocksource.c (26%)
+		0x7fffbaffe700 lib/sbitmap.c (23%)
+		0x7fffbbfff700 kernel/time/jiffies.c (39%)
+		0x7fffb2ffe700 kernel/time/timer_list.c (24%)
+		0x7fffb9ffd700 net/netlink/genetlink.c (11%)
+		0x7fffc1ffd700 drivers/base/property.c (11%)
+		0x7fffb3fff700 lib/argv_split.c (40%)
+		*** stack smashing detected ***: terminated
+		Aborted (core dumped)
+	Okay, we found the resources.
+
+	*) Rebuild srcinv, modify SELF_CFLAGS_N to 0 and ANALYSIS_THREAD_N to 1.
+
+	*) Restore subresfile, then gdb ./si_core, enjoy a cup of coffee, we may
+	get this:
+		0x7fffdeda2700 lib/stackdepot.c (0%)
+		[Switching to Thread 0x7fffdeda2700 (LWP 132748)]
+
+		Thread 4 "si_core" hit Catchpoint 1 (signal SIGSEGV), 0x00007fffdf9e7274 in c_parse (buf=0x100000280, parse_mode=1) at c.cc:8298
+		8298			void *faddrs[obj_cnt];
+		(gdb) p faddrs
+		value requires 9150384 bytes, which is more than max-value-size
+		(gdb) p obj_cnt
+		$1 = 1143798
+	The obj_cnt seems to be too large(18M). The thread stack size we set is
+	16M or CONFIG_THREAD_STACKSZ.
+
+	*) Fix the crash.
+	Reset CONFIG_THREAD_STACKSZ, increasing the THREAD_STACKSZ should work.
+	Beside, add an extra check against the obj_cnt.
+	Recompile srcinv, analysis subresfile again.
+
+1.2)
+A new bug:
+	BUG_ON(obj_adjusted != obj_cnt);
+	There are some objs not adjusted yet, in lib/stackdepot.c.
+
+How to fix it?
+	We know the bug is during parsing lib/stackdepot.c.
+	Modify analysis/gcc/c.cc or gdb ./si_core, find out the objs not adjusted.
+	Still have no idea.
+	Use cmdline in analysis to get the compile command.
+	Recompile lib/stackdepot.c, gdb /usr/bin/gcc, set follow-fork-mode child,
+		b ast_collect. Check the backtrace when the first not-adjusted obj
+		writen into buffer.
+	Looks like the tree_int_cst does have a type node. However, the analysis
+		set it NULL.
+	So, the issue is in __get_real_addr. We need to check the real_addr field
+		if found a match.

@@ -32,6 +32,19 @@ DECL_BEGIN
 #define	STEP6			MODE_GETINDCFG2
 #define	STEPMAX			MODE_MAX
 
+/* XXX: use multiple threads to parse the file, core*3 */
+#ifndef CONFIG_ANALYSIS_THREAD
+#define	THREAD_CNT	0x18
+#else
+#define THREAD_CNT	(CONFIG_ANALYSIS_THREAD)
+#endif
+
+#ifndef CONFIG_THREAD_STACKSZ
+#define	THREAD_STACKSZ	(1024*1024*0x10)
+#else
+#define	THREAD_STACKSZ	(CONFIG_THREAD_STACKSZ)
+#endif
+
 C_SYM struct slist_head analysis_lang_ops_head;
 C_SYM lock_t getbase_lock;
 

@@ -1,7 +1,6 @@
 ### srcinv
 - documentation
 	- As of now, for 64bit little-endian systems only.
-	- gcc-9 only. gcc-8 compile failed.
 + performance optimization
 + why crash when `si_global_trees` defined in `compiler_gcc.cc`? It seems that
 the `si_global_trees` memory area overlaps with the thread stack.

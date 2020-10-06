@@ -1,7 +1,15 @@
+2020-10-06
+	* analysis: increase THREAD_STACKSZ in case some files' obj_cnt too
+	large.
+	* analysis: add an extra check against the file's obj_cnt.
+	* analysis/gcc/c.cc: fix a bug in __get_real_addr when the obj_cnt is
+	larger than (MAX_OBJS_PER_FILE / 8).
+
 2020-10-05
 	* analysis: fix a bug in parse 4. Some trees are not used in neither
 	phi_nodes nor seq.
 	* analysis: guess_ds_val() check SSA_NAMEs def_stmt.
+	* srcinv: fix gcc-8 compile errors
 
 2020-10-04
 	* srcinv: USE BITS_PER_UNIT instead of 8
