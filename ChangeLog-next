@@ -1,3 +1,13 @@
+2020-10-09
+	* analysis/gcc/c.cc: copy the current file path out to thread stack.
+	* srcinv: remove packed attribute.
+
+2020-10-07
+	* analysis/gcc/c.cc: check no_sanitize attribute.
+	* analysis/gcc/c.cc: rewrite do_struct/union_init().
+	* analysis/gcc/c.cc: is_same_field() check DECL_CONTEXT first if
+	macro_expanded is true.
+
 2020-10-06
 	* analysis: increase THREAD_STACKSZ in case some files' obj_cnt too
 	large.

@@ -142,7 +142,7 @@ struct file_content {
 
 	/* must be the last field */
 	char			path[PATH_MAX];
-} __attribute__((packed));
+};
 
 /*
  * this is for copy information from one process(comiling) to another
@@ -155,6 +155,8 @@ struct file_obj {
 	/* offs of the first obj(payload), must be uint32_t */
 	uint32_t		offs;
 
+	uint16_t		gcc_global_varidx;	/* 2*8 = 16 bits */
+
 	/* set in collect/ modules */
 	uint8_t			is_function	: 1;
 	uint8_t			is_global_var	: 1;
@@ -164,9 +166,7 @@ struct file_obj {
 	uint8_t			is_dropped	: 1;
 	uint8_t			is_replaced	: 1;
 	uint16_t		reserved	: 10;
-
-	uint16_t		gcc_global_varidx;	/* 2*8 = 16 bits */
-} __attribute__((packed));
+};
 
 /* this buf is not expandable, maxium size and start address not changeable */
 #ifndef CONFIG_SRC_BUF_START
@@ -289,7 +289,7 @@ struct src {
 
 	/* 
 	 * uint32_t		is_kernel: 1;
-	 * uint32_t		padding: 31;
+	 * uint32_t		reserved: 31;
 	 *
 	 * add type for src, actually, we only concern the KERN & OS
 	 */
@@ -336,7 +336,6 @@ struct si_module {
 struct resfile {
 	struct slist_head	sibling;
 
-	int			fd;
 	/* resfile length */
 	size_t			filelen;
 	/* read file_offs >= buf_offs */
@@ -350,9 +349,13 @@ struct resfile {
 
 	uint64_t		total_files;
 	atomic_t		parsed_files[FC_STATUS_MAX];
-	/* true for the core, for kernel, this is the vmlinux */
+
+	int			fd;
+
+	/* for kernel, this is the vmlinux */
 	uint8_t			built_in: 1;
 	uint8_t			reserved: 7;
+
 	/* the collect/x.so arg-x-output file */
 	char			path[0];
 };
@@ -365,7 +368,6 @@ struct sibuf {
 	struct resfile		*rf;
 
 	rwlock_t		lock;
-	uint32_t		total_len;
 
 	/* aligned PAGE_SIZE */
 	uint64_t		load_addr;
@@ -382,10 +384,12 @@ struct sibuf {
 	/* For some special global variables. CNT is handled by mod itself */
 	void			*globals;
 
+	uint32_t		total_len;
+
 	/* unload if true, reduce memory usage */
 	u8			need_unload: 1;
 	u8			status: 4;
-} __attribute__((packed));
+};
 
 #define	SEARCH_BY_ID		0
 #define	SEARCH_BY_SPEC		1
@@ -427,10 +431,11 @@ struct sinode {
 
 	char			*data;
 	size_t			datalen;
+
 	/* we need to know which module this sinode is from */
 	int8_t			weak_flag: 1;
 	int8_t			reserved: 7;
-} __attribute__((packed));
+};
 
 struct name_list {
 	struct rb_node		node;
@@ -472,7 +477,7 @@ struct type_node {
 	uint16_t		is_variant: 1;
 	uint16_t		is_set: 1;
 	uint16_t		reserved: 13;
-} __attribute__((packed));
+};
 
 struct varnode_lft;
 struct var_node {
@@ -489,12 +494,12 @@ struct var_node {
 
 	struct varnode_lft	*vn_lft;
 
-	uint32_t		detailed: 1;
-	uint32_t		padding: 31;
-
 	/* the memory size of this var */
 	uint32_t		size;
-} __attribute__((packed));
+
+	uint32_t		detailed: 1;
+	uint32_t		reserved: 31;
+};
 
 struct code_path {
 	struct func_node	*func;
@@ -514,7 +519,7 @@ struct code_path {
 	uint64_t		branches;
 	/* MUST be last field. [0] false path; [1] true path. */
 	struct code_path	*next[2];	/* label jump to */
-} __attribute__((packed));
+};
 
 /* for TYPE_FUNC */
 #define	LABEL_MAX		(2048+1024)
@@ -546,8 +551,8 @@ struct func_node {
 	u16			cp_cnt;
 	u8			call_depth;	/* 0: not set */
 	u8			detailed: 1;
-	u8			padding: 7;
-} __attribute__((packed));
+	u8			reserved: 7;
+};
 
 struct sibuf_typenode {
 	struct rb_node		tc_node;
@@ -556,7 +561,7 @@ struct sibuf_typenode {
 		struct rb_node	same_tc_node;
 	} same_tc_rbtree;
 	struct type_node	type;
-} __attribute__((aligned(4))); /* fix -Wpacked-not-aligned warning in gcc-8 */
+};
 #define	same_tc_root	same_tc_rbtree.same_tc_root
 #define	same_tc_node	same_tc_rbtree.same_tc_node
 
@@ -566,12 +571,12 @@ struct id_list {
 	uint64_t		value;
 	/* 0 for siid, 1 for tree node */
 	uint64_t		value_flag;
-} __attribute__((packed));
+};
 
 struct var_list {
 	struct slist_head	sibling;
 	struct var_node		var;
-} __attribute__((packed));
+};
 
 struct callf_list {
 	struct slist_head	sibling;
@@ -582,13 +587,13 @@ struct callf_list {
 	/* for callee, check whether the function has a body or not */
 	struct slist_head	stmts;
 	uint64_t		body_missing: 1;
-} __attribute__((packed));
+};
 
 struct callf_stmt_list {
 	struct slist_head	sibling;
 	void			*where;
 	int8_t			type;
-} __attribute__((packed));
+};
 
 struct use_at_list {
 	struct slist_head	sibling;
@@ -596,7 +601,7 @@ struct use_at_list {
 	void			*where;
 	uint64_t		extra_info;
 	int8_t			type;		/* may not need this field */
-} __attribute__((packed));
+};
 
 struct cp_list {
 	struct slist_head	sibling;
@@ -776,7 +781,7 @@ struct data_state_val {
 	/* Make sure all data_state nodes have @raw set. */
 	u64					raw: 48;
 	u64					type: 8;
-	u64					padding: 8;
+	u64					reserved: 8;
 
 	struct slist_head			trace_id_head;
 

@@ -12,6 +12,7 @@
  *	PHASE3: is there any race condition?
  *
  * TODO:
+ *	rewrite, get_target_field0(), use TERE_CHAIN()
  *	todos and si_log1_todo
  *	TREE_INT_CST_LOW may not be enough to represent the INT_CST
  *	ARRAY_REF size is quite different. array_ref_element_size().
@@ -6121,9 +6122,7 @@ static int is_type_from_expand_macro(struct type_node *tn)
 		xloc_e = (expanded_location *)(b2->payload +
 						DECL_SOURCE_LOCATION(field_e));
 
-		if ((!strcmp(xloc_b->file, xloc_e->file)) &&
-			(xloc_b->line == xloc_e->line) &&
-			(xloc_b->column == xloc_e->column)) {
+		if (same_location(xloc_b, xloc_e)) {
 			CLIB_DBG_FUNC_EXIT();
 			return 1;
 		}
@@ -6155,14 +6154,12 @@ static int is_same_field(tree field0, tree field1, int macro_expanded)
 		xloc2 = (expanded_location *)(b2->payload +
 						DECL_SOURCE_LOCATION(field1));
 
-		if (!((!strcmp(xloc1->file, xloc2->file)) &&
-			(xloc1->line == xloc2->line) &&
-			(xloc1->column == xloc2->column))) {
-			CLIB_DBG_FUNC_EXIT();
-			return 0;
-		} else {
+		if (same_location(xloc1, xloc2)) {
 			CLIB_DBG_FUNC_EXIT();
 			return 1;
+		} else {
+			CLIB_DBG_FUNC_EXIT();
+			return 0;
 		}
 	} else {
 		/* FIXME */
@@ -6182,6 +6179,29 @@ static int is_same_field(tree field0, tree field1, int macro_expanded)
 		}
 		if ((!tname0) && (!tname1)) {
 			struct type_node *tn0, *tn1;
+
+			/* UPDATE: check the DECL_CONTEXT first */
+			if (DECL_CONTEXT(field0) && DECL_CONTEXT(field1)) {
+				tree type0 = DECL_CONTEXT(field0);
+				tree type1 = DECL_CONTEXT(field1);
+				tn0 = find_type_node(type0);
+				tn1 = find_type_node(type1);
+				if (tn0 == tn1) {
+					int _idx0 = field_idx(TYPE_FIELDS(type0),
+								field0);
+					int _idx1 = field_idx(TYPE_FIELDS(type1),
+								field1);
+					unsigned long offs0, offs1;
+					offs0 = get_field_offset(field0);
+					offs1 = get_field_offset(field1);
+					/* FIXME: dont think this is right!!! */
+					if ((_idx0 == _idx1) || (offs0 == offs1)) {
+						CLIB_DBG_FUNC_EXIT();
+						return 1;
+					}
+				}
+			}
+
 			tn0 = find_type_node(TREE_TYPE(field0));
 			tn1 = find_type_node(TREE_TYPE(field1));
 			if (tn0 != tn1) {
@@ -6228,30 +6248,74 @@ static int is_same_field(tree field0, tree field1, int macro_expanded)
 }
 
 static struct var_list *get_target_field0(struct type_node *tn, tree field);
+/* same as get_ds_val_via_constructor() */
+static void __do_constructor_init(struct type_node *tn, tree init_tree)
+{
+	vec<constructor_elt, va_gc> *init_elts;
+	init_elts=(vec<constructor_elt, va_gc> *)(CONSTRUCTOR_ELTS(init_tree));
+
+	/* XXX, some structures may have NULL init elements */
+	if (!init_elts)
+		return;
+
+#if 0
+	unsigned long length = init_elts->vecpfx.m_num;
+	struct constructor_elt *addr = &init_elts->vecdata[0];
+
+	for (unsigned long i = 0; i < length; i++) {
+		if (addr[i].index) {
+			BUG_ON(TREE_CODE(addr[i].index) != FIELD_DECL);
+			struct var_list *vnl;
+			vnl = get_target_field0(tn, (tree)addr[i].index);
+			do_init_value(&vnl->var, addr[i].value);
+		} else
+	}
+#endif
+
+	tree type = TREE_TYPE(init_tree);
+	switch (TREE_CODE(type)) {
+	case RECORD_TYPE:
+	case UNION_TYPE:
+	{
+		tree field = NULL_TREE;
+		unsigned HOST_WIDE_INT cnt;
+		constructor_elt *ce;
+
+		if (TREE_CODE(type) == RECORD_TYPE)
+			field = TYPE_FIELDS(type);
+
+		FOR_EACH_VEC_SAFE_ELT(CONSTRUCTOR_ELTS(init_tree), cnt, ce) {
+			tree val = ce->value;
+
+			if (ce->index != 0)
+				field = ce->index;
+
+			struct var_list *vnl;
+			vnl = get_target_field0(tn, (tree)field);
+			do_init_value(&vnl->var, val);
+
+			field = DECL_CHAIN(field);
+		}
+
+		break;
+	}
+	default:
+	{
+		si_log1_todo("miss %s\n", tree_code_name[TREE_CODE(type)]);
+		break;
+	}
+	}
+
+	return;
+}
+
 static void do_struct_init(struct type_node *tn, tree init_tree)
 {
 	CLIB_DBG_FUNC_ENTER();
 
 	BUG_ON(tn->type_code != RECORD_TYPE);
 
-	vec<constructor_elt, va_gc> *init_elts;
-	init_elts=(vec<constructor_elt, va_gc> *)(CONSTRUCTOR_ELTS(init_tree));
-
-	/* XXX, some structures may have NULL init elements */
-	if (!init_elts) {
-		CLIB_DBG_FUNC_EXIT();
-		return;
-	}
-
-	unsigned long length = init_elts->vecpfx.m_num;
-	struct constructor_elt *addr = &init_elts->vecdata[0];
-
-	for (unsigned long i = 0; i < length; i++) {
-		BUG_ON(TREE_CODE(addr[i].index) != FIELD_DECL);
-		struct var_list *vnl;
-		vnl = get_target_field0(tn, (tree)addr[i].index);
-		do_init_value(&vnl->var, addr[i].value);
-	}
+	__do_constructor_init(tn, init_tree);
 
 	CLIB_DBG_FUNC_EXIT();
 	return;
@@ -6263,23 +6327,7 @@ static void do_union_init(struct type_node *tn, tree init_tree)
 
 	BUG_ON(tn->type_code != UNION_TYPE);
 
-	vec<constructor_elt, va_gc> *init_elts;
-	init_elts=(vec<constructor_elt, va_gc> *)(CONSTRUCTOR_ELTS(init_tree));
-
-	if (!init_elts) {
-		CLIB_DBG_FUNC_EXIT();
-		return;
-	}
-
-	unsigned long length = init_elts->vecpfx.m_num;
-	struct constructor_elt *addr = &init_elts->vecdata[0];
-
-	for (unsigned long i = 0; i < length; i++) {
-		BUG_ON(TREE_CODE(addr[i].index) != FIELD_DECL);
-		struct var_list *vnl;
-		vnl = get_target_field0(tn, (tree)addr[i].index);
-		do_init_value(&vnl->var, addr[i].value);
-	}
+	__do_constructor_init(tn, init_tree);
 
 	CLIB_DBG_FUNC_EXIT();
 	return;
@@ -6569,6 +6617,7 @@ static int __check_field(struct var_list *vnl)
 	int ret = 0;
 	switch (vnl->var.type->type_code) {
 	case INTEGER_TYPE:
+	case POINTER_TYPE:
 	case ARRAY_TYPE:
 	case ENUMERAL_TYPE:
 	{
@@ -6599,8 +6648,7 @@ static int __check_field(struct var_list *vnl)
 	}
 	default:
 	{
-		si_log1("miss %s\n",
-			tree_code_name[vnl->var.type->type_code]);
+		si_log1("miss %s\n", tree_code_name[vnl->var.type->type_code]);
 		ret = -1;
 		break;
 	}
@@ -6971,8 +7019,13 @@ static void __4_mark_bit_field_ref(tree op)
 		BUG_ON(op_cnt != 3);
 		next_gs_tc = (enum tree_code)next_gs->subcode;
 		switch (next_gs_tc) {
-		case BIT_AND_EXPR:
 		case EQ_EXPR:
+		case NE_EXPR:
+		{
+			/* no idea what to do here. */
+			break;
+		}
+		case BIT_AND_EXPR:
 		{
 			if (unlikely((TREE_CODE(ops[2]) != INTEGER_CST) &&
 				(TREE_CODE(ops[1]) != INTEGER_CST))) {
@@ -7017,15 +7070,33 @@ static void __4_mark_bit_field_ref(tree op)
 		}
 		default:
 		{
-			si_log1("miss %s\n", tree_code_name[next_gs_tc]);
+			char loc[1024];
+			gimple_loc_string(loc, 1024, cur_gimple);
+			si_log1("miss %s, loc: %s\n",
+					tree_code_name[next_gs_tc],
+					loc);
 			break;
 		}
 		}
 		break;
 	}
+	case GIMPLE_COND:
+	{
+		/* FIXME: no idea what to do here */
+		break;
+	}
+	case GIMPLE_DEBUG:
+	{
+		/* nothing to do here */
+		break;
+	}
 	default:
 	{
-		si_log1("miss %s\n", gimple_code_name[gimple_code(next_gs)]);
+		char loc[1024];
+		gimple_loc_string(loc, 1024, cur_gimple);
+		si_log1("miss %s, loc: %s\n",
+				gimple_code_name[gimple_code(next_gs)],
+				loc);
 		break;
 	}
 	}
@@ -7086,6 +7157,7 @@ static void __4_mark_addr_expr(tree op)
 				gimple_code_name[gimple_code(cur_gimple)]);
 		break;
 	}
+	case RESULT_DECL:
 	case VAR_DECL:
 	case PARM_DECL:
 	case FUNCTION_DECL:
@@ -7098,7 +7170,7 @@ static void __4_mark_addr_expr(tree op)
 		expanded_location *xloc;
 		xloc = get_gimple_loc(cur_fsn->buf->payload,
 					&cur_gimple->location);
-		si_log1("miss %s, loc: %s %d %d\n",
+		si_log1_todo("miss %s, loc: %s %d %d\n",
 				tree_code_name[TREE_CODE(op0)],
 				xloc ? xloc->file : NULL,
 				xloc ? xloc->line : 0,
@@ -7163,9 +7235,23 @@ static void __4_mark_mem_ref(tree op)
 	{
 		break;
 	}
+	case INTEGER_CST:
+	{
+		/*
+		 * FIXME: in linux kernel, native_apic_mem_read(u32 reg).
+		 * return *((volatile u32 *)(APIC_BASE + reg));
+		 *
+		 * The reg is definite an address, but cast to u32.
+		 */
+		break;
+	}
 	default:
 	{
-		si_log1_todo("miss %s\n", tree_code_name[TREE_CODE(t0)]);
+		char loc[1024];
+		gimple_loc_string(loc, 1024, cur_gimple);
+		si_log1_todo("miss %s, loc: %s\n",
+				tree_code_name[TREE_CODE(t0)],
+				loc);
 		break;
 	}
 	}
@@ -8279,7 +8365,13 @@ static int c_parse(struct sibuf *buf, int parse_mode)
 		return 0;
 	}
 
-	char *sp_path = fc->path + fc->srcroot_len;
+	/*
+	 * XXX: we need to copy the path to current thread stack.
+	 * Because the current sibuf may be unload during the process,
+	 * Then c_show_progress() will cause SIGSEGV.
+	 */
+	char sp_path[PATH_MAX];
+	snprintf(sp_path, PATH_MAX, "%s", fc->path + fc->srcroot_len);
 
 	switch (mode) {
 	case MODE_ADJUST:

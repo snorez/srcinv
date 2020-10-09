@@ -700,6 +700,18 @@ static inline int gimple_loc_string(char *ret, size_t retlen, gimple_seq gs)
 	return 0;
 }
 
+static inline bool same_location(expanded_location *xloc1, expanded_location *xloc2)
+{
+	if ((((!xloc1->file) && (!xloc2->file)) ||
+	     (xloc1->file && xloc2->file && (!strcmp(xloc1->file, xloc2->file)))) &&
+		(xloc1->line == xloc2->line) &&
+		(xloc1->column == xloc2->column)) {
+		return true;
+	}
+
+	return false;
+}
+
 /* get tree_identifier node name, the IDENTIFIER_NODE must not be NULL */
 static inline void get_node_name(tree name, char *ret)
 {
@@ -745,6 +757,30 @@ static inline void get_type_name(void *addr, char *ret)
 		}
 		get_node_name(DECL_NAME(TYPE_NAME(node)), ret);
 	}
+}
+
+static inline int field_idx(tree field_entry, tree field)
+{
+	tree _field = field_entry;
+	int field_idx = 0;
+	int found = 0;
+
+	while (1) {
+		if (!_field)
+			break;
+		if (_field == field) {
+			found = 1;
+			break;
+		}
+
+		_field = DECL_CHAIN(_field);
+		field_idx++;
+	}
+
+	if (found)
+		return field_idx;
+	else
+		return -1;
 }
 
 /*
@@ -1027,15 +1063,20 @@ static inline void get_attributes(struct slist_head *head, tree attr_node)
 
 		tree tl2;
 		tl2 = TREE_VALUE(tl);
-		while (tl2) {
-			tree valnode = TREE_VALUE(tl2);
+		while (tl2 != NULL_TREE) {
 			struct attrval_list *newavl;
 			newavl = attrval_list_new();
-			newavl->node = (void *)valnode;
+
+			if (strstr(name, "no_sanitize")) {
+				newavl->node = (void *)tl2;
+				tl2 = NULL_TREE;
+			} else {
+				tree valnode = TREE_VALUE(tl2);
+				newavl->node = (void *)valnode;
+				tl2 = TREE_CHAIN(tl2);
+			}
 
 			slist_add_tail(&newavl->sibling, &newal->values);
-
-			tl2 = TREE_CHAIN(tl2);
 		}
 
 		slist_add_tail(&newal->sibling, head);

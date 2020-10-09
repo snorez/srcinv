@@ -18,7 +18,7 @@ gen_file()
 	CONTENT=$''
 
 	CONTENT+=$'SELF_CFLAGS_N=2\n'
-	CONTENT+=$'ANALYSIS_THREAD_N=0x10\n'
+	CONTENT+=$'ANALYSIS_THREAD_N=0x8\n'
 	CONTENT+=$'\n'
 
 	CONTENT+=$'export MAKE_OPT := --no-print-directory\n'

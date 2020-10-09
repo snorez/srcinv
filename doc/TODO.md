@@ -54,6 +54,7 @@ the `si_global_trees` memory area overlaps with the thread stack.
 
 
 ### analysis
++ rewrite phase 4 in analysis/gcc/c.cc.
 + why are there some functions like isra.xx part.yy?
 	- isra.xx: in gcc/tree-sra.c
 	```c

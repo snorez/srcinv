@@ -32,9 +32,9 @@ DECL_BEGIN
 #define	STEP6			MODE_GETINDCFG2
 #define	STEPMAX			MODE_MAX
 
-/* XXX: use multiple threads to parse the file, core*3 */
+/* XXX: use multiple threads to parse the file, threads*1 */
 #ifndef CONFIG_ANALYSIS_THREAD
-#define	THREAD_CNT	0x18
+#define	THREAD_CNT	0x8
 #else
 #define THREAD_CNT	(CONFIG_ANALYSIS_THREAD)
 #endif

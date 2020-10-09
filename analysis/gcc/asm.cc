@@ -482,6 +482,8 @@ static void getdetail_match_cb(struct sinode *sn, void *arg)
 
 	CLIB_DBG_FUNC_ENTER();
 
+	analysis__resfile_load(sn->buf);
+
 	enum sinode_type type;
 	type = sinode_idtype(sn);
 
@@ -542,6 +544,8 @@ static void phase4_match_cb(struct sinode *sn, void *arg)
 
 	enum sinode_type type;
 	type = sinode_idtype(sn);
+
+	analysis__resfile_load(sn->buf);
 
 	switch (type) {
 	case TYPE_FUNC_STATIC:
@@ -846,6 +850,8 @@ static void indcfg1_match_cb(struct sinode *sn, void *arg)
 
 	struct func_node *fn;
 	fn = (struct func_node *)sn->data;
+
+	analysis__resfile_load(sn->buf);
 
 	/* XXX: we get the direct/indirect calls here */
 	int bits = elf_bits((char *)cur_ctx);

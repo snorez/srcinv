@@ -135,3 +135,17 @@ How to fix it?
 		set it NULL.
 	So, the issue is in __get_real_addr. We need to check the real_addr field
 		if found a match.
+
+
+
+2) parse phase 4: mark data
+A BUG_ON triggered in __do_constructor_init(). We could find the target var_list.
+
+	*) Locate the source file.
+	Please, enable HAVE_CLIB_DBG_FUNC. While a BUG_ON being triggered, it
+	shall show which thread this bug in, which could lead us to the source
+	file.
+
+	*) Use one_sibuf command in analysis mode.
+	Recompile srcinv with SELF_CFLAGS_N=0, gdb ./si_core, analysis.
+	This could save us one hour to wait for triggering the BUG.
