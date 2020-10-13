@@ -152,13 +152,17 @@ struct type_node *sibuf_typenode_search(struct sibuf *b, int tc, void *addr)
 void *sibuf_get_global(struct sibuf *b, const char *string, int *len)
 {
 	struct file_content *fc;
-	struct lang_ops * ops;
+	struct lang_ops *ops;
 
 	if (!b->globals)
 		return NULL;
 
 	fc = (struct file_content *)b->load_addr;
+
+	int held = analysis__sibuf_hold(b);
 	ops = lang_ops_find(&analysis_lang_ops_head, &fc->type);
+	if (!held)
+		analysis__sibuf_drop(b);
 	if (!ops) {
 		si_log1_todo("lang_ops_find return NULL\n");
 		return NULL;

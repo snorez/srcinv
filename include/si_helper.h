@@ -218,6 +218,80 @@ static inline void sibuf_unlock_w(struct sibuf *b)
 	write_unlock(&b->lock);
 }
 
+static inline struct sibuf_user *sibuf_user_alloc(void)
+{
+	struct sibuf_user *_new;
+	_new = (struct sibuf_user *)xmalloc(sizeof(*_new));
+	memset(_new, 0, sizeof(*_new));
+	return _new;
+}
+
+static inline void sibuf_user_free(struct sibuf_user *buf_user)
+{
+	free(buf_user);
+}
+
+static inline struct sibuf_user *__sibuf_find_user(struct sibuf *b, pthread_t user)
+{
+	struct sibuf_user *tmp;
+	slist_for_each_entry(tmp, &b->users, sibling) {
+		if (pthread_equal(tmp->thread_id, user))
+			return tmp;
+	}
+	return NULL;
+}
+
+static inline void __sibuf_add_user(struct sibuf *b, pthread_t user)
+{
+	struct sibuf_user *tmp;
+	tmp = sibuf_user_alloc();
+	tmp->thread_id = user;
+	slist_add_tail(&tmp->sibling, &b->users);
+}
+
+static inline void __sibuf_del_user(struct sibuf *b, pthread_t user)
+{
+	struct sibuf_user *tmp;
+	tmp = __sibuf_find_user(b, user);
+	if (tmp) {
+		slist_del(&tmp->sibling, &b->users);
+		sibuf_user_free(tmp);
+	}
+}
+
+static inline int sibuf_add_user(struct sibuf *b, pthread_t user)
+{
+	int ret = 0;
+
+	sibuf_lock_w(b);
+
+	if (!__sibuf_find_user(b, user))
+		__sibuf_add_user(b, user);
+	else
+		ret = 1;
+
+	sibuf_unlock_w(b);
+	return ret;
+}
+
+static inline void sibuf_del_user(struct sibuf *b, pthread_t user)
+{
+	sibuf_lock_w(b);
+
+	__sibuf_del_user(b, user);
+
+	sibuf_unlock_w(b);
+}
+
+static inline void sibuf_cleanup_user(struct sibuf *b)
+{
+	struct sibuf_user *tmp, *next;
+	slist_for_each_entry_safe(tmp, next, &b->users, sibling) {
+		slist_del(&tmp->sibling, &b->users);
+		sibuf_user_free(tmp);
+	}
+}
+
 #define	node_lock_r(node) \
 	do {\
 		typeof(node) ____node = (node);\
@@ -263,8 +337,7 @@ static inline struct sibuf *find_target_sibuf(void *addr)
 	si_lock_r();
 	slist_for_each_entry(tmp, &si->sibuf_head, sibling) {
 		if (((unsigned long)addr >= tmp->load_addr) &&
-			((unsigned long)addr < (tmp->load_addr +
-						tmp->total_len))) {
+		    ((unsigned long)addr < (tmp->load_addr + tmp->total_len))) {
 			ret = tmp;
 			break;
 		}
@@ -272,24 +345,6 @@ static inline struct sibuf *find_target_sibuf(void *addr)
 
 	si_unlock_r();
 	return ret;
-}
-
-static inline int __si_data_fmt(struct sibuf *buf)
-{
-	struct file_content *fc;
-	if (!buf)
-		return SI_TYPE_DF_NONE;
-
-	fc = (struct file_content *)buf->load_addr;
-	return fc->type.data_fmt;
-}
-
-static inline int si_data_fmt(void *addr)
-{
-	struct sibuf *buf;
-
-	buf = find_target_sibuf(addr);
-	return __si_data_fmt(buf);
 }
 
 static inline struct resfile *get_builtin_resfile(void)
@@ -442,6 +497,7 @@ static inline struct attrval_list *attrval_list_new(void)
 	return _new;
 }
 
+/* Use sibuf_hold/sibuf_drop before/after call these two functions. */
 static inline void *fc_cmdptr(void *start)
 {
 	struct file_content *tmp = (struct file_content *)start;
@@ -1736,7 +1792,6 @@ static inline void src_init(int empty)
 		INIT_SLIST_HEAD(&si->global_data_states);
 		INIT_SLIST_HEAD(&si->sample_set_head);
 	}
-	si->next_mmap_area = RESFILE_BUF_START;
 
 	INIT_SLIST_HEAD(&si->global_data_rw_states);
 	struct data_state_base *base;

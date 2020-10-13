@@ -207,8 +207,12 @@ struct file_obj {
 #define	SIBUF_LOADED_MAX	((uint64_t)(CONFIG_SIBUF_LOADED_MAX))
 #endif
 
-BUILD_BUG_ON(SRC_BUF_START > SRC_BUF_END, "build arg check err");
-BUILD_BUG_ON(SRC_BUF_END > RESFILE_BUF_START, "build arg check err");
+/* XXX: use multiple threads to parse the file, threads*1 */
+#ifndef CONFIG_ANALYSIS_THREAD
+#define	THREAD_CNT		0x8
+#else
+#define THREAD_CNT		(CONFIG_ANALYSIS_THREAD)
+#endif
 
 #define	TYPE_DEFINED	0
 #define	TYPE_UNDEFINED	1
@@ -281,8 +285,7 @@ struct src {
 	struct rb_root		sinodes[TYPE_MAX][RB_NODE_BY_MAX];
 	struct rb_root		names_root;
 
-	/* next area to mmap */
-	uint64_t		next_mmap_area;
+	rwlock_t		lock;
 
 	u64			sample_set_curid;
 	char			src_id[SRC_ID_LEN];
@@ -294,8 +297,6 @@ struct src {
 	 * add type for src, actually, we only concern the KERN & OS
 	 */
 	struct si_type		type;
-
-	rwlock_t		lock;
 };
 
 enum si_module_category {
@@ -332,12 +333,18 @@ struct si_module {
 #define	MAX_SIZE_PER_FILE ((uint64_t)(CONFIG_MAX_SIZE_PER_FILE))
 #endif
 
+BUILD_BUG_ON(SRC_BUF_START > SRC_BUF_END, "build arg check err");
+BUILD_BUG_ON(SRC_BUF_END > RESFILE_BUF_START, "build arg check err");
+/* BUILD_BUG_ON(SIBUF_LOADED_MAX < MAX_SIZE_PER_FILE, "build arg check err"); */
+BUILD_BUG_ON(SIBUF_LOADED_MAX < (THREAD_CNT * 0x8 * MAX_SIZE_PER_FILE), "build arg check err");
+
 /* for just one resfile, a project could have many resfiles */
 struct resfile {
 	struct slist_head	sibling;
 
 	/* resfile length */
 	size_t			filelen;
+#if 0
 	/* read file_offs >= buf_offs */
 	loff_t			file_offs;
 
@@ -346,6 +353,7 @@ struct resfile {
 	uint64_t		buf_size;
 	/* current mmap offs */
 	loff_t			buf_offs;
+#endif
 
 	uint64_t		total_files;
 	atomic_t		parsed_files[FC_STATUS_MAX];
@@ -358,6 +366,11 @@ struct resfile {
 
 	/* the collect/x.so arg-x-output file */
 	char			path[0];
+};
+
+struct sibuf_user {
+	struct slist_head	sibling;
+	pthread_t		thread_id;
 };
 
 /* presentation of file_content in memory */
@@ -379,14 +392,15 @@ struct sibuf {
 	struct file_obj		*objs;
 	size_t			obj_cnt;
 
-	struct timeval		access_at;
+	/* Threads need this sibuf */
+	struct slist_head	users;
 
 	/* For some special global variables. CNT is handled by mod itself */
 	void			*globals;
 
 	uint32_t		total_len;
 
-	/* unload if true, reduce memory usage */
+	/* This sibuf is loaded or not */
 	u8			need_unload: 1;
 	u8			status: 4;
 };

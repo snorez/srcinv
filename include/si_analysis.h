@@ -32,13 +32,6 @@ DECL_BEGIN
 #define	STEP6			MODE_GETINDCFG2
 #define	STEPMAX			MODE_MAX
 
-/* XXX: use multiple threads to parse the file, threads*1 */
-#ifndef CONFIG_ANALYSIS_THREAD
-#define	THREAD_CNT	0x8
-#else
-#define THREAD_CNT	(CONFIG_ANALYSIS_THREAD)
-#endif
-
 #ifndef CONFIG_THREAD_STACKSZ
 #define	THREAD_STACKSZ	(1024*1024*0x10)
 #else
@@ -157,30 +150,24 @@ CLIB_MODULE_CALL_FUNC(analysis, sibuf_get_global, void *,
 		3, b, string, maxlen);
 
 CLIB_MODULE_CALL_FUNC(analysis, resfile_new, struct resfile *,
-		(char *path, int built_in),
-		2, path, built_in);
+		(char *path, int built_in, int *exist),
+		3, path, built_in, exist);
 
 CLIB_MODULE_CALL_FUNC(analysis, resfile_add, void,
 		(struct resfile *rf),
 		1, rf);
 
-CLIB_MODULE_CALL_FUNC(analysis, resfile_read, int,
-		(struct resfile *rf, struct sibuf *buf, int force),
-		3, rf, buf, force);
-
-CLIB_MODULE_CALL_FUNC(analysis, resfile_load, void,
+CLIB_MODULE_CALL_FUNC(analysis, sibuf_hold, int,
 		(struct sibuf *buf),
 		1, buf);
 
-CLIB_MODULE_CALL_FUNC(analysis, resfile_unload, void,
+CLIB_MODULE_CALL_FUNC(analysis, sibuf_drop, void,
 		(struct sibuf *buf),
 		1, buf);
-
-CLIB_MODULE_CALL_FUNC0(analysis, resfile_gc, int);
 
 CLIB_MODULE_CALL_FUNC0(analysis, resfile_unload_all, void);
 
-CLIB_MODULE_CALL_FUNC(analysis, resfile_get_filecnt, int,
+CLIB_MODULE_CALL_FUNC(analysis, resfile_preview, int,
 		(struct resfile *rf),
 		1, rf);
 
@@ -256,6 +243,31 @@ CLIB_MODULE_CALL_FUNC(analysis, dsv_compute, int,
 		(struct data_state_val *l, struct data_state_val *r, int flag,
 		 int extra_flag, cur_max_signint *retval),
 		5, l, r, flag, extra_flag, retval);
+
+static inline int __si_data_fmt(struct sibuf *buf)
+{
+	if (!buf)
+		return SI_TYPE_DF_NONE;
+
+	int ret;
+	struct file_content *fc;
+	fc = (struct file_content *)buf->load_addr;
+
+	int held = analysis__sibuf_hold(buf);
+	ret = fc->type.data_fmt;
+	if (!held)
+		analysis__sibuf_drop(buf);
+
+	return ret;;
+}
+
+static inline int si_data_fmt(void *addr)
+{
+	struct sibuf *buf;
+
+	buf = find_target_sibuf(addr);
+	return __si_data_fmt(buf);
+}
 
 DECL_END
 

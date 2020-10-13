@@ -102,7 +102,6 @@ static inline tree si_gcc_global(const char *str, void *n, int idx)
 	b = find_target_sibuf(n);
 	if (!b)
 		return ret;
-	analysis__resfile_load(b);
 
 	int maxlen;
 	tree *ptr = (tree *)analysis__sibuf_get_global(b, str, &maxlen);
@@ -663,15 +662,21 @@ static inline expanded_location *get_location(int flag, char *payload,
 /* EXPR_LOCATION */
 static inline expanded_location *si_expr_location(tree expr)
 {
+	expanded_location *ret = NULL;
 	struct sibuf *b;
 	b = find_target_sibuf((void *)expr);
 	BUG_ON(!b);
-	analysis__resfile_load(b);
+
+	int held = analysis__sibuf_hold(b);
 
 	if (CAN_HAVE_LOCATION_P(expr))
-		return (expanded_location *)(b->payload + (expr)->exp.locus);
+		ret = (expanded_location *)(b->payload + (expr)->exp.locus);
 	else
-		return NULL;
+		ret = NULL;
+
+	if (!held)
+		analysis__sibuf_drop(b);
+	return ret;
 }
 
 static inline expanded_location *get_gimple_loc(char *payload, location_t *loc)
@@ -838,6 +843,7 @@ static inline void get_type_xnode(tree node, struct sinode **sn_ret,
 	enum sinode_type type;
 	struct sinode *sn = NULL;
 	struct type_node *tn = NULL;
+	struct sinode *loc_file = NULL;
 	*sn_ret = NULL;
 	*tn_ret = NULL;
 
@@ -846,7 +852,8 @@ static inline void get_type_xnode(tree node, struct sinode **sn_ret,
 		si_log("target_sibuf not found, %p\n", node);
 		return;
 	}
-	analysis__resfile_load(b);
+
+	int held = analysis__sibuf_hold(b);
 
 	memset(name, 0, NAME_MAX);
 	get_type_name((void *)node, name);
@@ -857,19 +864,22 @@ static inline void get_type_xnode(tree node, struct sinode **sn_ret,
 	if (flag == TYPE_CANONICALED) {
 		tree tmp_node = TYPE_CANONICAL(node);
 
+		if (!held)
+			analysis__sibuf_drop(b);
+
 		b = find_target_sibuf((void *)tmp_node);
 		if (unlikely(!b)) {
 			si_log("target_sibuf not found, %p\n", tmp_node);
 			/* FIXME: should we fall through or just return? */
 			return;
-		} else {
-			node = tmp_node;
-			analysis__resfile_load(b);
-
-			memset(name, 0, NAME_MAX);
-			get_type_name((void *)node, name);
-			xloc = get_location(GET_LOC_TYPE, b->payload, node);
 		}
+
+		held = analysis__sibuf_hold(b);
+
+		node = tmp_node;
+		memset(name, 0, NAME_MAX);
+		get_type_name((void *)node, name);
+		xloc = get_location(GET_LOC_TYPE, b->payload, node);
 	} else if (flag == TYPE_UNDEFINED) {
 #if 0
 		BUG_ON(!name[0]);
@@ -877,10 +887,9 @@ static inline void get_type_xnode(tree node, struct sinode **sn_ret,
 						name);
 		*sn_ret = sn;
 #endif
-		return;
+		goto out;
 	}
 
-	struct sinode *loc_file = NULL;
 	if (xloc && xloc->file) {
 		loc_file = analysis__sinode_search(TYPE_FILE, SEARCH_BY_SPEC,
 							(void *)xloc->file);
@@ -912,6 +921,11 @@ static inline void get_type_xnode(tree node, struct sinode **sn_ret,
 	} else if (tn) {
 		*tn_ret = tn;
 	}
+
+out:
+	if (!held)
+		analysis__sibuf_drop(b);
+	return;
 }
 
 static inline void get_func_sinode(tree node, struct sinode **sn_ret, int flag)
@@ -923,16 +937,19 @@ static inline void get_func_sinode(tree node, struct sinode **sn_ret, int flag)
 	*sn_ret = NULL;
 	struct sibuf *b = find_target_sibuf((void *)node);
 	BUG_ON(!b);
-	analysis__resfile_load(b);
+
+	int held = analysis__sibuf_hold(b);
 
 	memset(name, 0, NAME_MAX);
 	get_function_name((void *)node, name);
 
 	int func_flag = check_file_func(node);
 	if (func_flag == FUNC_IS_EXTERN) {
-		if (!flag)
-			return;
 		long args[3];
+
+		if (!flag)
+			goto out;
+
 		args[0] = (long)b->rf;
 		args[1] = (long)get_builtin_resfile();
 		args[2] = (long)name;
@@ -964,6 +981,11 @@ static inline void get_func_sinode(tree node, struct sinode **sn_ret, int flag)
 	}
 
 	*sn_ret = sn;
+
+out:
+	if (!held)
+		analysis__sibuf_drop(b);
+	return;
 }
 
 static inline void get_var_sinode(tree node, struct sinode **sn_ret, int flag)
@@ -975,7 +997,8 @@ static inline void get_var_sinode(tree node, struct sinode **sn_ret, int flag)
 	*sn_ret = NULL;
 	struct sibuf *b = find_target_sibuf((void *)node);
 	BUG_ON(!b);
-	analysis__resfile_load(b);
+
+	int held = analysis__sibuf_hold(b);
 
 	memset(name, 0, NAME_MAX);
 	get_var_name((void *)node, name);
@@ -983,7 +1006,7 @@ static inline void get_var_sinode(tree node, struct sinode **sn_ret, int flag)
 	int var_flag = check_file_var(node);
 	if (var_flag == VAR_IS_EXTERN) {
 		if (!flag)
-			return;
+			goto out;
 		long args[3];
 		args[0] = (long)b->rf;
 		args[1] = (long)get_builtin_resfile();
@@ -1013,10 +1036,14 @@ static inline void get_var_sinode(tree node, struct sinode **sn_ret, int flag)
 						(void *)args);
 	} else {
 		/* VAR_IS_LOCAL */
-		return;
+		goto out;
 	}
 
 	*sn_ret = sn;
+
+out:
+	if (!held)
+		analysis__sibuf_drop(b);
 	return;
 }
 

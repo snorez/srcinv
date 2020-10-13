@@ -29,7 +29,9 @@ static int do_sibuf_eh(int signo, siginfo_t *sinfo, void *arg)
 	if (!b)
 		return EH_STATUS_NOT_HANDLED;
 
-	analysis__resfile_load(b);
+	int held = analysis__sibuf_hold(b);
+	if (!held)
+		analysis__sibuf_drop(b);
 	return EH_STATUS_DONE;
 }
 

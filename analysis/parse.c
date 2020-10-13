@@ -23,20 +23,25 @@ lock_t getbase_lock;
 static int parse_sibuf(struct sibuf *buf, int step, int force)
 {
 	int err = 0;
-	if (step > STEP1)
-		analysis__resfile_load(buf);
-
 	struct file_content *fc;
-	fc = (struct file_content *)buf->load_addr;
 	struct lang_ops *ops;
+
+	fc = (struct file_content *)buf->load_addr;
+
+	int held = analysis__sibuf_hold(buf);
 	ops = lang_ops_find(&analysis_lang_ops_head, &fc->type);
 	if (!ops) {
 		err_dbg(0, "lang_ops TYPE: %d not found", fc->type);
+		if (!held)
+			analysis__sibuf_drop(buf);
 		return -1;
 	}
 
-	if (unlikely((!force) && (buf->status != (step - 1))))
+	if (unlikely((!force) && (buf->status != (step - 1)))) {
+		if (!held)
+			analysis__sibuf_drop(buf);
 		return 0;
+	}
 
 	si_lock_w();
 	if (unlikely(si->type.kernel != fc->type.kernel)) {
@@ -44,6 +49,9 @@ static int parse_sibuf(struct sibuf *buf, int step, int force)
 		si->type.os_type = fc->type.os_type;
 	}
 	si_unlock_w();
+
+	if (!held)
+		analysis__sibuf_drop(buf);
 
 	int dbgmode = get_dbg_mode();
 	if (dbgmode)
@@ -72,20 +80,7 @@ struct mt_parse {
 	pthread_t	tid;
 };
 static struct mt_parse bufs[THREAD_CNT];
-static struct mt_parse *mt_parse_find0(void)
-{
-	for (int i = 0; i < THREAD_CNT; i++) {
-		if (!atomic_read(&bufs[i].in_use)) {
-			if (!bufs[i].buf) {
-				bufs[i].buf = sibuf_new();
-				BUG_ON(!bufs[i].buf);
-			}
-			return &bufs[i];
-		}
-	}
-	return NULL;
-}
-static struct mt_parse *mt_parse_find1(void)
+static struct mt_parse *mt_parse_find(void)
 {
 	for (int i = 0; i < THREAD_CNT; i++) {
 		if (!atomic_read(&bufs[i].in_use)) {
@@ -179,6 +174,7 @@ int parse_resfile(char *path, int built_in, int step, int autoy)
 {
 	int err = 0;
 	int flag = 0;
+	int exist = 0;
 	struct resfile *newrf;
 
 	if (step == 0) {
@@ -186,22 +182,24 @@ int parse_resfile(char *path, int built_in, int step, int autoy)
 		step = STEP1;
 	}
 
-	newrf = analysis__resfile_new(path, built_in);
+	newrf = analysis__resfile_new(path, built_in, &exist);
 	if (!newrf) {
 		err_dbg(0, "resfile_new err");
 		return -1;
 	}
-	analysis__resfile_add(newrf);
+	if (!exist) {
+		fprintf(stdout, "[....] take a preview of the resfile\r");
+		fflush(stdout);
+		err = analysis__resfile_preview(newrf);
+		if (err == -1) {
+			err_dbg(0, "analysis__resfile_preview err");
+			return -1;
+		}
+		fprintf(stdout, "[done]\n");
+		fflush(stdout);
 
-	fprintf(stdout, "[....] take a preview of the resfile\r");
-	fflush(stdout);
-	err = analysis__resfile_get_filecnt(newrf);
-	if (err == -1) {
-		err_dbg(0, "analysis__resfile_get_filecnt err");
-		return -1;
+		analysis__resfile_add(newrf);
 	}
-	fprintf(stdout, "[done]\n");
-	fflush(stdout);
 
 	if (step == STEP1) {
 		/*
@@ -285,72 +283,6 @@ int parse_resfile(char *path, int built_in, int step, int autoy)
 
 		switch (step) {
 		case STEP1:
-		{
-			int force = 0;
-			while (1) {
-				if (unlikely(!parse_sig_set)) {
-					parse_sig_set = 1;
-					signal(SIGQUIT, sigquit_hdl);
-				}
-				if (sigsetjmp(parse_jmp_env, sigjmp_lbl)) {
-					/*
-					 * jump out this loop
-					 * wait for all threads
-					 */
-					err_dbg(0, "receive SIGQUIT signal, "
-							"quit parsing");
-					break;
-				}
-
-				struct mt_parse *t = mt_parse_find0();
-				if (!t) {
-					sleep(1);
-					continue;
-				}
-				if (t->ret) {
-					err_dbg(0, "do_phase ret err");
-					err = -1;
-					break;
-				}
-
-				err = analysis__resfile_read(newrf,
-								t->buf, force);
-				if (force)
-					force = 0;
-				if (err == -1) {
-					err_dbg(0,
-						  "analysis__resfile_read err");
-					break;
-				} else if (!err) {
-					break;
-				} else if (err == -EAGAIN) {
-					wait_for_all_threads();
-					force = 1;
-					continue;
-				}
-				t->buf->rf = newrf;
-				atomic_set(&t->in_use, 1);
-				t->step = step;
-
-				if (t->tid) {
-					pthread_join(t->tid, NULL);
-					t->tid = 0;
-				}
-redo1:
-				err = pthread_create(&t->tid, &attr,
-							do_phase, t);
-				if (err) {
-					err_dbg(0, "pthread_create err");
-					sleep(1);
-					goto redo1;
-				}
-				analysis__sibuf_insert(t->buf);
-			}
-
-			analysis__resfile_unload_all();
-
-			break;
-		}
 		case STEP2:
 		case STEP3:
 		case STEP4:
@@ -378,7 +310,7 @@ redo1:
 
 				struct mt_parse *t;
 				while (1) {
-					t = mt_parse_find1();
+					t = mt_parse_find();
 					if (t)
 						break;
 					sleep(1);
@@ -417,6 +349,8 @@ redo2:
 
 		wait_for_all_threads();
 
+		analysis__resfile_unload_all();
+
 		mt_del_timer(0);
 		mt_print_del();
 #ifdef USE_NCURSES
@@ -440,11 +374,15 @@ int parse_sibuf_bypath(char *srcpath, int step, int force)
 {
 	struct sibuf *tmp;
 	slist_for_each_entry(tmp, &si->sibuf_head, sibling) {
-		analysis__resfile_load(tmp);
-
 		struct file_content *fc;
 		fc = (struct file_content *)tmp->load_addr;
-		if (!is_same_path(fc->path, srcpath))
+
+		int held = analysis__sibuf_hold(tmp);
+		int ret = is_same_path(fc->path, srcpath);
+		if (!held)
+			analysis__sibuf_drop(tmp);
+
+		if (!ret)
 			continue;
 
 		return parse_sibuf(tmp, step, force);

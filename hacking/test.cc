@@ -36,7 +36,7 @@ static void __test_cond_or_goto_is_tail(struct sinode *sn, void *arg)
 	if (!sn->data)
 		return;
 
-	analysis__resfile_load(sn->buf);
+	analysis__sibuf_hold(sn->buf);
 
 	struct func_node *fn;
 	fn = (struct func_node *)sn->data;
@@ -62,6 +62,7 @@ static void __test_cond_or_goto_is_tail(struct sinode *sn, void *arg)
 	}
 
 out:
+	analysis__sibuf_drop(sn->buf);
 	fprintf(stdout, "__test_cond_or_goto_is_tail %s done\n", fn->name);
 	fprintf(stdout, "\n");
 }

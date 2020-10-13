@@ -125,6 +125,8 @@ static void getbase(void)
 	struct list_head syms_head;
 	INIT_LIST_HEAD(&syms_head);
 
+	int held = analysis__sibuf_hold(cur_sibuf);
+
 	loc_file = analysis__sinode_search(TYPE_FILE, SEARCH_BY_SPEC,
 						(void *)cur_srcfile);
 	if (loc_file) {
@@ -257,6 +259,8 @@ static void getbase(void)
 ef_out:
 	elf_cleanup(ef);
 out:
+	if (!held)
+		analysis__sibuf_drop(cur_sibuf);
 	CLIB_DBG_FUNC_EXIT();
 	return;
 }
@@ -341,6 +345,8 @@ static void get_func_detail(struct sinode *sn)
 		return;
 
 	CLIB_DBG_FUNC_ENTER();
+
+	int held = analysis__sibuf_hold(sn->buf);
 
 	struct clib_bitmap *bm = NULL;
 	unsigned long entries = 1;
@@ -471,6 +477,9 @@ static void get_func_detail(struct sinode *sn)
 	fn->cp_cnt = entries;
 	fn->detailed = 1;
 
+	if (!held)
+		analysis__sibuf_drop(sn->buf);
+
 	CLIB_DBG_FUNC_EXIT();
 	return;
 }
@@ -481,8 +490,6 @@ static void getdetail_match_cb(struct sinode *sn, void *arg)
 		return;
 
 	CLIB_DBG_FUNC_ENTER();
-
-	analysis__resfile_load(sn->buf);
 
 	enum sinode_type type;
 	type = sinode_idtype(sn);
@@ -544,8 +551,6 @@ static void phase4_match_cb(struct sinode *sn, void *arg)
 
 	enum sinode_type type;
 	type = sinode_idtype(sn);
-
-	analysis__resfile_load(sn->buf);
 
 	switch (type) {
 	case TYPE_FUNC_STATIC:
@@ -851,7 +856,7 @@ static void indcfg1_match_cb(struct sinode *sn, void *arg)
 	struct func_node *fn;
 	fn = (struct func_node *)sn->data;
 
-	analysis__resfile_load(sn->buf);
+	int held = analysis__sibuf_hold(sn->buf);
 
 	/* XXX: we get the direct/indirect calls here */
 	int bits = elf_bits((char *)cur_ctx);
@@ -891,6 +896,8 @@ static void indcfg1_match_cb(struct sinode *sn, void *arg)
 	}
 
 out:
+	if (!held)
+		analysis__sibuf_drop(sn->buf);
 	CLIB_DBG_FUNC_EXIT();
 	return;
 }
@@ -956,10 +963,14 @@ static int parse(struct sibuf *buf, int parse_mode)
 	CLIB_DBG_FUNC_ENTER();
 
 	struct file_content *fc = (struct file_content *)buf->load_addr;
+
+	int held = analysis__sibuf_hold(buf);
 	if ((fc->gcc_ver_major != gcc_ver_major) ||
 		(fc->gcc_ver_minor > gcc_ver_minor)) {
 		si_log1_err("gcc version not match, need %d.%d\n",
 				fc->gcc_ver_major, fc->gcc_ver_minor);
+		if (!held)
+			analysis__sibuf_drop(buf);
 		CLIB_DBG_FUNC_EXIT();
 		return -1;
 	}
@@ -970,7 +981,8 @@ static int parse(struct sibuf *buf, int parse_mode)
 	obj_done = 0;
 	obj_cnt = 1;
 
-	char *sp_path = fc->path + fc->srcroot_len;
+	char sp_path[PATH_MAX];
+	snprintf(sp_path, PATH_MAX, "%s", fc->path + fc->srcroot_len);
 
 	switch (parse_mode) {
 	case MODE_ADJUST:
@@ -1086,6 +1098,9 @@ static int parse(struct sibuf *buf, int parse_mode)
 		BUG();
 	}
 	}
+
+	if (!held)
+		analysis__sibuf_drop(buf);
 
 	CLIB_DBG_FUNC_EXIT();
 	return 0;

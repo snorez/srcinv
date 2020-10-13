@@ -179,15 +179,17 @@ static long do_load_srcfile(char *id)
 	struct resfile *tmp0;
 	slist_for_each_entry(tmp0, &si->resfile_head, sibling) {
 		tmp0->fd = -1;
+#if 0
 		tmp0->file_offs = 0;
 		tmp0->buf_start = 0;
 		tmp0->buf_offs = 0;
+#endif
 	}
 
 	struct sibuf *tmp1;
 	slist_for_each_entry(tmp1, &si->sibuf_head, sibling) {
 		tmp1->need_unload = 0;
-		si->next_mmap_area += tmp1->total_len;
+		INIT_SLIST_HEAD(&tmp1->users);
 	}
 	atomic_set(&si->sibuf_mem_usage, 0);
 

@@ -189,8 +189,9 @@ static void output_used_at(struct slist_head *head, char *name)
 		if (tmp->type == SI_TYPE_DF_GIMPLE) {
 			gimple_seq gs;
 			gs = (gimple_seq)tmp->where;
-			analysis__resfile_load(fsn->buf);
+			analysis__sibuf_hold(fsn->buf);
 			xloc = get_gimple_loc(fsn->buf->payload, &gs->location);
+			analysis__sibuf_drop(fsn->buf);
 			fprintf(stdout, "\tFunction: %s(), gimple: %p %ld\n"
 					"\t________: %s %d %d\n",
 					fsn ? fsn->name : "NULL",
@@ -304,11 +305,15 @@ static void output_type(struct sinode *sn)
 
 			unsigned long offset;
 			tree field;
+			struct sibuf *b;
 
 			field = (tree)vl->var.node;
-			analysis__resfile_load(find_target_sibuf(field));
+			b = find_target_sibuf(field);
+			analysis__sibuf_hold(b);
 
 			offset = get_field_offset(field);
+
+			analysis__sibuf_drop(b);
 
 			fprintf(stdout, "\t%ld\n", offset);
 		}

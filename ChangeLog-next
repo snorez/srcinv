@@ -1,3 +1,6 @@
+2020-10-13
+	* srcinv: fix issues when parsing ubuntu linux kernel 5.4.0
+
 2020-10-09
 	* analysis/gcc/c.cc: copy the current file path out to thread stack.
 	* srcinv: remove packed attribute.

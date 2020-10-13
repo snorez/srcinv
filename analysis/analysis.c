@@ -181,7 +181,9 @@ static long load_sibuf_cb(int argc, char *argv[])
 		if ((long)b != addr)
 			continue;
 		found = 1;
-		analysis__resfile_load(b);
+		int held = analysis__sibuf_hold(b);
+		if (!held)
+			analysis__sibuf_drop(b);
 		break;
 	}
 	if (!found)

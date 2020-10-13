@@ -4392,10 +4392,11 @@ static void do_var_decl_phase4(tree n)
 
 	expanded_location *xloc;
 	struct sibuf *b;
+	int held = 0;
 
 	b = find_target_sibuf(n);
 	BUG_ON(!b);
-	analysis__resfile_load(b);
+	held = analysis__sibuf_hold(b);
 
 	xloc = get_location(GET_LOC_VAR, b->payload, n);
 	if (si_is_global_var(n, xloc)) {
@@ -4487,6 +4488,8 @@ static void do_var_decl_phase4(tree n)
 	}
 
 out:
+	if (!held)
+		analysis__sibuf_drop(b);
 	CLIB_DBG_FUNC_EXIT();
 	return;
 }
@@ -4662,8 +4665,6 @@ static void do_function_decl(tree node, int flag)
 			goto out;
 		if (fsn == cur_fsn)
 			goto out;
-
-		analysis__resfile_load(fsn->buf);
 
 		struct func_node *fn;
 		fn = (struct func_node *)fsn->data;
@@ -5219,6 +5220,8 @@ static void do_get_base(struct sibuf *buf)
 	 */
 	struct sinode *sn_new, *sn_tmp, *loc_file;
 
+	int held = analysis__sibuf_hold(buf);
+
 	/* init global_var func sinode, with data; */
 	for (obj_idx = 0; obj_idx < real_obj_cnt; obj_idx++) {
 		char name[NAME_MAX];
@@ -5360,9 +5363,11 @@ step_1:
 				((type == TYPE_FUNC_STATIC) &&
 					(!sn_tmp->data)) ||
 				(type == TYPE_VAR_GLOBAL))) {
-			analysis__resfile_load(sn_tmp->buf);
+			int _held = analysis__sibuf_hold(sn_tmp->buf);
 			int chk_val = TREE_NAME_CONFLICT_FAILED;
 			chk_val = check_conflict(type, xloc, sn_tmp);
+			if (!_held)
+				analysis__sibuf_drop(sn_tmp->buf);
 			BUG_ON(chk_val == TREE_NAME_CONFLICT_FAILED);
 			if (chk_val == TREE_NAME_CONFLICT_DROP) {
 				objs[obj_idx].is_dropped = 1;
@@ -5431,6 +5436,8 @@ next_loop:
 		mutex_unlock(&getbase_lock);
 	}
 
+	if (!held)
+		analysis__sibuf_drop(buf);
 	CLIB_DBG_FUNC_EXIT();
 }
 
@@ -5747,10 +5754,14 @@ static void get_type_detail(struct sinode *tsn)
 {
 	CLIB_DBG_FUNC_ENTER();
 
+	int held = analysis__sibuf_hold(tsn->buf);
+
 	/* XXX, get attributes here */
 	tree node = (tree)(long)tsn->obj->real_addr;
 	get_attributes(&tsn->attributes, TYPE_ATTRIBUTES(node));
 
+	if (!held)
+		analysis__sibuf_drop(tsn->buf);
 	CLIB_DBG_FUNC_EXIT();
 }
 
@@ -5758,7 +5769,7 @@ static void get_var_detail(struct sinode *sn)
 {
 	CLIB_DBG_FUNC_ENTER();
 
-	analysis__resfile_load(sn->buf);
+	int held = analysis__sibuf_hold(sn->buf);
 	tree node = (tree)(long)sn->obj->real_addr;
 	struct var_node *new_var;
 	new_var = (struct var_node *)sn->data;
@@ -5772,6 +5783,8 @@ static void get_var_detail(struct sinode *sn)
 	new_var->detailed = 1;
 
 out:
+	if (!held)
+		analysis__sibuf_drop(sn->buf);
 	CLIB_DBG_FUNC_EXIT();
 	return;
 }
@@ -5783,13 +5796,15 @@ static void get_function_detail(struct sinode *sn)
 {
 	CLIB_DBG_FUNC_ENTER();
 
-	analysis__resfile_load(sn->buf);
+	int held = analysis__sibuf_hold(sn->buf);
 	tree node = (tree)(long)sn->obj->real_addr;
 
 	/* XXX: the function body is now in node->f->cfg */
 	struct function *f;
 	f = DECL_STRUCT_FUNCTION(node);
 	if ((!f) || (!f->cfg)) {
+		if (!held)
+			analysis__sibuf_drop(sn->buf);
 		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
@@ -5800,12 +5815,13 @@ static void get_function_detail(struct sinode *sn)
 	new_func = (struct func_node *)sn->data;
 
 	if (new_func->detailed) {
+		if (!held)
+			analysis__sibuf_drop(sn->buf);
 		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
 
-	__get_type_detail(&new_func->ret_type, NULL,
-				TREE_TYPE(TREE_TYPE(node)));
+	__get_type_detail(&new_func->ret_type, NULL, TREE_TYPE(TREE_TYPE(node)));
 	get_attributes(&sn->attributes, DECL_ATTRIBUTES(node));
 
 	/* parse arguments */
@@ -6019,6 +6035,8 @@ static void get_function_detail(struct sinode *sn)
 	new_func->cp_cnt = block_cnt;
 	new_func->detailed = 1;
 
+	if (!held)
+		analysis__sibuf_drop(sn->buf);
 	CLIB_DBG_FUNC_EXIT();
 	return;
 }
@@ -6032,7 +6050,7 @@ static void do_get_detail(struct sibuf *b)
 {
 	CLIB_DBG_FUNC_ENTER();
 
-	analysis__resfile_load(b);
+	int held = analysis__sibuf_hold(b);
 
 	for (obj_idx = 0; obj_idx < real_obj_cnt; obj_idx++) {
 		if (!objs[obj_idx].is_type) {
@@ -6048,7 +6066,6 @@ static void do_get_detail(struct sibuf *b)
 		/* FIXME: do we have a race here? */
 		get_type_xnode((tree)obj_addr, &sn, &tn);
 		if (sn) {
-			analysis__resfile_load(sn->buf);
 			tn = (struct type_node *)sn->data;
 			get_type_detail(sn);
 		}
@@ -6080,6 +6097,9 @@ static void do_get_detail(struct sibuf *b)
 			get_function_detail(n);
 		}
 	}
+
+	if (!held)
+		analysis__sibuf_drop(b);
 
 	CLIB_DBG_FUNC_EXIT();
 	return;
@@ -6114,8 +6134,8 @@ static int is_type_from_expand_macro(struct type_node *tn)
 		b2 = find_target_sibuf((void *)field_e);
 		BUG_ON(!b1);
 		BUG_ON(!b2);
-		analysis__resfile_load(b1);
-		analysis__resfile_load(b2);
+		int held1 = analysis__sibuf_hold(b1);
+		int held2 = analysis__sibuf_hold(b2);
 
 		xloc_b = (expanded_location *)(b1->payload +
 						DECL_SOURCE_LOCATION(field_b));
@@ -6123,9 +6143,18 @@ static int is_type_from_expand_macro(struct type_node *tn)
 						DECL_SOURCE_LOCATION(field_e));
 
 		if (same_location(xloc_b, xloc_e)) {
+			if (!held1)
+				analysis__sibuf_drop(b1);
+			if (!held2)
+				analysis__sibuf_drop(b2);
 			CLIB_DBG_FUNC_EXIT();
 			return 1;
 		}
+
+		if (!held1)
+			analysis__sibuf_drop(b1);
+		if (!held2)
+			analysis__sibuf_drop(b2);
 
 		field_b = field_e;
 	}
@@ -6144,8 +6173,9 @@ static int is_same_field(tree field0, tree field1, int macro_expanded)
 
 	BUG_ON(!b1);
 	BUG_ON(!b2);
-	analysis__resfile_load(b1);
-	analysis__resfile_load(b2);
+	int held1 = analysis__sibuf_hold(b1);
+	int held2 = analysis__sibuf_hold(b2);
+	int ret = 0;
 
 	if (!macro_expanded) {
 		expanded_location *xloc1, *xloc2;
@@ -6155,11 +6185,11 @@ static int is_same_field(tree field0, tree field1, int macro_expanded)
 						DECL_SOURCE_LOCATION(field1));
 
 		if (same_location(xloc1, xloc2)) {
-			CLIB_DBG_FUNC_EXIT();
-			return 1;
+			ret = 1;
+			goto out;
 		} else {
-			CLIB_DBG_FUNC_EXIT();
-			return 0;
+			ret = 0;
+			goto out;
 		}
 	} else {
 		/* FIXME */
@@ -6170,12 +6200,12 @@ static int is_same_field(tree field0, tree field1, int macro_expanded)
 		tree tname0 = DECL_NAME(field0);
 		tree tname1 = DECL_NAME(field1);
 		if ((!tname0) && (tname1)) {
-			CLIB_DBG_FUNC_EXIT();
-			return 0;
+			ret = 0;
+			goto out;
 		}
 		if ((tname0) && (!tname1)) {
-			CLIB_DBG_FUNC_EXIT();
-			return 0;
+			ret = 0;
+			goto out;
 		}
 		if ((!tname0) && (!tname1)) {
 			struct type_node *tn0, *tn1;
@@ -6196,8 +6226,8 @@ static int is_same_field(tree field0, tree field1, int macro_expanded)
 					offs1 = get_field_offset(field1);
 					/* FIXME: dont think this is right!!! */
 					if ((_idx0 == _idx1) || (offs0 == offs1)) {
-						CLIB_DBG_FUNC_EXIT();
-						return 1;
+						ret = 1;
+						goto out;
 					}
 				}
 			}
@@ -6205,46 +6235,52 @@ static int is_same_field(tree field0, tree field1, int macro_expanded)
 			tn0 = find_type_node(TREE_TYPE(field0));
 			tn1 = find_type_node(TREE_TYPE(field1));
 			if (tn0 != tn1) {
-				CLIB_DBG_FUNC_EXIT();
-				return 0;
+				ret = 0;
+				goto out;
 			} else {
-				CLIB_DBG_FUNC_EXIT();
-				return 1;
+				ret = 1;
+				goto out;
 			}
 		}
 
 		get_node_name(tname0, name0);
 		get_node_name(tname1, name1);
 		if ((!name0[0]) && (name1[0])) {
-			CLIB_DBG_FUNC_EXIT();
-			return 0;
+			ret = 0;
+			goto out;
 		}
 		if ((name0[0]) && (!name1[0])) {
-			CLIB_DBG_FUNC_EXIT();
-			return 0;
+			ret = 0;
+			goto out;
 		}
 		if ((!name0[0]) && (!name1[0])) {
 			struct type_node *tn0, *tn1;
 			tn0 = find_type_node(TREE_TYPE(field0));
 			tn1 = find_type_node(TREE_TYPE(field1));
 			if (tn0 != tn1) {
-				CLIB_DBG_FUNC_EXIT();
-				return 0;
+				ret = 0;
+				goto out;
 			} else {
-				CLIB_DBG_FUNC_EXIT();
-				return 1;
+				ret = 1;
+				goto out;
 			}
 		}
 		if (!strcmp(name0, name1)) {
-			CLIB_DBG_FUNC_EXIT();
-			return 1;
+			ret = 1;
+			goto out;
 		} else {
-			CLIB_DBG_FUNC_EXIT();
-			return 0;
+			ret = 0;
+			goto out;
 		}
 	}
 
+out:
+	if (!held1)
+		analysis__sibuf_drop(b1);
+	if (!held2)
+		analysis__sibuf_drop(b2);
 	CLIB_DBG_FUNC_EXIT();
+	return ret;
 }
 
 static struct var_list *get_target_field0(struct type_node *tn, tree field);
@@ -6340,6 +6376,9 @@ static void do_init_value(struct var_node *vn, tree init_tree)
 		return;
 
 	CLIB_DBG_FUNC_ENTER();
+
+	struct sibuf *b = find_target_sibuf((void *)init_tree);
+	int held = analysis__sibuf_hold(b);
 
 	enum tree_code init_tc = TREE_CODE(init_tree);
 	switch (init_tc) {
@@ -6459,6 +6498,8 @@ static void do_init_value(struct var_node *vn, tree init_tree)
 	}
 	}
 
+	if (!held)
+		analysis__sibuf_drop(b);
 	CLIB_DBG_FUNC_EXIT();
 }
 
@@ -6466,15 +6507,18 @@ static void do_phase4_gvar(struct sinode *sn)
 {
 	CLIB_DBG_FUNC_ENTER();
 
-	analysis__resfile_load(sn->buf);
-
 	tree node;
 	struct var_node *new_var;
+
+	int held = analysis__sibuf_hold(sn->buf);
 
 	node = (tree)(long)sn->obj->real_addr;
 	new_var = (struct var_node *)sn->data;
 
 	do_init_value(new_var, DECL_INITIAL(node));
+
+	if (!held)
+		analysis__sibuf_drop(sn->buf);
 
 	CLIB_DBG_FUNC_EXIT();
 	return;
@@ -6638,7 +6682,10 @@ static int __check_field(struct var_list *vnl)
 
 		node = (tree)vnl->var.node;
 		b = find_target_sibuf(node);
+		int held = analysis__sibuf_hold(b);
 		xloc = get_location(GET_LOC_TYPE, b->payload, node);
+		if (!held)
+			analysis__sibuf_drop(b);
 		si_log1_todo("UNION_TYPE at %s %d %d\n",
 				xloc ? xloc->file : NULL,
 				xloc ? xloc->line : 0,
@@ -6670,9 +6717,13 @@ static struct var_list *calculate_field_offset(struct type_node *tn,
 	tree field = NULL;
 
 	slist_for_each_entry(tmp, &tn->children, sibling) {
+		struct sibuf *b;
 		field = (tree)tmp->var.node;
-		analysis__resfile_load(find_target_sibuf(field));
+		b = find_target_sibuf(field);
+		int held = analysis__sibuf_hold(b);
 		off = get_field_offset(field);
+		if (!held)
+			analysis__sibuf_drop(b);
 
 		/*
 		 * some structures contains other structures
@@ -7381,6 +7432,8 @@ static void __4_mark_var_func(struct sinode *sn)
 	struct func_node *fn;
 	fn = (struct func_node *)sn->data;
 
+	int held = analysis__sibuf_hold(sn->buf);
+
 	cur_fsn = sn;
 	cur_fn = fn;
 	si_current_function_decl = (tree)(long)sn->obj->real_addr;
@@ -7405,6 +7458,9 @@ static void __4_mark_var_func(struct sinode *sn)
 		}
 	}
 
+	if (!held)
+		analysis__sibuf_drop(sn->buf);
+
 	CLIB_DBG_FUNC_EXIT();
 	return;
 }
@@ -7414,7 +7470,6 @@ static void do_phase4_func(struct sinode *sn)
 {
 	CLIB_DBG_FUNC_ENTER();
 
-	analysis__resfile_load(sn->buf);
 	__4_mark_var_func(sn);
 
 	CLIB_DBG_FUNC_EXIT();
@@ -7424,9 +7479,10 @@ static void do_phase4(struct sibuf *b)
 {
 	CLIB_DBG_FUNC_ENTER();
 
-	analysis__resfile_load(b);
+	int held = analysis__sibuf_hold(b);
 
 	for (obj_idx = 0; obj_idx < real_obj_cnt; obj_idx++) {
+
 		if (objs[obj_idx].is_dropped || objs[obj_idx].is_replaced)
 			continue;
 
@@ -7451,6 +7507,9 @@ static void do_phase4(struct sibuf *b)
 			continue;
 		}
 	}
+
+	if (!held)
+		analysis__sibuf_drop(b);
 
 	CLIB_DBG_FUNC_EXIT();
 }
@@ -7525,6 +7584,8 @@ static void __func_assigned(struct sinode *n, struct sinode *fsn, tree op)
 {
 	CLIB_DBG_FUNC_ENTER();
 
+	int held = analysis__sibuf_hold(fsn->buf);
+
 	enum tree_code tc = TREE_CODE(op);
 	switch (tc) {
 	case VAR_DECL:
@@ -7579,6 +7640,9 @@ static void __func_assigned(struct sinode *n, struct sinode *fsn, tree op)
 	}
 	}
 
+	if (!held)
+		analysis__sibuf_drop(fsn->buf);
+
 	CLIB_DBG_FUNC_EXIT();
 	return;
 }
@@ -7594,15 +7658,18 @@ static void __do_func_used_at(struct sinode *sn, struct func_node *fn)
 						SEARCH_BY_ID,
 						&tmp_ua->func_id);
 		BUG_ON(!fsn);
-		analysis__resfile_load(fsn->buf);
 
 		if (tmp_ua->type == SI_TYPE_DF_GIMPLE) {
 			gimple_seq gs = (gimple_seq)tmp_ua->where;
+			int held = analysis__sibuf_hold(fsn->buf);
 			enum gimple_code gc = gimple_code(gs);
 			if (gc == GIMPLE_ASSIGN) {
 				BUG_ON(tmp_ua->extra_info == 0);
-				if (unlikely(gimple_num_ops(gs) != 2))
+				if (unlikely(gimple_num_ops(gs) != 2)) {
+					if (!held)
+						analysis__sibuf_drop(fsn->buf);
 					continue;
+				}
 				tree *ops = gimple_ops(gs);
 				tree lhs = ops[0];
 				__func_assigned(sn, fsn, lhs);
@@ -7616,6 +7683,8 @@ static void __do_func_used_at(struct sinode *sn, struct func_node *fn)
 			} else {
 				si_log1("miss %s\n", gimple_code_name[gc]);
 			}
+			if (!held)
+				analysis__sibuf_drop(fsn->buf);
 		}
 	}
 
@@ -7661,7 +7730,7 @@ static void callee_alias_add_caller(struct sinode *callee,
 			continue;
 
 		struct sibuf *b = find_target_sibuf(node);
-		analysis__resfile_load(b);
+		int held = analysis__sibuf_hold(b);
 		if (TREE_CODE(node) == IDENTIFIER_NODE) {
 			get_node_name(node, name);
 		} else if (TREE_CODE(node) == STRING_CST) {
@@ -7672,6 +7741,8 @@ static void callee_alias_add_caller(struct sinode *callee,
 		} else {
 			BUG();
 		}
+		if (!held)
+			analysis__sibuf_drop(b);
 
 		/* FIXME, a static function? */
 		struct sinode *new_callee;
@@ -8131,6 +8202,7 @@ static void __do_trace_call(struct sinode *sn, struct func_node *fn)
 
 	cur_fsn = sn;
 	cur_fn = fn;
+	int held = analysis__sibuf_hold(sn->buf);
 	si_current_function_decl = (tree)(long)sn->obj->real_addr;
 
 	basic_block bb;
@@ -8149,6 +8221,8 @@ static void __do_trace_call(struct sinode *sn, struct func_node *fn)
 		}
 	}
 
+	if (!held)
+		analysis__sibuf_drop(sn->buf);
 	CLIB_DBG_FUNC_EXIT();
 	return;
 }
@@ -8159,7 +8233,6 @@ static void do_phase5_func(struct sinode *n)
 
 	struct func_node *fn;
 
-	analysis__resfile_load(n->buf);
 	fn = (struct func_node *)n->data;
 
 	__do_func_used_at(n, fn);
@@ -8173,7 +8246,10 @@ static void do_phase5(struct sibuf *b)
 {
 	CLIB_DBG_FUNC_ENTER();
 
+	int held = analysis__sibuf_hold(b);
+
 	for (obj_idx = 0; obj_idx < obj_cnt; obj_idx++) {
+
 		if (objs[obj_idx].is_dropped || objs[obj_idx].is_replaced)
 			continue;
 
@@ -8192,6 +8268,9 @@ static void do_phase5(struct sibuf *b)
 
 		do_phase5_func(n);
 	}
+
+	if (!held)
+		analysis__sibuf_drop(b);
 
 	CLIB_DBG_FUNC_EXIT();
 	return;
@@ -8269,6 +8348,9 @@ static void do_gcc_global_var_adjust(void)
 
 static void *get_global(struct sibuf *b, const char *string, int *len)
 {
+	int held = analysis__sibuf_hold(b);
+
+	void *ret = NULL;
 	tree *t0 = (tree *)b->globals;
 	tree *t1 = (tree *)(&t0[TI_MAX]);
 	tree *t2 = (tree *)(&t1[itk_none]);
@@ -8279,18 +8361,20 @@ static void *get_global(struct sibuf *b, const char *string, int *len)
 	if (!strcmp(string, "global_trees")) {
 		if (len)
 			*len = TI_MAX;
-		return (void *)t0;
+		ret = (void *)t0;
 	} else if (!strcmp(string, "integer_types")) {
 		if (len)
 			*len = itk_none;
-		return (void *)t1;
+		ret = (void *)t1;
 	} else if (!strcmp(string, "sizetype_tab")) {
 		if (len)
 			*len = stk_type_kind_last;
-		return (void *)t2;
-	} else {
-		return NULL;
+		ret = (void *)t2;
 	}
+
+	if (!held)
+		analysis__sibuf_drop(b);
+	return ret;
 }
 
 static void setup_gcc_globals(struct sibuf *buf)
@@ -8303,6 +8387,8 @@ static void setup_gcc_globals(struct sibuf *buf)
 	len += stk_type_kind_last * sizeof(tree);
 
 	buf->globals = (void *)src_buf_get(len);
+
+	int held = analysis__sibuf_hold(buf);
 
 	size_t ggv_idx = 0;
 	for (ggv_idx = 0; ggv_idx < obj_cnt; ggv_idx++) {
@@ -8333,6 +8419,9 @@ static void setup_gcc_globals(struct sibuf *buf)
 	}
 	BUG_ON(ggv_idx > obj_cnt);
 
+	if (!held)
+		analysis__sibuf_drop(buf);
+
 	CLIB_DBG_FUNC_EXIT();
 	return;
 }
@@ -8344,10 +8433,15 @@ static int c_parse(struct sibuf *buf, int parse_mode)
 	CLIB_DBG_FUNC_ENTER();
 
 	struct file_content *fc = (struct file_content *)buf->load_addr;
+
+	int held = analysis__sibuf_hold(buf);
+
 	if ((fc->gcc_ver_major != gcc_ver_major) ||
 		(fc->gcc_ver_minor > gcc_ver_minor)) {
 		si_log1_warn("gcc version not match, need %d.%d\n",
 				fc->gcc_ver_major, fc->gcc_ver_minor);
+		if (!held)
+			analysis__sibuf_drop(buf);
 		CLIB_DBG_FUNC_EXIT();
 		return -1;
 	}
@@ -8360,10 +8454,6 @@ static int c_parse(struct sibuf *buf, int parse_mode)
 	objs = buf->objs;
 	obj_idx = 0;
 	obj_adjusted = 0;
-	if (!obj_cnt) {
-		CLIB_DBG_FUNC_EXIT();
-		return 0;
-	}
 
 	/*
 	 * XXX: we need to copy the path to current thread stack.
@@ -8372,6 +8462,14 @@ static int c_parse(struct sibuf *buf, int parse_mode)
 	 */
 	char sp_path[PATH_MAX];
 	snprintf(sp_path, PATH_MAX, "%s", fc->path + fc->srcroot_len);
+
+	if (!obj_cnt) {
+		if (!held)
+			analysis__sibuf_drop(buf);
+
+		CLIB_DBG_FUNC_EXIT();
+		return 0;
+	}
 
 	switch (mode) {
 	case MODE_ADJUST:
@@ -8519,6 +8617,9 @@ static int c_parse(struct sibuf *buf, int parse_mode)
 	default:
 		break;
 	}
+
+	if (!held)
+		analysis__sibuf_drop(buf);
 
 	CLIB_DBG_FUNC_EXIT();
 	return 0;
@@ -9042,7 +9143,9 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 		expanded_location *xloc;
 		struct sibuf *b;
 		b = find_target_sibuf(n);
-		analysis__resfile_load(b);
+		int held = analysis__sibuf_hold(b);
+		if (!held)
+			analysis__sibuf_drop(b);
 		xloc = get_location(GET_LOC_VAR, b->payload, n);
 
 		if (si_is_global_var(n, xloc)) {
@@ -9770,7 +9873,9 @@ static int dec_gimple_call(struct sample_set *sset, int idx,
 	}
 
 	struct sibuf *b = find_target_sibuf((void *)target_fn->node);
-	analysis__resfile_load(b);
+	int held = analysis__sibuf_hold(b);
+	if (!held)
+		analysis__sibuf_drop(b);
 
 	/* FIXME: what is static chain for a GIMPLE_CALL, op[2]? */
 	sample_empty_arg_head(sample);

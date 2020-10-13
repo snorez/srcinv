@@ -1,7 +1,6 @@
 /*
  * for maping resfile into memory, while mmap return ENOMEM, do the GC
- * GC:
- *	iter sibuf, check the last access_at, sort, unload the olddest sibuf, return
+ *
  * TODO
  * Copyright (C) 2018  zerons
  *
@@ -30,12 +29,15 @@ static struct resfile *resfile_find(char *path, struct slist_head *head)
 	return NULL;
 }
 
-struct resfile *resfile_new(char *path, int built_in)
+struct resfile *resfile_new(char *path, int built_in, int *exist)
 {
 	struct resfile *ret;
+	*exist = 0;
 	ret = resfile_find(path, &si->resfile_head);
-	if (ret)
+	if (ret) {
+		*exist = 1;
 		return ret;
+	}
 
 	size_t pathlen = strlen(path) + 1;
 	ret = (struct resfile *)src_buf_get(sizeof(struct resfile) + pathlen);
@@ -53,256 +55,13 @@ struct resfile *resfile_new(char *path, int built_in)
 
 void resfile_add(struct resfile *rf)
 {
-	if (resfile_find(rf->path, &si->resfile_head))
-		return;
-
 	if (rf->built_in)
 		slist_add(&rf->sibling, &si->resfile_head);
 	else
 		slist_add_tail(&rf->sibling, &si->resfile_head);
 }
 
-static void prepare_unmap(void *addr, size_t len)
-{
-	struct sibuf *tmp;
-	slist_for_each_entry(tmp, &si->sibuf_head, sibling) {
-		if ((tmp->load_addr >= (unsigned long)addr) &&
-			(tmp->load_addr < (unsigned long)(addr+len))) {
-			tmp->need_unload = 0;
-		}
-	}
-}
-
-/*
- * fill up a sibuf structure
- * return val:
- *	0: resfile read finished
- *	1: resfile read done, reread again
- *	-1: err
- */
-int resfile_read(struct resfile *rf, struct sibuf *buf, int force)
-{
-	int err = 0;
-	int fd = rf->fd;
-	if (unlikely(fd == -1)) {
-		fd = open(rf->path, O_RDWR);
-		if (fd == -1) {
-			err_dbg(1, "open err");
-			return -1;
-		}
-		rf->fd = fd;
-	}
-
-	/*
-	 * three situations:
-	 *	resfile not mmap-ed
-	 *	resfile mmap some
-	 *	resfile mmap all
-	 */
-	if (unlikely(!rf->buf_start)) {
-		struct stat st;
-		void *addr;
-		err = fstat(fd, &st);
-		if (err == -1) {
-			err_dbg(1, "fstat err");
-			return -1;
-		}
-		rf->filelen = st.st_size;
-
-		size_t mmaplen = rf->filelen;
-		if (mmaplen > RESFILE_BUF_SIZE)
-			mmaplen = RESFILE_BUF_SIZE;
-
-		si->next_mmap_area = clib_round_up(si->next_mmap_area,
-							PAGE_SIZE);
-		mmaplen = clib_round_up(mmaplen, PAGE_SIZE);
-mmap_again0:
-		addr = mmap((void *)si->next_mmap_area, mmaplen,
-					PROT_READ | PROT_WRITE,
-					MAP_FIXED | MAP_SHARED, fd, 0);
-		if (addr == MAP_FAILED) {
-			if (errno == ENOMEM) {
-				resfile_gc();
-				goto mmap_again0;
-			}
-			err_dbg(1, "mmap err");
-			return -1;
-		}
-
-		rf->buf_start = (unsigned long)addr;
-		rf->buf_size = mmaplen;
-		si->next_mmap_area += mmaplen;
-	}
-
-	if (rf->file_offs == rf->filelen)
-		return 0;
-
-	/* TODO, what if start is just at rf->buf_start + rf->buf_size */
-	char *start = ((char *)rf->buf_start) + rf->buf_offs;
-	unsigned int *this_total = (unsigned int *)start;
-	if ((*this_total + rf->file_offs) > rf->filelen)
-		BUG();
-
-	if ((start + *this_total) > (char *)(rf->buf_start + rf->buf_size)) {
-		if (!force)
-			return -EAGAIN;
-
-		/*
-		 * XXX, need remap
-		 * we try to keep the file is continous in memory
-		 */
-		void *addr;
-		unsigned long unmap_addr = rf->buf_start;
-		unsigned long unmap_end;
-		unmap_end = clib_round_down(rf->buf_start + rf->buf_offs,
-						PAGE_SIZE);
-		prepare_unmap((void *)unmap_addr, unmap_end - unmap_addr);
-		err = munmap((void *)unmap_addr, unmap_end - unmap_addr);
-		if (err == -1) {
-			err_dbg(1, "munmap err");
-			return -1;
-		}
-
-		unsigned long mmap_fileoffset = rf->file_offs +
-						(rf->buf_size-rf->buf_offs);
-		size_t mmaplen = rf->filelen - mmap_fileoffset;
-		if (mmaplen > RESFILE_BUF_SIZE)
-			mmaplen = RESFILE_BUF_SIZE;
-		si->next_mmap_area = clib_round_up(si->next_mmap_area,
-							PAGE_SIZE);
-		mmaplen = clib_round_up(mmaplen, PAGE_SIZE);
-mmap_again1:
-		addr = mmap((void *)si->next_mmap_area, mmaplen,
-				PROT_READ | PROT_WRITE,
-				MAP_FIXED | MAP_SHARED, fd, mmap_fileoffset);
-		if (addr == MAP_FAILED) {
-			if (errno == ENOMEM) {
-				resfile_gc();
-				goto mmap_again1;
-			}
-			err_dbg(1, "mmap err");
-			return -1;
-		}
-
-		rf->buf_start = (unsigned long)unmap_end;
-#if 0
-		rf->buf_size = mmaplen + (unmap_end - unmap_addr);
-		rf->buf_offs = rf->buf_offs-(unmap_end-unmap_addr);
-#endif
-		rf->buf_size = mmaplen +
-				(rf->buf_size - (unmap_end - unmap_addr));
-		rf->buf_offs = 0;
-		si->next_mmap_area += mmaplen;
-
-		start = ((char *)rf->buf_start) + rf->buf_offs;
-		this_total = (unsigned int *)start;
-	}
-
-	memset(buf, 0, sizeof(*buf));
-	struct file_content *fc = (struct file_content *)start;
-	void *zero = fc_pldptr(start);
-
-	buf->rf = rf;
-	buf->load_addr = (unsigned long)start;
-	buf->total_len = *this_total;
-	buf->offs_of_resfile = rf->file_offs;
-	buf->payload = zero;
-	buf->pldlen = (start + fc->objs_offs) - (char *)zero;
-	buf->objs = (struct file_obj *)(start + fc->objs_offs);
-	buf->obj_cnt = fc->objs_cnt;
-	BUG_ON(gettimeofday(&buf->access_at, NULL));
-	struct file_obj *objs = buf->objs;
-	for (size_t i = 0; i < buf->obj_cnt; i++) {
-		if (objs[i].real_addr)
-			continue;
-		if (!i)
-			objs[i].offs = 0;
-		else
-			objs[i].offs = objs[i-1].offs + objs[i-1].size;
-		objs[i].real_addr = (unsigned long)buf->payload + objs[i].offs;
-	}
-
-	rf->buf_offs += *this_total;
-	rf->file_offs += *this_total;
-
-	return 1;
-}
-
-static lock_t gc_lock;
-void resfile_load(struct sibuf *buf)
-{
-	mutex_lock(&gc_lock);
-	struct resfile *rf = buf->rf;
-	char workdir[PATH_MAX];
-	if (unlikely(si_current_workdir(workdir, PATH_MAX))) {
-		mutex_unlock(&gc_lock);
-		return;
-	}
-	if (unlikely(strncmp(rf->path, workdir, strlen(workdir)))) {
-		err_dbg(0, "Warning: resfile(%s) not in current workdir(%s)\n",
-				rf->path, workdir);
-		mutex_unlock(&gc_lock);
-		return;
-	}
-
-	if (rf->fd == -1) {
-		rf->fd = open(rf->path, O_RDWR);
-		if (rf->fd == -1)
-			BUG();
-	}
-
-	unsigned long load_addr = buf->load_addr;
-	loff_t offs_of_resfile = buf->offs_of_resfile;
-	unsigned int filelen = buf->total_len;
-	unsigned long mmap_addr = clib_round_down(load_addr, PAGE_SIZE);
-	size_t mmap_size;
-	mmap_size = clib_round_up(load_addr+filelen, PAGE_SIZE) - mmap_addr;
-
-	if (buf->need_unload)
-		goto fill_buf;
-	/* TODO, race condition */
-	if ((mmap_addr >= si->next_mmap_area) &&
-	    ((mmap_addr+mmap_size) <= (si->next_mmap_area + RESFILE_BUF_SIZE)))
-		goto fill_buf;
-
-	if ((mmap_addr < si->next_mmap_area) &&
-			((mmap_addr+mmap_size) > (si->next_mmap_area)))
-		BUG();
-	if ((mmap_addr < (si->next_mmap_area + RESFILE_BUF_SIZE)) &&
-		((mmap_addr+mmap_size) > (si->next_mmap_area+RESFILE_BUF_SIZE)))
-		BUG();
-
-	char *addr;
-mmap_again0:
-	while ((atomic_read(&si->sibuf_mem_usage) + mmap_size) >
-			SIBUF_LOADED_MAX) {
-		mutex_unlock(&gc_lock);
-		resfile_gc();
-		mutex_lock(&gc_lock);
-	}
-
-	addr = mmap((void *)mmap_addr, mmap_size, PROT_READ | PROT_WRITE,
-			MAP_FIXED | MAP_SHARED, rf->fd,
-			offs_of_resfile-(load_addr-mmap_addr));
-	if (addr == MAP_FAILED) {
-		if (errno == ENOMEM) {
-			mutex_unlock(&gc_lock);
-			resfile_gc();
-			mutex_lock(&gc_lock);
-			goto mmap_again0;
-		}
-		err_dbg(1, "mmap err");
-		BUG();
-	}
-	atomic_add(buf->total_len, &si->sibuf_mem_usage);
-
-fill_buf:
-	buf->need_unload = 1;
-	BUG_ON(gettimeofday(&buf->access_at, NULL));
-	mutex_unlock(&gc_lock);
-}
-
-void resfile_unload(struct sibuf *buf)
+static void resfile_unload(struct sibuf *buf)
 {
 	if (!buf->need_unload)
 		return;
@@ -314,7 +73,113 @@ void resfile_unload(struct sibuf *buf)
 	mmap_size = clib_round_up(load_addr+filelen, PAGE_SIZE) - mmap_addr;
 	BUG_ON(munmap((void *)mmap_addr, mmap_size) == -1);
 	buf->need_unload = 0;
+	sibuf_cleanup_user(buf);
 	atomic_sub(buf->total_len, &si->sibuf_mem_usage);
+}
+
+static lock_t gc_lock;
+static unsigned long usleep_usec = 1000*10;
+static int resfile_gc(void)
+{
+	int err = 0;
+	struct sibuf *gc_target = NULL;
+
+	mutex_lock(&gc_lock);
+	struct sibuf *tmp;
+	slist_for_each_entry(tmp, &si->sibuf_head, sibling) {
+		if (!tmp->need_unload)
+			continue;
+
+		sibuf_lock_r(tmp);
+		if (slist_empty(&tmp->users)) {
+			gc_target = tmp;
+			resfile_unload(gc_target);
+		}
+		sibuf_unlock_r(tmp);
+	}
+
+	if (!gc_target)
+		err = -1;	/* no memory could be released */
+	mutex_unlock(&gc_lock);
+	return err;
+}
+
+static int resfile_load(struct sibuf *buf)
+{
+	int exists = 0;
+
+	mutex_lock(&gc_lock);
+	struct resfile *rf = buf->rf;
+	if (unlikely(rf->fd == -1)) {
+		char workdir[PATH_MAX];
+		if (unlikely(si_current_workdir(workdir, PATH_MAX))) {
+			mutex_unlock(&gc_lock);
+			return -1;
+		}
+		if (unlikely(strncmp(rf->path, workdir, strlen(workdir)))) {
+			err_dbg(0, "Warning: resfile(%s) not in current "
+					"workdir(%s)\n", rf->path, workdir);
+			mutex_unlock(&gc_lock);
+			return -1;
+		}
+
+		rf->fd = open(rf->path, O_RDWR);
+		if (rf->fd == -1)
+			BUG();
+	}
+
+	unsigned long load_addr = buf->load_addr;
+	loff_t offs_of_resfile = buf->offs_of_resfile;
+	unsigned int filelen = buf->total_len;
+	unsigned long mmap_addr = clib_round_down(load_addr, PAGE_SIZE);
+	size_t mmap_size;
+	char *addr;
+	mmap_size = clib_round_up(load_addr+filelen, PAGE_SIZE) - mmap_addr;
+
+	if (buf->need_unload)
+		goto fill_buf;
+
+mmap_again0:
+	while ((atomic_read(&si->sibuf_mem_usage) + mmap_size) >
+			SIBUF_LOADED_MAX) {
+		mutex_unlock(&gc_lock);
+		if (resfile_gc())
+			usleep(usleep_usec);
+		mutex_lock(&gc_lock);
+	}
+
+	addr = mmap((void *)mmap_addr, mmap_size, PROT_READ | PROT_WRITE,
+			MAP_FIXED | MAP_SHARED, rf->fd,
+			offs_of_resfile-(load_addr-mmap_addr));
+	if (addr == MAP_FAILED) {
+		if (errno == ENOMEM) {
+			mutex_unlock(&gc_lock);
+			if (resfile_gc())
+				usleep(usleep_usec);
+			mutex_lock(&gc_lock);
+			goto mmap_again0;
+		}
+		err_dbg(1, "mmap err");
+		BUG();
+	}
+	atomic_add(buf->total_len, &si->sibuf_mem_usage);
+
+fill_buf:
+	buf->need_unload = 1;
+	exists = sibuf_add_user(buf, pthread_self());
+	mutex_unlock(&gc_lock);
+
+	return exists;
+}
+
+int sibuf_hold(struct sibuf *buf)
+{
+	return resfile_load(buf);
+}
+
+void sibuf_drop(struct sibuf *buf)
+{
+	sibuf_del_user(buf, pthread_self());
 }
 
 void resfile_unload_all(void)
@@ -322,101 +187,103 @@ void resfile_unload_all(void)
 	mutex_lock(&gc_lock);
 	struct sibuf *tmp;
 	slist_for_each_entry(tmp, &si->sibuf_head, sibling) {
-		analysis__resfile_unload(tmp);
+		resfile_unload(tmp);
 	}
 	atomic_set(&si->sibuf_mem_usage, 0);
 	mutex_unlock(&gc_lock);
 }
 
-/* XXX, this should be called very carefully, in case race condition happens */
-int resfile_gc(void)
-{
-	int err = 0;
-	struct timeval tv_old;
-	struct sibuf *gc_target = NULL;
-	memset(&tv_old, 0, sizeof(tv_old));
-
-	mutex_lock(&gc_lock);
-	struct sibuf *tmp;
-	slist_for_each_entry(tmp, &si->sibuf_head, sibling) {
-		if (!tmp->need_unload)
-			continue;
-		if (!tv_old.tv_sec) {
-			gc_target = tmp;
-			tv_old = tmp->access_at;
-		}
-		if (tv_old.tv_sec < tmp->access_at.tv_sec) {
-			continue;
-		} else if ((tv_old.tv_sec > tmp->access_at.tv_sec) ||
-				(tv_old.tv_usec > tmp->access_at.tv_usec)) {
-			gc_target = tmp;
-			tv_old = tmp->access_at;
-		}
-	}
-
-	if (!gc_target)
-		err = -1;	/* no memory could be collect */
-	else
-		analysis__resfile_unload(gc_target);
-	mutex_unlock(&gc_lock);
-	return err;
-}
-
-static char tmp_read_buf[MAX_SIZE_PER_FILE];
-int resfile_get_filecnt(struct resfile *rf)
+int resfile_preview(struct resfile *rf)
 {
 	int fd, err;
 	fd = rf->fd;
 	if (fd == -1) {
-		fd = open(rf->path, O_RDONLY);
+		fd = open(rf->path, O_RDWR);
 		if (fd == -1) {
 			err_dbg(1, "open err");
 			return -1;
 		}
+		rf->fd = fd;
 	}
 
-	unsigned long *cnt = &rf->total_files;
-	if (!*cnt) {
-		while (1) {
-			unsigned int *this_total = (unsigned int *)tmp_read_buf;
-			err = read(fd, this_total, sizeof(unsigned int));
-			if (err == -1) {
-				err_dbg(1, "read err");
-				close(fd);
-				rf->fd = -1;
-				return -1;
-			} else if (!err)
-				break;
+	struct stat st;
+	err = fstat(fd, &st);
+	if (err == -1) {
+		err_dbg(1, "fstat err");
+		return -1;
+	}
 
-			err = read(fd, tmp_read_buf+sizeof(unsigned int),
-					*this_total-sizeof(unsigned int));
-			if (err == -1) {
-				err_dbg(1, "read err");
-				close(fd);
-				rf->fd = -1;
-				return -1;
-			} else if (!err) {
-				err_dbg(0, "resfile format err");
-				close(fd);
-				rf->fd = -1;
-				return -1;
-			} else if (err != (*this_total-sizeof(unsigned int))) {
-				err_dbg(0, "resfile format err");
-				close(fd);
-				rf->fd = -1;
-				return -1;
-			}
+	unsigned long file_offs = 0;
+	unsigned long file_cnt = 0;
+	unsigned long addr_base = RESFILE_BUF_START, addr_tmp;
+	struct resfile *tmp;
+	slist_for_each_entry(tmp, &si->resfile_head, sibling) {
+		addr_base += clib_round_up(tmp->filelen, PAGE_SIZE);
+	}
+	addr_tmp = addr_base;
 
-			*cnt += 1;
+	while (1) {
+		void *addr;
+		addr = mmap(NULL, MAX_SIZE_PER_FILE, PROT_READ | PROT_WRITE,
+				MAP_SHARED, fd, file_offs);
+		if (addr == MAP_FAILED) {
+			err_dbg(1, "mmap err");
+			return -1;
+		}
+
+		unsigned int this_total = *(unsigned int *)addr;
+		struct file_content *fc = (struct file_content *)addr;
+		void *zero = fc_pldptr(addr);
+
+		struct sibuf *b;
+		b = sibuf_new();
+		b->rf = rf;
+		b->load_addr = addr_tmp;
+		b->total_len = this_total;
+		b->offs_of_resfile = file_offs;
+		b->payload = (char *)(zero - addr + addr_tmp);
+		b->pldlen = addr + fc->objs_offs - zero;
+		b->objs = (struct file_obj *)(addr_tmp + fc->objs_offs);
+		b->obj_cnt = fc->objs_cnt;
+
+		struct file_obj *objs;
+		objs = (struct file_obj *)(addr + fc->objs_offs);
+		for (size_t i = 0; i < b->obj_cnt; i++) {
+			if (objs[i].real_addr)
+				continue;
+			if (!i)
+				objs[i].offs = 0;
+			else
+				objs[i].offs = objs[i-1].offs + objs[i-1].size;
+			objs[i].real_addr = (unsigned long)b->payload +
+						objs[i].offs;
+		}
+		sibuf_insert(b);
+
+		err = munmap(addr, MAX_SIZE_PER_FILE);
+		if (err == -1) {
+			err_dbg(1, "munmap err");
+			return -1;
+		}
+
+		file_cnt++;
+		file_offs += this_total;
+		addr_tmp += this_total;
+		if (file_offs == st.st_size)
+			break;
+		if (file_offs > st.st_size) {
+			err_dbg(0, "resfile file size not right.");
+			return -1;
 		}
 	}
 
-	close(fd);
-	rf->fd = -1;
+	rf->filelen = st.st_size;
+	rf->total_files = file_cnt;
 
 	return 0;
 }
 
+static char tmp_read_buf[MAX_SIZE_PER_FILE];
 int resfile_get_offset(char *path, unsigned long filecnt, unsigned long *offs)
 {
 	int fd, err = 0;

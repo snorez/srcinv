@@ -46,9 +46,11 @@ int dec_next(struct sample_set *sset, int idx)
 		return -1;
 	}
 
-	analysis__resfile_load(buf);
 	fc = (struct file_content *)buf->load_addr;
+	int held = analysis__sibuf_hold(buf);
 	ops = lang_ops_find(&analysis_lang_ops_head, &fc->type);
+	if (!held)
+		analysis__sibuf_drop(buf);
 	if (!ops) {
 		si_log1_todo("lang_ops_find return NULL\n");
 		return -1;
