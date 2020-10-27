@@ -24,7 +24,7 @@
 static char *show_cmdname = "show";
 static void show_usage(void)
 {
-	fprintf(stdout, "\t (name) [path]\n"
+	fprintf(stdout, "\t (name)\n"
 			"\tFind module by given name & show its comment\n");
 }
 

@@ -1,3 +1,7 @@
+2020-10-27
+	* collect/asm.cc: fix BUG_ON on some abnormal filename
+	* srcinv: fix issues
+
 2020-10-13
 	* srcinv: fix issues when parsing ubuntu linux kernel 5.4.0
 

@@ -261,9 +261,14 @@ int plugin_init(struct plugin_name_args *plugin_info,
 		if (strcmp(file+strlen(file)-2, ".s") &&
 			strcmp(file+strlen(file)-2, ".S"))
 			return 0;
+	} else {
+		return 0;
 	}
 	char *last_dot_pos = strrchr((char *)file, '.');
-	BUG_ON(!last_dot_pos);
+	if (unlikely(!last_dot_pos)) {
+		fprintf(stderr, "current compiling filename: %s\n", file);
+		BUG();
+	}
 	memcpy(objfile, file, last_dot_pos - file);
 	memcpy(objfile + (last_dot_pos - file), ".o", 3);
 

@@ -7013,6 +7013,10 @@ static void __4_mark_bit_field_ref(tree op)
 		enum gimple_code gc;
 		expanded_location *xloc;
 
+		/*
+		 * TODO: view_convert_expr in gimple_assign,
+		 * loc: linux-5.4.0/drivers/iommu/intel_irq_remapping.c 176 46
+		 */
 		gc = gimple_code(cur_gimple);
 		xloc = get_gimple_loc(cur_fsn->buf->payload,
 					&cur_gimple->location);
@@ -7203,6 +7207,7 @@ static void __4_mark_addr_expr(tree op)
 	}
 	case LABEL_DECL:
 	{
+		/* TODO: miss gimple_call? */
 		if (gimple_code(cur_gimple) != GIMPLE_ASSIGN)
 			si_log1_todo("miss %s\n",
 				gimple_code_name[gimple_code(cur_gimple)]);
@@ -7420,6 +7425,8 @@ static void __4_mark_gimple(gimple_seq gs)
 			def = gimple_phi_arg_def(gs, i);
 			do_tree(def);
 		}
+		do_tree(gimple_phi_result(gs));
+		/* TODO: ssa_use_operand_t not handled */
 	}
 
 	CLIB_DBG_FUNC_EXIT();
@@ -7635,6 +7642,7 @@ static void __func_assigned(struct sinode *n, struct sinode *fsn, tree op)
 	}
 	default:
 	{
+		/* TODO: miss ADDR_EXPR */
 		si_log1("miss %s\n", tree_code_name[tc]);
 		break;
 	}
@@ -7681,6 +7689,7 @@ static void __do_func_used_at(struct sinode *sn, struct func_node *fn)
 				/* TODO */
 				si_log1_todo("GIMPLE_ASM in phase5\n");
 			} else {
+				/* TODO: miss gimple_phi */
 				si_log1("miss %s\n", gimple_code_name[gc]);
 			}
 			if (!held)
@@ -7936,6 +7945,7 @@ static void call_ssaname_gassign(struct sinode *sn,
 	}
 	default:
 	{
+		/* TODO: miss ARRAY_REF/SSA_NAME */
 		si_log1_todo("miss subcode %s\n", tree_code_name[tc]);
 		break;
 	}
@@ -7989,6 +7999,7 @@ static void call_ssaname_gphi_op(struct sinode *sn, struct func_node *fn,
 	}
 	default:
 	{
+		/* TODO: miss ADDR_EXPR */
 		si_log1_todo("miss %s\n", tree_code_name[TREE_CODE(phi_op)]);
 		break;
 	}
@@ -8058,6 +8069,7 @@ static void call_ssaname(struct sinode *sn, struct func_node *fn,
 	}
 	default:
 	{
+		/* TODO: miss GIMPLE_CALL */
 		si_log1_todo("miss %s\n",
 			     gimple_code_name[gimple_code(def_gs)]);
 		break;
@@ -8836,6 +8848,10 @@ static int guess_ds_val(struct sample_set *sset, int idx, struct fn_list *fnl,
 	int err = 0;
 	if (DSV_TYPE(dsv) != DSVT_UNK)
 		return 0;
+
+	struct sibuf *b;
+	b = find_target_sibuf((void *)node);
+	int held = analysis__sibuf_hold(b);
 	/*
 	 * FIXME: what if the node is CONSTRUCTOR, and the val is not set?
 	 * Is it right to check the type?
@@ -8845,6 +8861,8 @@ static int guess_ds_val(struct sample_set *sset, int idx, struct fn_list *fnl,
 	if (TREE_CODE(node) == SSA_NAME) {
 		if (!gimple_in_func_stmts(fnl->fn, SSA_NAME_DEF_STMT(node))) {
 			err = do_dec(sset, idx, fnl, SSA_NAME_DEF_STMT(node));
+			if (!held)
+				analysis__sibuf_drop(b);
 			return err;
 		}
 	}
@@ -8868,7 +8886,17 @@ static int guess_ds_val(struct sample_set *sset, int idx, struct fn_list *fnl,
 			tree this_type = TREE_TYPE(field);
 			struct data_state_val1 *dsv1;
 			this_offset = get_field_offset(field);
-			this_bits = TREE_INT_CST_LOW(TYPE_SIZE(this_type));
+			if (TYPE_SIZE(this_type)) {
+				this_bits = TREE_INT_CST_LOW(
+						TYPE_SIZE(this_type));
+			} else if (TREE_CODE(this_type) == ARRAY_TYPE) {
+				/* The size is calculated in runtime */
+				this_bits = 0;
+			} else {
+				si_log1_todo("miss %s\n",
+					   tree_code_name[TREE_CODE(this_type)]);
+				this_bits = 0;
+			}
 			dsv1 = data_state_val1_alloc((void *)field);
 			dsv1->offset = (s32)this_offset;
 			dsv1->bits = this_bits;
@@ -8909,7 +8937,7 @@ static int guess_ds_val(struct sample_set *sset, int idx, struct fn_list *fnl,
 	}
 	case ENUMERAL_TYPE:
 	{
-		tree enum_list = TYPE_VALUES(node);
+		tree enum_list = TYPE_VALUES(type);
 
 		int cnt = 0;
 		while (enum_list) {
@@ -8919,7 +8947,7 @@ static int guess_ds_val(struct sample_set *sset, int idx, struct fn_list *fnl,
 
 		int idx = cnt ? (s_random() % cnt) : 0;
 		cnt = 0;
-		enum_list = TYPE_VALUES(node);
+		enum_list = TYPE_VALUES(type);
 		long value = s_random();
 		dsv_alloc_data(dsv, DSVT_INT_CST, sizeof(int));
 		*(int *)DSV_SEC1_VAL(dsv) = (int)value;
@@ -8965,6 +8993,8 @@ static int guess_ds_val(struct sample_set *sset, int idx, struct fn_list *fnl,
 	}
 	}
 
+	if (!held)
+		analysis__sibuf_drop(b);
 	return err;
 }
 
@@ -9473,7 +9503,11 @@ static void dsv_extend(struct data_state_val *dsv)
 	/* TODO: endian? */
 	tree n = (tree)(long)dsv->raw;
 	enum tree_code tc = TREE_CODE(n);
-	tree type = TREE_TYPE(n);
+	tree type;
+	if (TREE_CODE_CLASS(TREE_CODE(n)) != tcc_type)
+		type = TREE_TYPE(n);
+	else
+		type = n;
 	u32 msb_pos = TREE_INT_CST_LOW(TYPE_SIZE(type)) - 1;
 	int sign = 1;
 
@@ -9724,6 +9758,7 @@ static int dec_internal_call(struct sample_set *sset, int idx,
 				struct fn_list *fnl, gimple_seq gs)
 {
 	/* TODO: handle the internal call */
+	sset->samples[idx]->retval = (struct data_state_rw *)VOID_RETVAL;
 	return 0;
 }
 
@@ -10407,7 +10442,11 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 		 * we need to copy that field data to lhs_state
 		 */
 		tree n = (tree)(long)rhs1_val->raw;
-		tree type = TREE_TYPE(n);
+		tree type;
+		if (TREE_CODE_CLASS(TREE_CODE(n)) != tcc_type)
+			type = TREE_TYPE(n);
+		else
+			type = n;
 
 		switch (DSV_TYPE(rhs1_val)) {
 		case DSVT_INT_CST:

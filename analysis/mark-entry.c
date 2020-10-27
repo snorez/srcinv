@@ -21,14 +21,14 @@
 
 static void mark_subcall_entry(struct func_node *fn, int call_level)
 {
-	int call_level_max = (1 << (sizeof(fn->call_depth) * BITS_PER_UNIT)) - 1;
+	if ((fn->call_depth) && (fn->call_depth <= call_level))
+		return;
+
+	int call_level_max = (1 << CALL_DEPTH_BITS) - 1;
 	if (call_level > call_level_max) {
 		si_log1_warn("call_level exceed %d\n", call_level_max);
 		return;
 	}
-
-	if ((fn->call_depth) && (fn->call_depth <= call_level))
-		return;
 
 	fn->call_depth = call_level;
 
@@ -59,8 +59,8 @@ static int do_mark_entry(union siid *tid, char *string, int flag)
 	struct func_node *fn;
 	sn = analysis__sinode_search(siid_type(tid), SEARCH_BY_ID, tid);
 	if (!sn) {
-		err_dbg(0, "No match");
-		return -1;
+		/* this sinode may be replaced */
+		return 0;
 	}
 
 	fn = (struct func_node *)sn->data;
@@ -104,6 +104,7 @@ static int mark_linux_kern_entry(void)
 
 	tid->id0.id_type = TYPE_FUNC_GLOBAL;
 	for (; func_id < si->id_idx[TYPE_FUNC_GLOBAL].id1; func_id++) {
+		/* For x86_64 */
 		do_mark_entry(tid, "__x64_sys_", 0);
 	}
 

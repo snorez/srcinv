@@ -537,6 +537,7 @@ struct code_path {
 
 /* for TYPE_FUNC */
 #define	LABEL_MAX		(2048+1024)
+#define CALL_DEPTH_BITS		(10)
 struct func_node {
 	rwlock_t		lock;
 	struct code_path	**cps;
@@ -563,9 +564,9 @@ struct func_node {
 	u32			size;
 
 	u16			cp_cnt;
-	u8			call_depth;	/* 0: not set */
-	u8			detailed: 1;
-	u8			reserved: 7;
+	u16			detailed: 1;
+	u16			call_depth: CALL_DEPTH_BITS;	/* 0: not set */
+	u16			reserved: 5;
 };
 
 struct sibuf_typenode {
@@ -806,6 +807,11 @@ struct data_state_val {
 			u32			bytes;
 			u32			sign: 1;
 		} v1_info;
+
+		struct {
+			/* How many bytes this array/struct/union contains */
+			u32			total_bytes;
+		} v3_info;
 	} info;
 };
 
