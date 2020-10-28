@@ -336,7 +336,7 @@ struct si_module {
 BUILD_BUG_ON(SRC_BUF_START > SRC_BUF_END, "build arg check err");
 BUILD_BUG_ON(SRC_BUF_END > RESFILE_BUF_START, "build arg check err");
 /* BUILD_BUG_ON(SIBUF_LOADED_MAX < MAX_SIZE_PER_FILE, "build arg check err"); */
-BUILD_BUG_ON(SIBUF_LOADED_MAX < (THREAD_CNT * 0x8 * MAX_SIZE_PER_FILE), "build arg check err");
+BUILD_BUG_ON(SIBUF_LOADED_MAX < (THREAD_CNT * 0x4 * MAX_SIZE_PER_FILE), "build arg check err");
 
 /* for just one resfile, a project could have many resfiles */
 struct resfile {

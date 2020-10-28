@@ -143,8 +143,16 @@ mmap_again0:
 	while ((atomic_read(&si->sibuf_mem_usage) + mmap_size) >
 			SIBUF_LOADED_MAX) {
 		mutex_unlock(&gc_lock);
-		if (resfile_gc())
+		if (resfile_gc()) {
+			err_dbg(0, "resfile_gc() err, "
+					"current sibuf_mem_usage: 0x%lx, "
+					"max: 0x%lx, "
+					"needed: 0x%lx\n",
+					si->sibuf_mem_usage,
+					SIBUF_LOADED_MAX,
+					mmap_size);
 			usleep(usleep_usec);
+		}
 		mutex_lock(&gc_lock);
 	}
 

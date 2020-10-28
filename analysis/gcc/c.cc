@@ -9061,6 +9061,9 @@ static struct data_state_val *get_ds_val(struct sample_set *sset, int idx,
 	}
 	}
 
+	/* if target dsv not found, return the given one */
+	if (!ret)
+		ret = dsv;
 	return ret;
 }
 
