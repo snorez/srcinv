@@ -18,6 +18,7 @@ gen_file()
 	CONTENT=$''
 
 	CONTENT+=$'SELF_CFLAGS_N=2\n'
+	CONTENT+=$'SELF_DEBUG=1\n'
 	CONTENT+=$'ANALYSIS_THREAD_N=0x8\n'
 	CONTENT+=$'\n'
 
@@ -52,7 +53,7 @@ gen_file()
 	CONTENT+=$'\n'
 
 	CONTENT+=$'SELF_CFLAGS=\n'
-	CONTENT+=$'ifeq ($(SELF_CFLAGS_N), 0)\n'
+	CONTENT+=$'ifeq ($(SELF_DEBUG), 1)\n'
 	CONTENT+=$'SELF_CFLAGS=-g\n'
 	CONTENT+=$'endif\n'
 	CONTENT+=$'SELF_CFLAGS+=-Wall -O$(SELF_CFLAGS_N)\n'
