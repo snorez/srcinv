@@ -56,6 +56,7 @@ the `si_global_trees` memory area overlaps with the thread stack.
 ### analysis
 + locks and `_name_list_add` in phase 3 still take too long, about 70%.
 + rewrite phase 4 in analysis/gcc/c.cc.
++ handle global data defined in asm files.
 + why are there some functions like isra.xx part.yy?
 	- isra.xx: in gcc/tree-sra.c
 	```c

@@ -9352,6 +9352,14 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 		u32 bits;
 
 		tmp = get_ds_via_tree(sset, idx, fnl, TREE_OPERAND(n, 0), NULL);
+		if (!tmp) {
+			/*
+			 * TODO: in linux kernel in_lock_functions(), the
+			 * __lock_text_start seems to be defined in .S file,
+			 * which is not implemented by now. 2020-10-29.
+			 */
+			break;
+		}
 		bits = get_type_bits(TREE_OPERAND(n, 0));
 
 		ret = data_state_rw_new((u64)n, DSRT_RAW, n);
@@ -9383,6 +9391,10 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 		 */
 		struct data_state_rw *tmp;
 		tmp = get_ds_via_tree(sset, idx, fnl, TREE_OPERAND(n, 0), NULL);
+		if (!tmp) {
+			si_log1_todo("not handled\n");
+			break;
+		}
 
 		/* we got the array, now we need to get the offset and bits */
 		s32 this_offset = 0;
@@ -9410,6 +9422,10 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 		 */
 		struct data_state_rw *tmp;
 		tmp = get_ds_via_tree(sset, idx, fnl, TREE_OPERAND(n, 0), NULL);
+		if (!tmp) {
+			si_log1_todo("not handled\n");
+			break;
+		}
 
 		BUG_ON(NUM_POLY_INT_COEFFS > 1);
 		/* check bit_field_offset and bit_field_size */
@@ -9431,6 +9447,10 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 		 */
 		struct data_state_rw *tmp;
 		tmp = get_ds_via_tree(sset, idx, fnl, TREE_OPERAND(n, 0), NULL);
+		if (!tmp) {
+			si_log1_todo("not handled\n");
+			break;
+		}
 
 		u64 this_offset = get_field_offset(TREE_OPERAND(n, 1));
 		u64 this_bits = TREE_INT_CST_LOW(
@@ -9452,6 +9472,10 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 		struct data_state_rw *tmp;
 		struct data_state_val *tmp_dsv;
 		tmp = get_ds_via_tree(sset, idx, fnl, TREE_OPERAND(n, 0), NULL);
+		if (!tmp) {
+			si_log1_todo("not handled\n");
+			break;
+		}
 
 		tmp_dsv = get_ds_val(sset, idx, fnl, &tmp->val, 0, 0);
 		/* check NULL pointer deref */
@@ -9798,6 +9822,10 @@ static int dec_gimple_call(struct sample_set *sset, int idx,
 		} else {
 			struct data_state_rw *dstmp;
 			dstmp = get_ds_via_tree(sset, idx, fnl, lhs, NULL);
+			if (!dstmp) {
+				si_log1_warn("Should not happen\n");
+				return -1;
+			}
 
 			dsv_copy_data(&dstmp->val, &orig_ds->val);
 			data_state_drop(dstmp);
@@ -10104,6 +10132,13 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 	rhs1_state = get_ds_via_tree(sset, idx, fnl, rhs1, NULL);
 	rhs2_state = get_ds_via_tree(sset, idx, fnl, rhs2, NULL);
 	rhs3_state = get_ds_via_tree(sset, idx, fnl, rhs3, NULL);
+	if ((lhs && (!lhs_state)) ||
+			(rhs1 && (!rhs1_state)) ||
+			(rhs2 && (!rhs2_state)) ||
+			(rhs3 && (!rhs3_state))) {
+		si_log1_todo("not handled\n");
+		return -1;
+	}
 
 	struct data_state_val *rhs1_val, *rhs2_val, *rhs3_val __maybe_unused;
 	struct data_state_val *lhs_val;
@@ -10654,6 +10689,10 @@ static int dec_gimple_cond(struct sample_set *sset, int idx,
 	} else {
 		lhs_state = get_ds_via_tree(sset, idx, fnl, lhs, NULL);
 		rhs_state = get_ds_via_tree(sset, idx, fnl, rhs, NULL);
+		if ((lhs && (!lhs_state)) || (rhs && (!rhs_state))) {
+			si_log1_warn("Should not happen\n");
+			return -1;
+		}
 
 		int err = gimple_cond_compare(sset, idx, fnl,
 					  lhs_state, rhs_state, cond_code);
@@ -10716,6 +10755,10 @@ static int dec_gimple_switch(struct sample_set *sset, int idx,
 	struct data_state_rw *index_ds;
 	struct data_state_val *index_dsv;
 	index_ds = get_ds_via_tree(sset, idx, fnl, index, NULL);
+	if (index && (!index_ds)) {
+		si_log1_todo("not handled\n");
+		return -1;
+	}
 
 	/* get the index value first */
 	u64 val = 0;
