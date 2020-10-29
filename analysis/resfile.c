@@ -141,7 +141,7 @@ static int resfile_load(struct sibuf *buf)
 
 mmap_again0:
 	while ((atomic_read(&si->sibuf_mem_usage) + mmap_size) >
-			SIBUF_LOADED_MAX) {
+			sibuf_loaded_max) {
 		mutex_unlock(&gc_lock);
 		if (resfile_gc()) {
 			err_dbg(0, "resfile_gc() err, "
@@ -149,7 +149,7 @@ mmap_again0:
 					"max: 0x%lx, "
 					"needed: 0x%lx\n",
 					si->sibuf_mem_usage,
-					SIBUF_LOADED_MAX,
+					sibuf_loaded_max,
 					mmap_size);
 			usleep(usleep_usec);
 		}
@@ -168,7 +168,7 @@ mmap_again0:
 						"max: 0x%lx, "
 						"needed: 0x%lx\n",
 						si->sibuf_mem_usage,
-						SIBUF_LOADED_MAX,
+						sibuf_loaded_max,
 						mmap_size);
 				usleep(usleep_usec);
 			}

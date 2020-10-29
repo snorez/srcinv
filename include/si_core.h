@@ -30,6 +30,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <fcntl.h>
+#include <sys/sysinfo.h>
 
 DECL_BEGIN
 
@@ -201,11 +202,7 @@ struct file_obj {
 #define	RESFILE_BUF_SIZE	((uint64_t)(CONFIG_RESFILE_BUF_SIZE))
 #endif
 
-#ifndef CONFIG_SIBUF_LOADED_MAX
-#define	SIBUF_LOADED_MAX	((uint64_t)0x200000000)
-#else
-#define	SIBUF_LOADED_MAX	((uint64_t)(CONFIG_SIBUF_LOADED_MAX))
-#endif
+C_SYM size_t sibuf_loaded_max;
 
 /* XXX: use multiple threads to parse the file, threads*1 */
 #ifndef CONFIG_ANALYSIS_THREAD
@@ -335,8 +332,6 @@ struct si_module {
 
 BUILD_BUG_ON(SRC_BUF_START > SRC_BUF_END, "build arg check err");
 BUILD_BUG_ON(SRC_BUF_END > RESFILE_BUF_START, "build arg check err");
-/* BUILD_BUG_ON(SIBUF_LOADED_MAX < MAX_SIZE_PER_FILE, "build arg check err"); */
-BUILD_BUG_ON(SIBUF_LOADED_MAX < (THREAD_CNT * 0x4 * MAX_SIZE_PER_FILE), "build arg check err");
 
 /* for just one resfile, a project could have many resfiles */
 struct resfile {

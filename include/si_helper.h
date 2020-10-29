@@ -368,16 +368,22 @@ static inline struct name_list *name_list_new(char *tname, size_t namelen)
 	return _new;
 }
 
-static inline struct name_list *__name_list_find(char *tname, size_t namelen)
+static inline
+struct name_list *__name_list_find(char *tname, size_t namelen,
+				   struct rb_root **root_pos,
+				   struct rb_node ***newtmp_pos,
+				   struct rb_node **parent_pos)
 {
 	struct rb_root *root = &si->names_root;
-	struct rb_node **newtmp = &(root->rb_node);
+	struct rb_node **newtmp = &(root->rb_node), *parent = NULL;
 	struct name_list *ret = NULL;
 
 	while (*newtmp) {
-		struct name_list *data = container_of(*newtmp, struct name_list,
-							node);
+		struct name_list *data;
+		data = container_of(*newtmp, struct name_list, node);
+
 		size_t thislen = strlen(data->name) + 1;
+		parent = *newtmp;
 		if (namelen < thislen) {
 			newtmp = &((*newtmp)->rb_left);
 		} else if (namelen > thislen) {
@@ -393,6 +399,12 @@ static inline struct name_list *__name_list_find(char *tname, size_t namelen)
 				break;
 			}
 		}
+	}
+
+	if (!ret) {
+		*root_pos = root;
+		*newtmp_pos = newtmp;
+		*parent_pos = parent;
 	}
 
 	return ret;
@@ -431,13 +443,25 @@ static inline void __name_list_insert(struct name_list *nl, size_t namelen)
 	return;
 }
 
+static inline void __name_list_insert_pos(struct name_list *nl, size_t namelen,
+					  struct rb_root *root,
+					  struct rb_node **newtmp,
+					  struct rb_node *parent)
+{
+	rb_link_node(&nl->node, parent, newtmp);
+	rb_insert_color(&nl->node, root);
+	return;
+}
+
 static inline struct name_list *__name_list_add(char *tname, size_t namelen)
 {
 	struct name_list *nl;
-	nl = __name_list_find(tname, namelen);
+	struct rb_root *root __maybe_unused;
+	struct rb_node **newtmp __maybe_unused, *parent __maybe_unused;
+	nl = __name_list_find(tname, namelen, &root, &newtmp, &parent);
 	if (!nl) {
 		nl = name_list_new(tname, namelen);
-		__name_list_insert(nl, namelen);
+		__name_list_insert_pos(nl, namelen, root, newtmp, parent);
 	}
 
 	return nl;
@@ -1783,8 +1807,23 @@ static inline int sample_set_check_nullptr(void **pptr)
 	return 0;
 }
 
-static inline void src_init(int empty)
+static inline int setup_sibuf_loaded_max(void)
 {
+	struct sysinfo sinfo;
+	if (sysinfo(&sinfo) == -1) {
+		err_dbg(1, "sysinfo err");
+		return -1;
+	}
+
+	sibuf_loaded_max = sinfo.totalram * 3 / 4;
+	return 0;
+}
+
+static inline int src_init(int empty)
+{
+	if (setup_sibuf_loaded_max() == -1)
+		return -1;
+
 	if (empty) {
 		memset(si, 0, sizeof(*si));
 		INIT_SLIST_HEAD(&si->resfile_head);
@@ -1800,6 +1839,8 @@ static inline void src_init(int empty)
 		tmp = data_state_dup_base(base);
 		slist_add_tail(&tmp->base.sibling, &si->global_data_rw_states);
 	}
+
+	return 0;
 }
 
 static inline u64 src_get_sset_curid(void)

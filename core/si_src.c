@@ -26,6 +26,7 @@
 #endif
 
 struct src *si;
+size_t sibuf_loaded_max;
 static lock_t src_buf_lock;
 
 static void *buf_start = (void *)SRC_BUF_START;
@@ -82,7 +83,10 @@ int si_src_setup(void)
 	}
 
 	si = src_buf_get(sizeof(*si));
-	src_init(1);
+	if (src_init(1)) {
+		err_msg("src_init err");
+		goto out_del2;
+	}
 
 	/* TODO, check if the src_id already exists */
 	while (!si->src_id[0]) {
@@ -173,7 +177,12 @@ static long do_load_srcfile(char *id)
 	}
 
 	si = (struct src *)buf_start;
-	src_init(0);
+	if (src_init(0)) {
+		err_msg("src_init err");
+		close(fd);
+		mutex_unlock(&src_buf_lock);
+		return -1;
+	}
 	buf_cur = buf_start+readlen;
 
 	struct resfile *tmp0;

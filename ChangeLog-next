@@ -1,3 +1,8 @@
+2020-10-29
+	* srcinv: automatically detect the system memory size, use 3/4 for
+	resfile
+	* srcinv: _name_list_add(): get the position to insert if name not found.
+
 2020-10-27
 	* collect/asm.cc: fix BUG_ON on some abnormal filename
 	* srcinv: fix issues

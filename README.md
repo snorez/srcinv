@@ -38,7 +38,6 @@ About SELF\_CFLAGS in the main Makefile:
 - `CONFIG_SRC_BUF_END`: end of the src memory area
 - `CONFIG_RESFILE_BUF_START`: start of resfile area, where we load the resfile
 - `CONFIG_RESFILE_BUF_SIZE`: size of each time we expand resfile area
-- `CONFIG_SIBUF_LOADED_MAX`: how many source files(sibuf) mmap into memory
 - `CONFIG_SI_PATH_MAX`: length of src path
 - `CONFIG_SRC_ID_LEN`: length of src id
 - `CONFIG_MAX_OBJS_PER_FILE`: max objects we collect for each source file
