@@ -3,6 +3,7 @@
 	resfile
 	* srcinv: _name_list_add(): get the position to insert if name not found
 	* srcinv: hold global data_state_rw if found
+	* analysis/gcc/c.cc: get_type_b*(): check if the TYPE_SIZE(type) NULL
 
 2020-10-27
 	* collect/asm.cc: fix BUG_ON on some abnormal filename

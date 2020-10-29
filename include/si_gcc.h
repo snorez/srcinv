@@ -1468,7 +1468,10 @@ static inline u32 get_type_bits(tree node)
 	else
 		type = TREE_TYPE(node);
 
-	return TREE_INT_CST_LOW(TYPE_SIZE(type));
+	if (!TYPE_SIZE(type))
+		return 0;
+	else
+		return TREE_INT_CST_LOW(TYPE_SIZE(type));
 }
 
 static inline u32 get_type_bytes(tree node)
@@ -1479,7 +1482,10 @@ static inline u32 get_type_bytes(tree node)
 	else
 		type = TREE_TYPE(node);
 
-	return TREE_INT_CST_LOW(TYPE_SIZE_UNIT(type));
+	if (!TYPE_SIZE(type))
+		return 0;
+	else
+		return TREE_INT_CST_LOW(TYPE_SIZE_UNIT(type));
 }
 
 static inline bool
