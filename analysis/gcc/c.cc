@@ -4417,8 +4417,7 @@ static void do_var_decl_phase4(tree n)
 			gvn = (struct var_node *)global_var_sn->data;
 		}
 
-		newgv = id_list_find(&cur_fn->global_vars,
-					value, val_flag);
+		newgv = id_list_find(&cur_fn->global_vars, value, val_flag);
 		if (!newgv) {
 			newgv = id_list_new();
 			newgv->value = value;

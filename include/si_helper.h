@@ -1294,6 +1294,9 @@ struct data_state_rw *global_data_state_rw_find(u64 addr, u8 type)
 	si_lock_r();
 	ret = __global_data_state_rw_find(addr, type);
 	si_unlock_r();
+
+	if (ret)
+		data_state_hold(ret);
 	return ret;
 }
 
@@ -1352,10 +1355,7 @@ struct data_state_rw *data_state_rw_find(struct sample_set *sset, int idx,
 {
 	struct data_state_rw *ret;
 
-	si_lock_r();
-	ret = __global_data_state_rw_find(addr, type);
-	si_unlock_r();
-
+	ret = global_data_state_rw_find(addr, type);
 	if (ret)
 		return ret;
 
