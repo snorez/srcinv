@@ -9212,6 +9212,10 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 
 			ds = data_state_rw_find(sset, idx, fnl,
 						(u64)gvn, DSRT_VN);
+			if (unlikely(!ds)) {
+				si_log1_warn("Should not happen, %s\n",
+						gvn->name);
+			}
 			ret = data_state_dup_base(&ds->base);
 			dsv_alloc_data(&ret->val, DSVT_REF, 0);
 			ds_vref_setv(&ret->val, ds, 0, bits);
