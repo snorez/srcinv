@@ -1014,6 +1014,10 @@ static inline struct data_state_val1 *data_state_val1_alloc(void *raw)
 
 static inline void data_state_destroy(struct data_state_rw *ds)
 {
+	if (!slist_empty(&ds->base.sibling)) {
+		WARN();
+	}
+
 	dsv_free_data(&ds->val);
 	free(ds);
 }
