@@ -10612,7 +10612,7 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 		 * the value is represented as a STRING_CST, but the
 		 * lhs_state is an ARRAY.
 		 */
-		if (TREE_CODE(lhs) == ARRAY_TYPE) {
+		if (TREE_CODE(TREE_TYPE(lhs)) == ARRAY_TYPE) {
 			/* the lhs_val should be DSVT_CONSTRUCTOR. */
 			if (DSV_TYPE(lhs_val) != DSVT_CONSTRUCTOR) {
 				si_log1_warn("Should not happen\n");
