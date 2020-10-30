@@ -788,7 +788,10 @@ struct data_state_val {
 		struct slist_head		v3;	/* section 3 */
 	} value;
 
-	/* Make sure all data_state nodes have @raw set. */
+	/*
+	 * Make sure all data_state nodes have @raw set.
+	 * @raw could be a type/decl/const node.
+	 */
 	u64					raw: 48;
 	u64					type: 8;
 	u64					reserved: 8;

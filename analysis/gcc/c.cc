@@ -8916,11 +8916,11 @@ static int guess_ds_val(struct sample_set *sset, int idx, struct fn_list *fnl,
 		tree elem_type = TREE_TYPE(type);
 		size_t elem_size = TREE_INT_CST_LOW(TYPE_SIZE_UNIT(elem_type));
 		unsigned long this_offset = 0;
-		u32 this_bits = (u32)elem_size;
+		u32 this_bits = (u32)elem_size * BITS_PER_UNIT;
 		dsv_alloc_data(dsv, DSVT_CONSTRUCTOR, 0);
 		for (size_t i = 0; i < elem_cnt; i++) {
 			struct data_state_val1 *dsv1;
-			this_offset = i * elem_size;
+			this_offset = i * this_bits;
 			dsv1 = data_state_val1_alloc(elem_type);
 			dsv1->offset = this_offset;
 			dsv1->bits = this_bits;
@@ -9038,8 +9038,12 @@ static struct data_state_val *get_ds_val(struct sample_set *sset, int idx,
 	{
 		struct data_state_val1 *tmp;
 		slist_for_each_entry(tmp, DSV_SEC3_VAL(dsv), sibling) {
-			if ((offset < tmp->offset) ||
-				((u32)offset >= (tmp->offset + tmp->bits)))
+			/*
+			 * [offset, offset+bits] must be a subset of
+			 * [tmp->offset, tmp->offset+tmp->bits]
+			 */
+			if (!((offset >= tmp->offset) &&
+			      ((offset + bits) <= (tmp->offset + tmp->bits))))
 				continue;
 			offset -= tmp->offset;
 			if (guess_ds_val(sset, idx, fnl, &tmp->val,
@@ -10599,6 +10603,43 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 		if (rhs2 || rhs3) {
 			err = -1;
 			si_log1_warn("rhs2 rhs3 are supposed to be NULL\n");
+			break;
+		}
+
+		/*
+		 * one special case here in linux kernel ecryptfs_from_hex():
+		 *	char tmp[3] = { 0, };
+		 * the value is represented as a STRING_CST, but the
+		 * lhs_state is an ARRAY.
+		 */
+		if (TREE_CODE(lhs) == ARRAY_TYPE) {
+			/* the lhs_val should be DSVT_CONSTRUCTOR. */
+			if (DSV_TYPE(lhs_val) != DSVT_CONSTRUCTOR) {
+				si_log1_warn("Should not happen\n");
+				err = -1;
+				break;
+			}
+
+			char *string = (char *)DSV_SEC1_VAL(rhs1_val);
+			size_t elen = rhs1_val->info.v1_info.bytes - 1;
+			for (size_t i = 0; i < elen; i++) {
+				char c = string[i];
+				s32 _offset = i * sizeof(c) * BITS_PER_UNIT;
+				u32 _bits = sizeof(c) * BITS_PER_UNIT;
+				struct data_state_val1 *tmp;
+				slist_for_each_entry(tmp, DSV_SEC3_VAL(lhs_val),
+						     sibling) {
+					if ((tmp->offset == _offset) &&
+					    (_bits <= tmp->bits)) {
+						dsv_alloc_data(&tmp->val,
+								DSVT_INT_CST,
+								sizeof(c));
+						memcpy(DSV_SEC1_VAL(&tmp->val),
+							&c, sizeof(c));
+						break;
+					}
+				}
+			}
 			break;
 		}
 
