@@ -10506,6 +10506,7 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 		case DSVT_REF:
 		{
 			dsv_alloc_data(lhs_val, DSV_TYPE(rhs1_val), 0);
+			data_state_hold(DSV_SEC2_VAL(rhs1_val)->ds);
 			DSV_SEC2_VAL(lhs_val)->ds = DSV_SEC2_VAL(rhs1_val)->ds;
 			DSV_SEC2_VAL(lhs_val)->offset =
 				DSV_SEC2_VAL(rhs1_val)->offset;
