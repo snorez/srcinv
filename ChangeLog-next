@@ -5,6 +5,7 @@
 	* analysis/gcc/c.cc: dsv_alloc_data() check if need to free old
 	data
 	* analysis/gcc/c.cc: dec_gimple_assign() handle NOP_EXPR
+	* analysis/gcc/c.cc: get_ds_via_tree() handle the ARRAY_REF index
 
 2020-10-30
 	* analysis/gcc/c.cc: handle assign STRING_CST to an array.

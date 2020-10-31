@@ -9403,6 +9403,26 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 			break;
 		}
 
+		/* TODO: the op1 could be a variable. */
+		u64 index = 0;
+		struct data_state_rw *index_ds;
+		index_ds = get_ds_via_tree(sset, idx, fnl, TREE_OPERAND(n, 1),
+						NULL);
+		if (index_ds) {
+			struct data_state_val *index_dsv;
+			index_dsv = get_ds_val(sset, idx, fnl, &index_ds->val,
+						0, 0);
+			if (DSV_TYPE(index_dsv) != DSVT_INT_CST) {
+				si_log1_todo("Should not happen\n");
+			} else {
+				clib_memcpy_bits(&index,
+						 sizeof(index) * BITS_PER_UNIT,
+						 DSV_SEC1_VAL(index_dsv),
+						 index_dsv->info.v1_info.bytes *
+							BITS_PER_UNIT);
+			}
+		}
+
 		/* we got the array, now we need to get the offset and bits */
 		s32 this_offset = 0;
 		u32 this_bits = 0;
@@ -9411,7 +9431,7 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 		u64 up_idx = 0;
 		if (array_ref_up_bound(n))
 			up_idx = TREE_INT_CST_LOW(array_ref_up_bound(n));
-		this_offset = elem_size * BITS_PER_UNIT * low_idx;
+		this_offset = elem_size * BITS_PER_UNIT * (low_idx + index);
 		this_bits = elem_size * BITS_PER_UNIT * (up_idx - low_idx);
 
 		ret = data_state_rw_new((u64)n, DSRT_RAW, n);
