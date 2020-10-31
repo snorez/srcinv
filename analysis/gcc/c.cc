@@ -9055,6 +9055,10 @@ static struct data_state_val *get_ds_val(struct sample_set *sset, int idx,
 			}
 			break;
 		}
+
+		if (slist_empty(DSV_SEC3_VAL(dsv))) {
+			si_log1_warn("Should not happen, dsv: %p\n", dsv);
+		}
 		break;
 	}
 	default:
@@ -10683,7 +10687,13 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 			break;
 		}
 
-		dsv_copy_data(lhs_val, &rhs1_state->val);
+		if ((DSV_TYPE(&rhs1_state->val) == DSVT_CONSTRUCTOR) &&
+				DSV_SEC3_VAL(&rhs1_state->val)) {
+			dsv_copy_data(lhs_val, &rhs1_state->val);
+		} else if ((DSV_TYPE(rhs1_val) == DSVT_CONSTRUCTOR) &&
+				DSV_SEC3_VAL(rhs1_val)) {
+			dsv_copy_data(lhs_val, rhs1_val);
+		}
 		break;
 	}
 	case NOP_EXPR:

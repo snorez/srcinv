@@ -57,6 +57,11 @@ the `si_global_trees` memory area overlaps with the thread stack.
 + locks and `_name_list_add` in phase 3 still take too long, about 70%.
 + rewrite phase 4 in analysis/gcc/c.cc.
 + handle global data defined in asm files.
++ GCC use CONSTRUCTOR as op[1] in gimple assign statements. e.g.
+	- `knc_pmu_init` `x86_pmu = knc_pmu`
+	`knc_pmu` is a static variable, the gimple\_assign statement op[1] is
+	a CONSTRUCTOR, so the `global variable knc_pmu` will not be in
+	global data state list.
 + why are there some functions like isra.xx part.yy?
 	- isra.xx: in gcc/tree-sra.c
 	```c
