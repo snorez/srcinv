@@ -6,6 +6,7 @@
 	data
 	* analysis/gcc/c.cc: dec_gimple_assign() handle NOP_EXPR
 	* analysis/gcc/c.cc: get_ds_via_tree() handle the ARRAY_REF index
+	* analysis/gcc/c.cc: get_ds_via_tree() drop the ARRAY_REF index_ds
 
 2020-10-30
 	* analysis/gcc/c.cc: handle assign STRING_CST to an array.

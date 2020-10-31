@@ -9421,6 +9421,8 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 						 index_dsv->info.v1_info.bytes *
 							BITS_PER_UNIT);
 			}
+			data_state_drop(index_ds);
+			index_ds = NULL;
 		}
 
 		/* we got the array, now we need to get the offset and bits */
