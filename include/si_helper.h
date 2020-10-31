@@ -968,6 +968,12 @@ static inline void dsv_free_data(struct data_state_val *dsv)
 static inline void dsv_alloc_data(struct data_state_val *dsv, u8 val_type,
 				  u32 bytes)
 {
+	if ((ds_get_section(val_type) == 1) && (DSV_TYPE(dsv) == val_type) &&
+			(dsv->info.v1_info.bytes == bytes)) {
+		memset(DSV_SEC1_VAL(dsv), 0, dsv->info.v1_info.bytes);
+		return;
+	}
+
 	dsv_free_data(dsv);
 
 	switch (ds_get_section(val_type)) {

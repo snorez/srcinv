@@ -10694,7 +10694,21 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 	}
 	case NOP_EXPR:
 	{
-		/* FIXME: do nothing about this expression */
+		if (rhs2 || rhs3) {
+			err = -1;
+			si_log1_warn("rhs2 rhs3 are supposed to be NULL\n");
+			break;
+		}
+
+		if (DSV_TYPE(lhs_val) == DSV_TYPE(rhs1_val)) {
+			dsv_copy_data(lhs_val, rhs1_val);
+		} else {
+			si_log1_todo("not handled. "
+					"lhs_state: %p, rhs1_state: %p\n",
+					lhs_state, rhs1_state);
+			err = -1;
+			break;
+		}
 		break;
 	}
 	default:
