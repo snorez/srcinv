@@ -8666,187 +8666,18 @@ static int dsv_fill(struct data_state_val *dsv, int fill_on_zero)
 	}
 }
 
-static int get_ds_val_via_constructor(struct sample_set *sset, int idx,
-					struct fn_list *fnl,
-					struct data_state_val *dsv, tree n)
-{
-	/* check dump_generic_node() and native_encode_initializer() */
-	tree type = TREE_TYPE(n);
-	switch (TREE_CODE(type)) {
-	case RECORD_TYPE:
-	case UNION_TYPE:
-	{
-		tree field = NULL_TREE;
-		unsigned HOST_WIDE_INT cnt;
-		constructor_elt *ce;
-
-		if (TREE_CODE(type) == RECORD_TYPE)
-			field = TYPE_FIELDS(type);
-
-		dsv_alloc_data(dsv, DSVT_CONSTRUCTOR, 0);
-		FOR_EACH_VEC_SAFE_ELT(CONSTRUCTOR_ELTS(n), cnt, ce) {
-			struct data_state_val1 *tmp;
-			tree val = ce->value;
-			int pos, fieldsize;
-
-			if (ce->index != 0)
-				field = ce->index;
-
-			if (val)
-				STRIP_NOPS(val);
-
-			if (field == NULL_TREE || DECL_BIT_FIELD(field)) {
-				si_log1_todo("not handled\n");
-				return -1;
-			}
-
-			if ((TREE_CODE(TREE_TYPE(field)) == ARRAY_TYPE) &&
-				TYPE_DOMAIN(TREE_TYPE(field)) &&
-			      (!TYPE_MAX_VALUE(TYPE_DOMAIN(TREE_TYPE(field))))) {
-				si_log1_todo("not handled\n");
-				return -1;
-			} else if ((DECL_SIZE_UNIT(field) == NULL_TREE) ||
-				    (!tree_fits_shwi_p(DECL_SIZE_UNIT(field)))) {
-				si_log1_todo("not handled\n");
-				return -1;
-			}
-
-			fieldsize = tree_to_shwi(DECL_SIZE_UNIT(field));
-			/*
-			 * native_encode_initializer() use int_byte_position().
-			 * However, we need to get the bit position.
-			 * FIXME: Can we use bit_position()?
-			 * XXX: int_bit_position() use LOG2_BITS_PER_UNIT, which
-			 * is determined by BITS_PER_UNIT.
-			 */
-			pos = int_bit_position(field);
-
-			tmp = data_state_val1_alloc(val);
-			tmp->offset = pos;
-			tmp->bits = fieldsize * BITS_PER_UNIT;
-			if (dsv_fill(&tmp->val, 1) == -1) {
-				si_log1_todo("dsv_fill err\n");
-				return -1;
-			} else {
-				slist_add_tail(&tmp->sibling, DSV_SEC3_VAL(dsv));
-			}
-		}
-		break;
-	}
-	case ARRAY_TYPE:
-	{
-		HOST_WIDE_INT min_index;
-		unsigned HOST_WIDE_INT cnt;
-		int curpos = 0, fieldsize;
-		constructor_elt *ce;
-
-		if ((TYPE_DOMAIN(type) == NULL_TREE) ||
-			(!tree_fits_shwi_p(TYPE_MIN_VALUE(TYPE_DOMAIN(type))))) {
-			si_log1_todo("not handled\n");
-			return -1;
-		}
-
-		fieldsize = int_size_in_bytes(TREE_TYPE(type));
-		if (fieldsize <= 0) {
-			si_log1_warn("should not happen\n");
-			return -1;
-		}
-
-		min_index = tree_to_shwi(TYPE_MIN_VALUE(TYPE_DOMAIN(type)));
-		dsv_alloc_data(dsv, DSVT_CONSTRUCTOR, 0);
-		FOR_EACH_VEC_SAFE_ELT(CONSTRUCTOR_ELTS(n), cnt, ce) {
-			struct data_state_val1 *tmp;
-			tree val = ce->value;
-			tree index = ce->index;
-			int pos = curpos;
-			if (index && (TREE_CODE(index) == RANGE_EXPR))
-				pos = (tree_to_shwi(TREE_OPERAND(index, 0)) - 
-					min_index) * fieldsize;
-			else if (index)
-				pos = (tree_to_shwi(index) - min_index) *
-					fieldsize;
-
-			curpos = pos + fieldsize;
-			if (index && (TREE_CODE(index) == RANGE_EXPR)) {
-				int count;
-				count = tree_to_shwi(TREE_OPERAND(index, 1)) -
-					tree_to_shwi(TREE_OPERAND(index, 0));
-				while (count-- > 0) {
-					if (val) {
-						si_log1_todo("not handled\n");
-					}
-					curpos += fieldsize;
-				}
-			}
-
-			if (val && (TREE_CODE(val) == ADDR_EXPR) &&
-			    (TREE_CODE(TREE_OPERAND(val, 0)) == FUNCTION_DECL))
-				val = TREE_OPERAND(val, 0);
-
-			tmp = data_state_val1_alloc(val);
-			tmp->offset = curpos * BITS_PER_UNIT;
-			tmp->bits = fieldsize * BITS_PER_UNIT;
-			if (dsv_fill(dsv, 1) == -1) {
-				si_log1_todo("dsv_fill err\n");
-				return -1;
-			} else {
-				slist_add_tail(&tmp->sibling, DSV_SEC3_VAL(dsv));
-			}
-		}
-		break;
-	}
-	case INTEGER_TYPE:
-	case POINTER_TYPE:
-	{
-		if (CONSTRUCTOR_ELTS(n)) {
-			si_log1_todo("CONSTRUCTOR elts not NULL\n");
-			return -1;
-		}
-
-		size_t bytes = sizeof(void *);
-		if (TYPE_SIZE_UNIT(type))
-			bytes = TREE_INT_CST_LOW(TYPE_SIZE_UNIT(type));
-		dsv_alloc_data(dsv, DSVT_INT_CST, bytes);
-
-		break;
-	}
-	default:
-	{
-		si_log1_todo("miss %s\n", tree_code_name[TREE_CODE(type)]);
-		return -1;
-	}
-	}
-
-	return 0;
-}
-
-static struct data_state_rw *get_ds_via_constructor(struct sample_set *sset,
-							int idx,
-							struct fn_list *fnl,
-							tree n)
-{
-	struct data_state_rw *ret = NULL;
-	enum tree_code tc = TREE_CODE(n);
-	if (tc != CONSTRUCTOR) {
-		si_log1_warn("should not happen\n");
-		return ret;
-	}
-
-	ret = data_state_rw_new((u64)n, DSRT_RAW, (void *)n);
-
-	(void)get_ds_val_via_constructor(sset, idx, fnl, &ret->val, n);
-
-	return ret;
-}
-
 static int do_dec(struct sample_set *sset, int idx, struct fn_list *fnl,
 		  gimple_seq gs);
 static int guess_ds_val(struct sample_set *sset, int idx, struct fn_list *fnl,
-			struct data_state_val *dsv, tree node)
+			struct data_state_val *dsv, tree node, int force)
 {
 	int err = 0;
-	if (DSV_TYPE(dsv) != DSVT_UNK)
-		return 0;
+	if (DSV_TYPE(dsv) != DSVT_UNK) {
+		if (!force)
+			return 0;
+		else
+			dsv_free_data(dsv);
+	}
 
 	struct sibuf *b;
 	b = find_target_sibuf((void *)node);
@@ -8980,7 +8811,10 @@ static int guess_ds_val(struct sample_set *sset, int idx, struct fn_list *fnl,
 	case POINTER_TYPE:
 	{
 		/* FIXME: init NULL value? */
-		dsv_alloc_data(dsv, DSVT_INT_CST, sizeof(void *));
+		size_t bytes = sizeof(void *);
+		if (TYPE_SIZE_UNIT(type))
+			bytes = TREE_INT_CST_LOW(TYPE_SIZE_UNIT(type));
+		dsv_alloc_data(dsv, DSVT_INT_CST, bytes);
 		*(void **)DSV_SEC1_VAL(dsv) = (void *)0;
 		break;
 	}
@@ -8995,6 +8829,167 @@ static int guess_ds_val(struct sample_set *sset, int idx, struct fn_list *fnl,
 	if (!held)
 		analysis__sibuf_drop(b);
 	return err;
+}
+
+static int get_ds_val_via_constructor(struct sample_set *sset, int idx,
+					struct fn_list *fnl,
+					struct data_state_val *dsv, tree n)
+{
+	/* check dump_generic_node() and native_encode_initializer() */
+	tree type = TREE_TYPE(n);
+	if (!CONSTRUCTOR_ELTS(n))
+		return guess_ds_val(sset, idx, fnl, dsv, type, 1);
+
+	switch (TREE_CODE(type)) {
+	case RECORD_TYPE:
+	case UNION_TYPE:
+	{
+		tree field = NULL_TREE;
+		unsigned HOST_WIDE_INT cnt;
+		constructor_elt *ce;
+
+		if (TREE_CODE(type) == RECORD_TYPE)
+			field = TYPE_FIELDS(type);
+
+		dsv_alloc_data(dsv, DSVT_CONSTRUCTOR, 0);
+		FOR_EACH_VEC_SAFE_ELT(CONSTRUCTOR_ELTS(n), cnt, ce) {
+			struct data_state_val1 *tmp;
+			tree val = ce->value;
+			int pos, fieldsize;
+
+			if (ce->index != 0)
+				field = ce->index;
+
+			if (val)
+				STRIP_NOPS(val);
+
+			if (field == NULL_TREE || DECL_BIT_FIELD(field)) {
+				si_log1_todo("not handled\n");
+				return -1;
+			}
+
+			if ((TREE_CODE(TREE_TYPE(field)) == ARRAY_TYPE) &&
+				TYPE_DOMAIN(TREE_TYPE(field)) &&
+			      (!TYPE_MAX_VALUE(TYPE_DOMAIN(TREE_TYPE(field))))) {
+				si_log1_todo("not handled\n");
+				return -1;
+			} else if ((DECL_SIZE_UNIT(field) == NULL_TREE) ||
+				    (!tree_fits_shwi_p(DECL_SIZE_UNIT(field)))) {
+				si_log1_todo("not handled\n");
+				return -1;
+			}
+
+			fieldsize = tree_to_shwi(DECL_SIZE_UNIT(field));
+			/*
+			 * native_encode_initializer() use int_byte_position().
+			 * However, we need to get the bit position.
+			 * FIXME: Can we use bit_position()?
+			 * XXX: int_bit_position() use LOG2_BITS_PER_UNIT, which
+			 * is determined by BITS_PER_UNIT.
+			 */
+			pos = int_bit_position(field);
+
+			tmp = data_state_val1_alloc(val);
+			tmp->offset = pos;
+			tmp->bits = fieldsize * BITS_PER_UNIT;
+			if (dsv_fill(&tmp->val, 1) == -1) {
+				si_log1_todo("dsv_fill err\n");
+				return -1;
+			} else {
+				slist_add_tail(&tmp->sibling, DSV_SEC3_VAL(dsv));
+			}
+		}
+		break;
+	}
+	case ARRAY_TYPE:
+	{
+		HOST_WIDE_INT min_index;
+		unsigned HOST_WIDE_INT cnt;
+		int curpos = 0, fieldsize;
+		constructor_elt *ce;
+
+		if ((TYPE_DOMAIN(type) == NULL_TREE) ||
+			(!tree_fits_shwi_p(TYPE_MIN_VALUE(TYPE_DOMAIN(type))))) {
+			si_log1_todo("not handled\n");
+			return -1;
+		}
+
+		fieldsize = int_size_in_bytes(TREE_TYPE(type));
+		if (fieldsize <= 0) {
+			si_log1_warn("should not happen\n");
+			return -1;
+		}
+
+		min_index = tree_to_shwi(TYPE_MIN_VALUE(TYPE_DOMAIN(type)));
+		dsv_alloc_data(dsv, DSVT_CONSTRUCTOR, 0);
+		FOR_EACH_VEC_SAFE_ELT(CONSTRUCTOR_ELTS(n), cnt, ce) {
+			struct data_state_val1 *tmp;
+			tree val = ce->value;
+			tree index = ce->index;
+			int pos = curpos;
+			if (index && (TREE_CODE(index) == RANGE_EXPR))
+				pos = (tree_to_shwi(TREE_OPERAND(index, 0)) - 
+					min_index) * fieldsize;
+			else if (index)
+				pos = (tree_to_shwi(index) - min_index) *
+					fieldsize;
+
+			curpos = pos + fieldsize;
+			if (index && (TREE_CODE(index) == RANGE_EXPR)) {
+				int count;
+				count = tree_to_shwi(TREE_OPERAND(index, 1)) -
+					tree_to_shwi(TREE_OPERAND(index, 0));
+				while (count-- > 0) {
+					if (val) {
+						si_log1_todo("not handled\n");
+					}
+					curpos += fieldsize;
+				}
+			}
+
+			if (val && (TREE_CODE(val) == ADDR_EXPR) &&
+			    (TREE_CODE(TREE_OPERAND(val, 0)) == FUNCTION_DECL))
+				val = TREE_OPERAND(val, 0);
+
+			tmp = data_state_val1_alloc(val);
+			tmp->offset = curpos * BITS_PER_UNIT;
+			tmp->bits = fieldsize * BITS_PER_UNIT;
+			if (dsv_fill(dsv, 1) == -1) {
+				si_log1_todo("dsv_fill err\n");
+				return -1;
+			} else {
+				slist_add_tail(&tmp->sibling, DSV_SEC3_VAL(dsv));
+			}
+		}
+		break;
+	}
+	default:
+	{
+		si_log1_todo("miss %s\n", tree_code_name[TREE_CODE(type)]);
+		return -1;
+	}
+	}
+
+	return 0;
+}
+
+static struct data_state_rw *get_ds_via_constructor(struct sample_set *sset,
+							int idx,
+							struct fn_list *fnl,
+							tree n)
+{
+	struct data_state_rw *ret = NULL;
+	enum tree_code tc = TREE_CODE(n);
+	if (tc != CONSTRUCTOR) {
+		si_log1_warn("should not happen\n");
+		return ret;
+	}
+
+	ret = data_state_rw_new((u64)n, DSRT_RAW, (void *)n);
+
+	(void)get_ds_val_via_constructor(sset, idx, fnl, &ret->val, n);
+
+	return ret;
 }
 
 /*
@@ -9019,7 +9014,7 @@ static struct data_state_val *get_ds_val(struct sample_set *sset, int idx,
 		if (!n)
 			break;
 
-		if (guess_ds_val(sset, idx, fnl, dsv, n)) {
+		if (guess_ds_val(sset, idx, fnl, dsv, n, 0)) {
 			si_log1_warn("guess_ds_val err\n");
 		} else {
 			ret = get_ds_val(sset, idx, fnl, dsv, offset, bits);
@@ -9047,7 +9042,7 @@ static struct data_state_val *get_ds_val(struct sample_set *sset, int idx,
 				continue;
 			offset -= tmp->offset;
 			if (guess_ds_val(sset, idx, fnl, &tmp->val,
-					  (tree)(long)tmp->val.raw)) {
+					  (tree)(long)tmp->val.raw, 0)) {
 				si_log1_warn("guess_ds_val err\n");
 			} else {
 				ret = get_ds_val(sset, idx, fnl,

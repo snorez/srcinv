@@ -1,5 +1,6 @@
 2020-10-31
 	* analysis/gcc/c.cc: fix assign a NULL CONSTRUCTOR
+	* analysis/gcc/c.cc: use guess_ds_val to get a NULL CONSTRUCTOR
 
 2020-10-30
 	* analysis/gcc/c.cc: handle assign STRING_CST to an array.
