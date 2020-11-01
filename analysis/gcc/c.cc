@@ -9506,6 +9506,13 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 			break;
 		}
 
+		BUG_ON(NUM_POLY_INT_COEFFS > 1);
+		u64 this_offset = *(mem_ref_offset(n).coeffs[0].get_val()) *
+					BITS_PER_UNIT;
+		tree ptype;
+		ptype = TYPE_MAIN_VARIANT(TREE_TYPE(TREE_OPERAND(n, 1)));
+		u64 this_bits = TREE_INT_CST_LOW(TYPE_SIZE(ptype));
+
 		tmp_dsv = get_ds_val(sset, idx, fnl, &tmp->val, 0, 0);
 		/* check NULL pointer deref */
 		if (DSV_TYPE(tmp_dsv) == DSVT_INT_CST) {
@@ -9513,14 +9520,12 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 			if (sample_set_check_nullptr(pptr)) {
 				sample_set_set_flag(sset, SAMPLE_SF_NULLREF);
 			}
+		} else if (DSV_TYPE(tmp_dsv) == DSVT_ADDR) {
+			data_state_drop(tmp);
+			tmp = DSV_SEC2_VAL(tmp_dsv)->ds;
+			data_state_hold(tmp);
+			this_offset += DSV_SEC2_VAL(tmp_dsv)->offset;
 		}
-
-		BUG_ON(NUM_POLY_INT_COEFFS > 1);
-		u64 this_offset = *(mem_ref_offset(n).coeffs[0].get_val()) *
-					BITS_PER_UNIT;
-		tree ptype;
-		ptype = TYPE_MAIN_VARIANT(TREE_TYPE(TREE_OPERAND(n, 1)));
-		u64 this_bits = TREE_INT_CST_LOW(TYPE_SIZE(ptype));
 
 		ret = data_state_rw_new((u64)n, DSRT_RAW, n);
 		dsv_alloc_data(&ret->val, DSVT_REF, 0);

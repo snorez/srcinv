@@ -1,6 +1,8 @@
 2020-11-01
 	* analysis/gcc/c.cc: get_ds_via_tree() miscalculate this_bits for
 	ARRAY_REF
+	* analysis/gcc/c.cc: get_ds_via_tree() mishandle MEM_REF, should check
+	if the DSVT_ADDR type
 
 2020-10-31
 	* analysis/gcc/c.cc: fix assign a NULL CONSTRUCTOR
