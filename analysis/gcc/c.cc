@@ -9498,7 +9498,7 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 		 * op0: base
 		 * op1: offset
 		 */
-		struct data_state_rw *tmp;
+		struct data_state_rw *tmp, *newtmp = NULL;
 		struct data_state_val *tmp_dsv;
 		tmp = get_ds_via_tree(sset, idx, fnl, TREE_OPERAND(n, 0), NULL);
 		if (!tmp) {
@@ -9521,18 +9521,19 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 				sample_set_set_flag(sset, SAMPLE_SF_NULLREF);
 			}
 		} else if (DSV_TYPE(tmp_dsv) == DSVT_ADDR) {
-			struct data_state_rw *newtmp;
 			newtmp = DSV_SEC2_VAL(tmp_dsv)->ds;
 			this_offset += DSV_SEC2_VAL(tmp_dsv)->offset;
 			data_state_hold(newtmp);
-			data_state_drop(tmp);
-			tmp = newtmp;
 		}
 
 		ret = data_state_rw_new((u64)n, DSRT_RAW, n);
 		dsv_alloc_data(&ret->val, DSVT_REF, 0);
-		ds_vref_setv(&ret->val, tmp, this_offset, this_bits);
+		if (newtmp)
+			ds_vref_setv(&ret->val, newtmp, this_offset, this_bits);
+		else
+			ds_vref_setv(&ret->val, tmp, this_offset, this_bits);
 		data_state_drop(tmp);
+		data_state_drop(newtmp);
 
 		break;
 	}
