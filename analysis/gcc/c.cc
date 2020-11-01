@@ -9430,11 +9430,11 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 		u32 this_bits = 0;
 		u64 elem_size = TREE_INT_CST_LOW(array_ref_element_size(n));
 		u64 low_idx = TREE_INT_CST_LOW(array_ref_low_bound(n));
-		u64 up_idx = 0;
+		u64 up_idx __maybe_unused = 0;
 		if (array_ref_up_bound(n))
 			up_idx = TREE_INT_CST_LOW(array_ref_up_bound(n));
-		this_offset = elem_size * BITS_PER_UNIT * (low_idx + index);
-		this_bits = elem_size * BITS_PER_UNIT * (up_idx - low_idx);
+		this_offset = elem_size * BITS_PER_UNIT * (index - low_idx);
+		this_bits = elem_size * BITS_PER_UNIT;
 
 		ret = data_state_rw_new((u64)n, DSRT_RAW, n);
 		dsv_alloc_data(&ret->val, DSVT_REF, 0);
