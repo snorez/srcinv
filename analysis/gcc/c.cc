@@ -9521,10 +9521,12 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 				sample_set_set_flag(sset, SAMPLE_SF_NULLREF);
 			}
 		} else if (DSV_TYPE(tmp_dsv) == DSVT_ADDR) {
-			data_state_drop(tmp);
-			tmp = DSV_SEC2_VAL(tmp_dsv)->ds;
-			data_state_hold(tmp);
+			struct data_state_rw *newtmp;
+			newtmp = DSV_SEC2_VAL(tmp_dsv)->ds;
 			this_offset += DSV_SEC2_VAL(tmp_dsv)->offset;
+			data_state_hold(newtmp);
+			data_state_drop(tmp);
+			tmp = newtmp;
 		}
 
 		ret = data_state_rw_new((u64)n, DSRT_RAW, n);
