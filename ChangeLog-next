@@ -1,3 +1,6 @@
+2020-11-02
+	* analysis/gcc/c.cc: handle assign ARRAY to a pointer
+
 2020-11-01
 	* analysis/gcc/c.cc: get_ds_via_tree() miscalculate this_bits for
 	ARRAY_REF

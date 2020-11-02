@@ -149,3 +149,21 @@ A BUG_ON triggered in __do_constructor_init(). We could find the target var_list
 	*) Use one_sibuf command in analysis mode.
 	Recompile srcinv with SELF_CFLAGS_N=0, gdb ./si_core, analysis.
 	This could save us one hour to wait for triggering the BUG.
+
+3) dec phase issues
+3.1) infinite loop
+	Usually, the output message will show you the function cause the
+	infinite loop.
+
+	*) break at do_dec, memorize both the gs and the gimple_code
+	Use these gdb commands:
+		list do_dec
+		break line_num
+		commands The_breakpoint_number
+		p gs
+		p *gs
+		end
+
+	*) break at each dec_gimple_* function we found in the previous step.
+
+	*) find out the data we mishandle.

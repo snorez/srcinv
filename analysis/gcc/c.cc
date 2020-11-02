@@ -10147,6 +10147,33 @@ static int gimple_cond_compare(struct sample_set *sset, int idx,
 	return _retval ? 1 : 0;
 }
 
+static int dec_gassign_array_to_pointer(tree result, tree rhs1,
+					struct data_state_val *rhs1_dsv)
+{
+	if ((TREE_CODE(TREE_TYPE(result)) == POINTER_TYPE) &&
+		(TREE_CODE(rhs1) == ADDR_EXPR) &&
+		(TREE_CODE(TREE_TYPE(TREE_OPERAND(rhs1, 0))) == ARRAY_TYPE)) {
+		if (DSV_TYPE(rhs1_dsv) != DSVT_ADDR) {
+			si_log1_warn("Should not happen\n");
+			return -1;
+		}
+
+		if (DS_VTYPE(DSV_SEC2_VAL(rhs1_dsv)->ds) != DSVT_CONSTRUCTOR) {
+			si_log1_warn("Should not happen\n");
+			return -1;
+		}
+
+		size_t this_bits;
+		this_bits = get_type_bytes(TREE_TYPE(TREE_TYPE(result))) *
+				BITS_PER_UNIT;
+		DSV_SEC2_VAL(rhs1_dsv)->bits = this_bits;
+
+		return 1;
+	} else {
+		return 0;
+	}
+}
+
 static int dec_gimple_assign(struct sample_set *sset, int idx,
 				struct fn_list *fnl, gimple_seq gs)
 {
@@ -10377,7 +10404,14 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 		dsv_extend(rhs2_val);
 
 		if (DSV_TYPE(rhs1_val) == DSVT_ADDR) {
-			/* we need to know the elemsize this pointer point to */
+			/*
+			 * Looks like we do NOT need to get the element size
+			 * this pointer point to. The rhs2 is the right offset.
+			 *
+			 * Also, if we want to get the element size, we should
+			 * use rhs1, not the rhs1_val->raw.
+			 */
+#if 0
 			tree n = (tree)(long)rhs1_val->raw;
 			tree type = TREE_TYPE(n);
 			if (TREE_CODE(type) != POINTER_TYPE) {
@@ -10389,6 +10423,7 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 
 			tree ptype = TREE_TYPE(type);
 			size_t sz = TREE_INT_CST_LOW(TYPE_SIZE_UNIT(ptype));
+#endif
 			size_t idx = *(size_t *)DSV_SEC1_VAL(rhs2_val);
 
 			dsv_alloc_data(lhs_val, DSVT_ADDR, 0);
@@ -10396,7 +10431,7 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 				DSV_SEC2_VAL(rhs1_val)->ds;
 			DSV_SEC2_VAL(lhs_val)->offset =
 				DSV_SEC2_VAL(rhs1_val)->offset +
-					sz * idx * BITS_PER_UNIT;
+					idx * BITS_PER_UNIT;
 			DSV_SEC2_VAL(lhs_val)->bits =
 				DSV_SEC2_VAL(rhs1_val)->bits;
 		} else if (DSV_TYPE(rhs1_val) == DSVT_INT_CST) {
@@ -10689,8 +10724,20 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 			break;
 		}
 
-		/* XXX: do not use rhs1_val as the src */
-		dsv_copy_data(lhs_val, &rhs1_state->val);
+		/*
+		 * FIXME: I can not remember why
+		 * `do not use rhs1_val as the src`
+		 */
+		int _rv;
+		_rv = dec_gassign_array_to_pointer(lhs, rhs1, rhs1_val);
+		if (!_rv) {
+			dsv_copy_data(lhs_val, &rhs1_state->val);
+		} else if (_rv == -1) {
+			err = -1;
+			break;
+		} else {
+			dsv_copy_data(lhs_val, rhs1_val);
+		}
 		break;
 	}
 	case BIT_FIELD_REF:
@@ -10960,6 +11007,16 @@ static int dec_gimple_phi(struct sample_set *sset, int idx,
 
 	result_dsv = get_ds_val(sset, idx, fnl, &result_ds->val, 0, 0);
 	src_dsv = get_ds_val(sset, idx, fnl, &src_ds->val, 0, 0);
+
+	/*
+	 * If assign an ARRAY to a pointer, we should get the [0] element's
+	 * offset and bits.
+	 */
+	if (dec_gassign_array_to_pointer(result, def, src_dsv) == -1) {
+		data_state_drop(src_ds);
+		data_state_drop(result_ds);
+		return -1;
+	}
 
 	dsv_copy_data(result_dsv, src_dsv);
 
