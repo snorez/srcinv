@@ -638,8 +638,11 @@ enum possible_list_val {
 };
 struct possible_list {
 	struct slist_head	sibling;
-	uint64_t		value_flag;
-	uint64_t		value;
+	u64			value;
+
+	/* str length(exclude the nul byte) for VALUE_IS_STR_CST */
+	u32			extra_param;
+	u8			value_flag;
 };
 
 #ifdef CONFIG_GUESS_DSV_RANDOM
@@ -729,7 +732,7 @@ enum data_state_val_type {
 
 	/* section 1 */
 	DSVT_INT_CST,
-	DSVT_STR_CST,
+	/* DSVT_STR_CST, use ARRAY to represent STRING_CST */
 	DSVT_REAL_CST,
 
 	/* section 2 */

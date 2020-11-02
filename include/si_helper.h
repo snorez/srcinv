@@ -831,8 +831,9 @@ static inline struct possible_list *possible_list_find(struct slist_head *head,
 }
 
 static inline struct possible_list *__add_possible(struct slist_head *head,
-							unsigned long val_flag,
-							unsigned long value)
+						   u8 val_flag,
+						   u64 value,
+						   u32 extra)
 {
 	struct possible_list *pv;
 	pv = possible_list_find(head, val_flag, value);
@@ -840,6 +841,7 @@ static inline struct possible_list *__add_possible(struct slist_head *head,
 		pv = possible_list_new();
 		pv->value_flag = val_flag;
 		pv->value = value;
+		pv->extra_param = extra;
 		slist_add_tail(&pv->sibling, head);
 	}
 
@@ -1016,6 +1018,32 @@ static inline struct data_state_val1 *data_state_val1_alloc(void *raw)
 	memset(_new, 0, sizeof(*_new));
 	dsv_set_raw(&_new->val, raw);
 	return _new;
+}
+
+static inline void __dsv_str_data_add_byte(struct data_state_val *dsv, void *raw,
+					   char c, u32 idx)
+{
+	struct data_state_val1 *tmp;
+	u32 this_bytes = sizeof(c);
+
+	tmp = data_state_val1_alloc(raw);
+	dsv_alloc_data(&tmp->val, DSVT_INT_CST, this_bytes);
+	clib_memcpy_bits(DSV_SEC1_VAL(&tmp->val), this_bytes * BITS_PER_UNIT,
+			 &c, this_bytes * BITS_PER_UNIT);
+	tmp->bits = this_bytes * BITS_PER_UNIT;
+	tmp->offset = idx * BITS_PER_UNIT;
+	slist_add_tail(&tmp->sibling, DSV_SEC3_VAL(dsv));
+}
+
+static inline void dsv_fill_str_data(struct data_state_val *dsv, void *raw, 
+					char *str, u32 bytes)
+{
+	for (u32 i = 0; i < bytes; i++) {
+		__dsv_str_data_add_byte(dsv, raw, str[i], i);
+	}
+
+	if (bytes && str[bytes-1])
+		__dsv_str_data_add_byte(dsv, raw, '\0', bytes);
 }
 
 static inline void data_state_destroy(struct data_state_rw *ds)

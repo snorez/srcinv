@@ -5543,7 +5543,7 @@ static void __get_type_detail(struct type_node **base, struct type_node **next,
 			value = (long)TREE_INT_CST_LOW(TREE_VALUE(enum_list));
 			analysis__add_possible(&_new_var->var,
 						VALUE_IS_INT_CST,
-						value);
+						value, 0);
 			slist_add_tail(&_new_var->sibling,&new_type->children);
 
 			enum_list = TREE_CHAIN(enum_list);
@@ -6421,19 +6421,21 @@ static void do_init_value(struct var_node *vn, tree init_tree)
 		if (TREE_INT_CST_EXT_NUNITS(init_tree) > 1)
 			si_log1_todo("EXT_NUNITS > 1\n");
 		long value = TREE_INT_CST_LOW(init_tree);
-		analysis__add_possible(vn, VALUE_IS_INT_CST, value);
+		analysis__add_possible(vn, VALUE_IS_INT_CST, value, 0);
 		break;
 	}
 	case REAL_CST:
 	{
 		long value = (long)init_tree;
-		analysis__add_possible(vn, VALUE_IS_REAL_CST, value);
+		analysis__add_possible(vn, VALUE_IS_REAL_CST, value, 0);
 		break;
 	}
 	case STRING_CST:
 	{
-		long value = (long)((struct tree_string *)init_tree)->str;
-		analysis__add_possible(vn, VALUE_IS_STR_CST, value);
+		/* long value = (long)((struct tree_string *)init_tree)->str; */
+		long value = (long)TREE_STRING_POINTER(init_tree);
+		u32 length = TREE_STRING_LENGTH(init_tree);
+		analysis__add_possible(vn, VALUE_IS_STR_CST, value, length);
 		break;
 	}
 	case ADDR_EXPR:
@@ -6448,24 +6450,27 @@ static void do_init_value(struct var_node *vn, tree init_tree)
 			if (!fsn) {
 				/* FIXME, this function not found yet */
 				long value = (long)addr;
-				analysis__add_possible(vn,VALUE_IS_TREE,value);
+				analysis__add_possible(vn, VALUE_IS_TREE,
+						       value, 0);
 			} else {
 				/* long value = fsn->node_id.id.id1; */
 				long value;
 				value = sinode_id_all(fsn);
-				analysis__add_possible(vn,VALUE_IS_FUNC,value);
+				analysis__add_possible(vn, VALUE_IS_FUNC,
+						       value, 0);
 			}
 		} else if (TREE_CODE(addr) == VAR_DECL) {
 			long value = (long)init_tree;
-			analysis__add_possible(vn, VALUE_IS_VAR_ADDR, value);
+			analysis__add_possible(vn, VALUE_IS_VAR_ADDR,
+					       value, 0);
 		} else if (TREE_CODE(addr) == STRING_CST) {
 			do_init_value(vn, addr);
 		} else if (TREE_CODE(addr) == COMPONENT_REF) {
 			long value = (long)init_tree;
-			analysis__add_possible(vn, VALUE_IS_VAR_ADDR, value);
+			analysis__add_possible(vn, VALUE_IS_VAR_ADDR, value, 0);
 		} else if (TREE_CODE(addr) == ARRAY_REF) {
 			long value = (long)init_tree;
-			analysis__add_possible(vn, VALUE_IS_EXPR, value);
+			analysis__add_possible(vn, VALUE_IS_EXPR, value, 0);
 		} else if (TREE_CODE(addr) == COMPOUND_LITERAL_EXPR) {
 			tree vd = COMPOUND_LITERAL_EXPR_DECL(addr);
 			BUG_ON(!vd);
@@ -6487,7 +6492,7 @@ static void do_init_value(struct var_node *vn, tree init_tree)
 	case PLUS_EXPR:
 	{
 		long value = (long)init_tree;
-		analysis__add_possible(vn, VALUE_IS_EXPR, value);
+		analysis__add_possible(vn, VALUE_IS_EXPR, value, 0);
 		break;
 	}
 	default:
@@ -7601,7 +7606,7 @@ static void __func_assigned(struct sinode *n, struct sinode *fsn, tree op)
 		if (!vn)
 			break;
 
-		analysis__add_possible(vn, VALUE_IS_FUNC, n->node_id.id.id1);
+		analysis__add_possible(vn, VALUE_IS_FUNC, n->node_id.id.id1, 0);
 		break;
 	}
 	case PARM_DECL:
@@ -7611,7 +7616,7 @@ static void __func_assigned(struct sinode *n, struct sinode *fsn, tree op)
 		if (!vn)
 			break;
 
-		analysis__add_possible(vn, VALUE_IS_FUNC, n->node_id.id.id1);
+		analysis__add_possible(vn, VALUE_IS_FUNC, n->node_id.id.id1, 0);
 		break;
 	}
 	case COMPONENT_REF:
@@ -7622,7 +7627,7 @@ static void __func_assigned(struct sinode *n, struct sinode *fsn, tree op)
 			break;
 
 		analysis__add_possible(&vnl->var, VALUE_IS_FUNC,
-					n->node_id.id.id1);
+					n->node_id.id.id1, 0);
 		break;
 	}
 	case ARRAY_REF:
@@ -9058,6 +9063,11 @@ static struct data_state_val *get_ds_val(struct sample_set *sset, int idx,
 	}
 	default:
 	{
+		/*
+		 * TODO: If dsv is a string, and it is used as an array,
+		 * how to return the value? Should be better to use ARRAY
+		 * to represent STRING_CST
+		 */
 		ret = dsv;
 		break;
 	}
@@ -9126,14 +9136,11 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 	{
 		char *str;
 		str = (char *)TREE_STRING_POINTER(n);
-		size_t srclen = strlen(str);
-		if (srclen > (size_t)TREE_STRING_LENGTH(n))
-			srclen = TREE_STRING_LENGTH(n);
-		srclen += 1;
+		u32 srclen = TREE_STRING_LENGTH(n);
 
 		ret = data_state_rw_new((u64)n, DSRT_RAW, n);
-		dsv_alloc_data(&ret->val, DSVT_STR_CST, srclen);
-		memcpy(DS_SEC1_VAL(ret), str, srclen);
+		dsv_alloc_data(&ret->val, DSVT_CONSTRUCTOR, 0);
+		dsv_fill_str_data(&ret->val, n, str, srclen);
 		break;
 	}
 	case REAL_CST:
@@ -9253,15 +9260,14 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 				case VALUE_IS_STR_CST:
 				{
 					u32 bytes;
-					bytes = strlen((char *)pl->value) + 1;
+					tree n = (tree)(long)ds->val.raw;
+					bytes = pl->extra_param;
 					dsv_alloc_data(&ds->val,
-							     DSVT_STR_CST,
-							     bytes);
-					clib_memcpy_bits(DS_SEC1_VAL(ds),
-							 bytes * BITS_PER_UNIT,
-							 (void *)pl->value,
-							 (bytes - 1) *
-							 BITS_PER_UNIT);
+						       DSVT_CONSTRUCTOR, 0);
+					dsv_fill_str_data(&ds->val,
+							  (void *)n,
+							  (char *)pl->value,
+							  bytes);
 					break;
 				}
 				default:
@@ -9318,13 +9324,11 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 			case VALUE_IS_STR_CST:
 			{
 				u32 bytes;
-				bytes = strlen((char *)pl->value) + 1;
-				dsv_alloc_data(&ds->val, DSVT_STR_CST,
-						     bytes);
-				clib_memcpy_bits(DS_SEC1_VAL(ds),
-						bytes * BITS_PER_UNIT,
-						 (void *)pl->value,
-						 (bytes - 1) * BITS_PER_UNIT);
+				tree n = (tree)(long)ds->val.raw;
+				bytes = pl->extra_param;
+				dsv_alloc_data(&ds->val, DSVT_CONSTRUCTOR, 0);
+				dsv_fill_str_data(&ds->val, n, (char *)pl->value,
+						  bytes);
 				break;
 			}
 			default:
@@ -9403,7 +9407,7 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 			break;
 		}
 
-		/* TODO: the op1 could be a variable. */
+		/* TODO: the op1 may be a variable. */
 		u64 index = 0;
 		struct data_state_rw *index_ds;
 		index_ds = get_ds_via_tree(sset, idx, fnl, TREE_OPERAND(n, 1),
@@ -10424,16 +10428,26 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 			tree ptype = TREE_TYPE(type);
 			size_t sz = TREE_INT_CST_LOW(TYPE_SIZE_UNIT(ptype));
 #endif
-			size_t idx = *(size_t *)DSV_SEC1_VAL(rhs2_val);
+			size_t idx = 0;
+			clib_memcpy_bits(&idx, sizeof(idx) * BITS_PER_UNIT,
+					 DSV_SEC1_VAL(rhs2_val),
+					 rhs2_val->info.v1_info.bytes *
+						BITS_PER_UNIT);
 
-			dsv_alloc_data(lhs_val, DSVT_ADDR, 0);
-			DSV_SEC2_VAL(lhs_val)->ds =
-				DSV_SEC2_VAL(rhs1_val)->ds;
-			DSV_SEC2_VAL(lhs_val)->offset =
-				DSV_SEC2_VAL(rhs1_val)->offset +
-					idx * BITS_PER_UNIT;
-			DSV_SEC2_VAL(lhs_val)->bits =
-				DSV_SEC2_VAL(rhs1_val)->bits;
+			if (lhs_val == rhs1_val) {
+				DSV_SEC2_VAL(lhs_val)->offset =
+					DSV_SEC2_VAL(rhs1_val)->offset +
+						idx * BITS_PER_UNIT;
+			} else {
+				dsv_alloc_data(lhs_val, DSVT_ADDR, 0);
+				DSV_SEC2_VAL(lhs_val)->ds =
+					DSV_SEC2_VAL(rhs1_val)->ds;
+				DSV_SEC2_VAL(lhs_val)->offset =
+					DSV_SEC2_VAL(rhs1_val)->offset +
+						idx * BITS_PER_UNIT;
+				DSV_SEC2_VAL(lhs_val)->bits =
+					DSV_SEC2_VAL(rhs1_val)->bits;
+			}
 		} else if (DSV_TYPE(rhs1_val) == DSVT_INT_CST) {
 			/* FIXME: rhs1_val MUST be NULL. */
 			for (u32 i = 0; i < rhs1_val->info.v1_info.bytes; i++) {
@@ -10570,13 +10584,17 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 		case DSVT_ADDR:
 		case DSVT_REF:
 		{
+			/* in case the lhs_val and rhs1_val are the same */
+			struct data_state_rw *target_ds;
+			s32 target_offset = DSV_SEC2_VAL(rhs1_val)->offset;
+			u32 target_bits = DSV_SEC2_VAL(rhs1_val)->bits;
+			target_ds = DSV_SEC2_VAL(rhs1_val)->ds;
+			data_state_hold(target_ds);
+
 			dsv_alloc_data(lhs_val, DSV_TYPE(rhs1_val), 0);
-			data_state_hold(DSV_SEC2_VAL(rhs1_val)->ds);
-			DSV_SEC2_VAL(lhs_val)->ds = DSV_SEC2_VAL(rhs1_val)->ds;
-			DSV_SEC2_VAL(lhs_val)->offset =
-				DSV_SEC2_VAL(rhs1_val)->offset;
-			DSV_SEC2_VAL(lhs_val)->bits =
-				DSV_SEC2_VAL(rhs1_val)->bits;
+			DSV_SEC2_VAL(lhs_val)->ds = target_ds;
+			DSV_SEC2_VAL(lhs_val)->offset = target_offset;
+			DSV_SEC2_VAL(lhs_val)->bits = target_bits;
 			break;
 		}
 		default:
@@ -10709,11 +10727,14 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 					}
 				}
 			}
-			break;
+		} else {
+			size_t this_bytes = rhs1_val->info.v1_info.bytes;
+			dsv_alloc_data(lhs_val, DSVT_CONSTRUCTOR, 0);
+			dsv_fill_str_data(lhs_val, rhs1,
+					  (char *)DSV_SEC1_VAL(rhs1_val),
+					  this_bytes);
 		}
 
-		dsv_alloc_data(lhs_val, DSVT_REF, 0);
-		DSV_SEC2_VAL(lhs_val)->ds = rhs1_state;
 		break;
 	}
 	case ADDR_EXPR:

@@ -123,9 +123,8 @@ CLIB_MODULE_CALL_FUNC(analysis, add_callee, void,
 		 void *where, int8_t type),
 		4, caller_fsn, callee_fsn, where, type);
 CLIB_MODULE_CALL_FUNC(analysis, add_possible, void,
-		(struct var_node *vn, unsigned long value_flag,
-		 unsigned long value),
-		3, vn, value_flag, value);
+		(struct var_node *vn, u8 value_flag, u64 value, u32 extra),
+		4, vn, value_flag, value, extra);
 
 CLIB_MODULE_CALL_FUNC0(analysis, sibuf_new, struct sibuf *);
 
