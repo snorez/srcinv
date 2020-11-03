@@ -1,3 +1,6 @@
+2020-11-03
+	* analysis/gcc/c.cc: dsv_extend() load target sibuf if needed
+
 2020-11-02
 	* analysis/gcc/c.cc: handle assign ARRAY to a pointer
 	* analysis/gcc/c.cc: use ARRAY to represent STRING_CST

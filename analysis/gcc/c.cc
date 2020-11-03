@@ -9569,6 +9569,10 @@ static void dsv_extend(struct data_state_val *dsv)
 
 	/* TODO: endian? */
 	tree n = (tree)(long)dsv->raw;
+	struct sibuf *b;
+	b = find_target_sibuf((void *)n);
+	int held = analysis__sibuf_hold(b);
+
 	enum tree_code tc = TREE_CODE(n);
 	tree type;
 	if (TREE_CODE_CLASS(TREE_CODE(n)) != tcc_type)
@@ -9593,23 +9597,26 @@ static void dsv_extend(struct data_state_val *dsv)
 	}
 	}
 
+	int msb_bit;
+	u32 bits;
+
 	if (!type)
-		return;
+		goto out;
 
 	if (TYPE_UNSIGNED(type))
 		sign = 0;
 	dsv->info.v1_info.sign = sign;
 
 	if (!sign)
-		return;
+		goto out;
 
 	/* XXX: maybe we could use clib_memset_bits() */
 	BUG_ON(msb_pos == (u32)-1);
-	int msb_bit = test_bit(msb_pos, (long *)DSV_SEC1_VAL(dsv));
+	msb_bit = test_bit(msb_pos, (long *)DSV_SEC1_VAL(dsv));
 	if (!msb_bit)
-		return;
+		goto out;
 
-	u32 bits = TREE_INT_CST_LOW(TYPE_SIZE(type));
+	bits = TREE_INT_CST_LOW(TYPE_SIZE(type));
 	if (type != TREE_TYPE(n)) {
 		u32 _bits;
 		_bits = TREE_INT_CST_LOW(TYPE_SIZE(TREE_TYPE(n)));
@@ -9620,6 +9627,9 @@ static void dsv_extend(struct data_state_val *dsv)
 	for (u32 i = msb_pos + 1; i < bits; i++)
 		test_and_set_bit(i, (long *)DSV_SEC1_VAL(dsv));
 
+out:
+	if (!held)
+		analysis__sibuf_drop(b);
 	return;
 }
 
