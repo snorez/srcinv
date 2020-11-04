@@ -731,13 +731,12 @@ enum data_state_val_type {
 	DSVT_UNK,
 
 	/* section 1 */
-	DSVT_INT_CST,
-	/* DSVT_STR_CST, use ARRAY to represent STRING_CST */
-	DSVT_REAL_CST,
+	DSVT_INT_CST,	/* sec1 first */
+	DSVT_REAL_CST,	/* sec1 last */
 
 	/* section 2 */
-	DSVT_ADDR,	/* address of some other data_state */
-	DSVT_REF,	/* value stored in some other data_state */
+	DSVT_ADDR,	/* address of some other data_state, sec2 first */
+	DSVT_REF,	/* value stored in some other data_state, sec2 last */
 
 	/* section 3: data_state_val1 */
 	/* DSVT_ARRAY, DSVT_COMPONENT, */

@@ -8648,7 +8648,8 @@ static int c_parse(struct sibuf *buf, int parse_mode)
  */
 static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 						struct fn_list *fnl, tree n,
-						int *complete_type_p);
+						int *complete_type_p,
+						int *ssa_write);
 
 static int dsv_fill(struct data_state_val *dsv, int fill_on_zero)
 {
@@ -9081,10 +9082,17 @@ static struct data_state_val *get_ds_val(struct sample_set *sset, int idx,
 
 static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 						struct fn_list *fnl, tree n,
-						int *complete_type_p)
+						int *complete_type_p,
+						int *ssa_write)
 {
 	if (complete_type_p)
 		*complete_type_p = 1;
+	int old_ssa_write = 0;
+	if (ssa_write) {
+		old_ssa_write = *ssa_write;
+		*ssa_write = 0;
+	}
+
 	struct data_state_rw *ret = NULL;
 	if (!n)
 		return ret;
@@ -9362,7 +9370,8 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 		struct data_state_rw *tmp;
 		u32 bits;
 
-		tmp = get_ds_via_tree(sset, idx, fnl, TREE_OPERAND(n, 0), NULL);
+		tmp = get_ds_via_tree(sset, idx, fnl, TREE_OPERAND(n, 0), NULL,
+					NULL);
 		if (!tmp) {
 			/*
 			 * TODO: in linux kernel in_lock_functions(), the
@@ -9382,15 +9391,51 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 	case SSA_NAME:
 	{
 		/*
-		 * If this ssa_name is a temporary SSA_NAME, and if it is not
+		 * If this ssa_name is a temporary SSA_NAME, and it is not
 		 * in fnl, we create a new one and add it into fnl.
 		 */
 		tree var = SSA_NAME_VAR(n);
-		if (var == NULL_TREE) {
-			ret = fnl_data_state_add(fnl, (u64)n, DSRT_RAW, n);
+		struct data_state_rw *var_ds = NULL;
+
+		if (var) {
+			var_ds = get_ds_via_tree(sset, idx, fnl, var, NULL,
+						 NULL);
+			if (!var_ds) {
+				si_log1_todo("Should not happen\n");
+				break;
+			}
 		} else {
-			ret = get_ds_via_tree(sset, idx, fnl, var, NULL);
+			ret = fnl_data_state_add(fnl, (u64)n, DSRT_RAW, n);
+			goto ssa_name_out;
 		}
+
+		if (old_ssa_write) {
+			u32 bits;
+
+			bits = get_type_bits(TREE_TYPE(var));
+
+			ret = fnl_data_state_add(fnl, (u64)n, DSRT_RAW, n);
+			dsv_alloc_data(&ret->val, DSVT_REF, 0);
+			ds_vref_setv(&ret->val, var_ds, 0, bits);
+			*ssa_write = 1;
+			goto ssa_name_out;
+		}
+
+		/* !old_ssa_write && var */
+		ret = fnl_data_state_add(fnl, (u64)n, DSRT_RAW, n);
+		if (gimple_nop_p(SSA_NAME_DEF_STMT(n))) {
+			if (!SSA_NAME_IS_DEFAULT_DEF(n)) {
+				si_log1_warn("Should not happen\n");
+			} else {
+				struct data_state_val *var_dsv;
+				var_dsv = get_ds_val(sset, idx, fnl,
+						     &var_ds->val, 0, 0);
+				dsv_copy_data(&ret->val, var_dsv);
+			}
+		}
+
+ssa_name_out:
+		data_state_drop(var_ds);
 		break;
 	}
 	case ARRAY_REF:
@@ -9401,7 +9446,8 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 		 * op2: lower bound
 		 */
 		struct data_state_rw *tmp;
-		tmp = get_ds_via_tree(sset, idx, fnl, TREE_OPERAND(n, 0), NULL);
+		tmp = get_ds_via_tree(sset, idx, fnl, TREE_OPERAND(n, 0), NULL,
+					NULL);
 		if (!tmp) {
 			si_log1_todo("not handled\n");
 			break;
@@ -9411,7 +9457,7 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 		u64 index = 0;
 		struct data_state_rw *index_ds;
 		index_ds = get_ds_via_tree(sset, idx, fnl, TREE_OPERAND(n, 1),
-						NULL);
+						NULL, NULL);
 		if (index_ds) {
 			struct data_state_val *index_dsv;
 			index_dsv = get_ds_val(sset, idx, fnl, &index_ds->val,
@@ -9454,7 +9500,8 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 		 * op2: where to start
 		 */
 		struct data_state_rw *tmp;
-		tmp = get_ds_via_tree(sset, idx, fnl, TREE_OPERAND(n, 0), NULL);
+		tmp = get_ds_via_tree(sset, idx, fnl, TREE_OPERAND(n, 0), NULL,
+					NULL);
 		if (!tmp) {
 			si_log1_todo("not handled\n");
 			break;
@@ -9479,7 +9526,8 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 		 * op2: aligned_offset
 		 */
 		struct data_state_rw *tmp;
-		tmp = get_ds_via_tree(sset, idx, fnl, TREE_OPERAND(n, 0), NULL);
+		tmp = get_ds_via_tree(sset, idx, fnl, TREE_OPERAND(n, 0), NULL,
+					NULL);
 		if (!tmp) {
 			si_log1_todo("not handled\n");
 			break;
@@ -9504,7 +9552,8 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 		 */
 		struct data_state_rw *tmp, *newtmp = NULL;
 		struct data_state_val *tmp_dsv;
-		tmp = get_ds_via_tree(sset, idx, fnl, TREE_OPERAND(n, 0), NULL);
+		tmp = get_ds_via_tree(sset, idx, fnl, TREE_OPERAND(n, 0), NULL,
+					NULL);
 		if (!tmp) {
 			si_log1_todo("not handled\n");
 			break;
@@ -9872,13 +9921,24 @@ static int dec_gimple_call(struct sample_set *sset, int idx,
 			sample_set_set_flag(sset, SAMPLE_SF_VOIDRV);
 		} else {
 			struct data_state_rw *dstmp;
-			dstmp = get_ds_via_tree(sset, idx, fnl, lhs, NULL);
+			struct data_state_val *dsvtmp;
+			int ssa_write = 1;
+			dstmp = get_ds_via_tree(sset, idx, fnl, lhs, NULL,
+						&ssa_write);
 			if (!dstmp) {
 				si_log1_warn("Should not happen\n");
 				return -1;
 			}
 
-			dsv_copy_data(&dstmp->val, &orig_ds->val);
+			dsvtmp = get_ds_val(sset, idx, fnl, &dstmp->val, 0, 0);
+
+			dsv_copy_data(dsvtmp, &orig_ds->val);
+			if (ssa_write) {
+				if (dsvtmp == &dstmp->val)
+					si_log1_warn("Should not happen\n");
+				else
+					dsv_copy_data(&dstmp->val, dsvtmp);
+			}
 			data_state_drop(dstmp);
 		}
 
@@ -9921,7 +9981,8 @@ static int dec_gimple_call(struct sample_set *sset, int idx,
 		if (!__callee) {
 			/* This ssa has been set. Should be in fnl. */
 			struct data_state_rw *ds_ssa;
-			ds_ssa = get_ds_via_tree(sset, idx, fnl, callee, NULL);
+			ds_ssa = get_ds_via_tree(sset, idx, fnl, callee, NULL,
+						 NULL);
 			if (!ds_ssa) {
 				si_log1_warn("Should not happen\n");
 				break;
@@ -9944,7 +10005,7 @@ static int dec_gimple_call(struct sample_set *sset, int idx,
 	{
 		/* The var should've been set */
 		struct data_state_rw *ds;
-		ds = get_ds_via_tree(sset, idx, fnl, __callee, NULL);
+		ds = get_ds_via_tree(sset, idx, fnl, __callee, NULL, NULL);
 		if (!ds) {
 			si_log1_todo("target data_state not found\n");
 			break;
@@ -9998,7 +10059,7 @@ static int dec_gimple_call(struct sample_set *sset, int idx,
 	for (unsigned i = 0; i < gimple_call_num_args(stmt); i++) {
 		tree arg = gimple_call_arg(stmt, i);
 		struct data_state_rw *tmpds;
-		tmpds = get_ds_via_tree(sset, idx, fnl, arg, NULL);
+		tmpds = get_ds_via_tree(sset, idx, fnl, arg, NULL, NULL);
 		if (!tmpds) {
 			si_log1_todo("data state not found\n");
 			return -1;
@@ -10056,7 +10117,7 @@ static int dec_gimple_return(struct sample_set *sset, int idx,
 	 */
 	tree rvtree = gimple_return_retval(stmt);
 	struct data_state_rw *dstmp;
-	dstmp = get_ds_via_tree(sset, idx, fnl, rvtree, NULL);
+	dstmp = get_ds_via_tree(sset, idx, fnl, rvtree, NULL, NULL);
 	if (dstmp) {
 		data_state_hold(dstmp);
 		sample->retval = dstmp;
@@ -10206,10 +10267,11 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 	u32 bytes = get_type_bytes(lhs);
 
 	struct data_state_rw *lhs_state, *rhs1_state, *rhs2_state, *rhs3_state;
-	lhs_state = get_ds_via_tree(sset, idx, fnl, lhs, NULL);
-	rhs1_state = get_ds_via_tree(sset, idx, fnl, rhs1, NULL);
-	rhs2_state = get_ds_via_tree(sset, idx, fnl, rhs2, NULL);
-	rhs3_state = get_ds_via_tree(sset, idx, fnl, rhs3, NULL);
+	int ssa_write = 1;
+	lhs_state = get_ds_via_tree(sset, idx, fnl, lhs, NULL, &ssa_write);
+	rhs1_state = get_ds_via_tree(sset, idx, fnl, rhs1, NULL, NULL);
+	rhs2_state = get_ds_via_tree(sset, idx, fnl, rhs2, NULL, NULL);
+	rhs3_state = get_ds_via_tree(sset, idx, fnl, rhs3, NULL, NULL);
 	if ((lhs && (!lhs_state)) ||
 			(rhs1 && (!rhs1_state)) ||
 			(rhs2 && (!rhs2_state)) ||
@@ -10829,6 +10891,13 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 	}
 	}
 
+	if (ssa_write) {
+		if (lhs_val == &lhs_state->val)
+			si_log1_warn("Should not happen\n");
+		else
+			dsv_copy_data(&lhs_state->val, lhs_val);
+	}
+
 	data_state_drop(lhs_state);
 	data_state_drop(rhs1_state);
 	data_state_drop(rhs2_state);
@@ -10860,8 +10929,8 @@ static int dec_gimple_cond(struct sample_set *sset, int idx,
 	} else if (si_gimple_cond_false_p(stmt)) {
 		next_cp = this_cp->next[0];
 	} else {
-		lhs_state = get_ds_via_tree(sset, idx, fnl, lhs, NULL);
-		rhs_state = get_ds_via_tree(sset, idx, fnl, rhs, NULL);
+		lhs_state = get_ds_via_tree(sset, idx, fnl, lhs, NULL, NULL);
+		rhs_state = get_ds_via_tree(sset, idx, fnl, rhs, NULL, NULL);
 		if ((lhs && (!lhs_state)) || (rhs && (!rhs_state))) {
 			si_log1_warn("Should not happen\n");
 			return -1;
@@ -10927,7 +10996,7 @@ static int dec_gimple_switch(struct sample_set *sset, int idx,
 	tree index = gimple_switch_index(stmt);
 	struct data_state_rw *index_ds;
 	struct data_state_val *index_dsv;
-	index_ds = get_ds_via_tree(sset, idx, fnl, index, NULL);
+	index_ds = get_ds_via_tree(sset, idx, fnl, index, NULL, NULL);
 	if (index && (!index_ds)) {
 		si_log1_todo("not handled\n");
 		return -1;
@@ -10989,7 +11058,9 @@ static int dec_gimple_phi(struct sample_set *sset, int idx,
 	tree def;
 	basic_block src, prev_bb = (basic_block)prev_cp->cp;
 
-	result_ds = get_ds_via_tree(sset, idx, fnl, result, &complete_type_p);
+	int ssa_write = 1;
+	result_ds = get_ds_via_tree(sset, idx, fnl, result, &complete_type_p,
+				    &ssa_write);
 	if (!complete_type_p) {
 		/* ignore VOID_TYPE */
 		goto out;
@@ -11024,7 +11095,8 @@ static int dec_gimple_phi(struct sample_set *sset, int idx,
 			continue;
 
 		/* Okay, we found the previous code_path */
-		src_ds = get_ds_via_tree(sset, idx, fnl, def, &complete_type_p);
+		src_ds = get_ds_via_tree(sset, idx, fnl, def, &complete_type_p,
+					 NULL);
 		if (!complete_type_p)
 			goto out;
 
@@ -11050,6 +11122,12 @@ static int dec_gimple_phi(struct sample_set *sset, int idx,
 	}
 
 	dsv_copy_data(result_dsv, src_dsv);
+	if (ssa_write) {
+		if (result_dsv == &result_ds->val)
+			si_log1_warn("Should not happen\n");
+		else
+			dsv_copy_data(&result_ds->val, result_dsv);
+	}
 
 out:
 	data_state_drop(src_ds);
@@ -11063,6 +11141,12 @@ static int dec_ignore(struct sample_set *sset, int idx,
 {
 	fnl->curpos = (void *)cp_next_gimple(fnl->fn, gs);
 	return 0;
+}
+
+static int dec_nop(struct sample_set *sset, int idx, struct fn_list *fnl,
+			gimple_seq gs)
+{
+	return dec_ignore(sset, idx, fnl, gs);
 }
 
 static int dec_adjust_cp(struct sample_set *sset, int idx, struct fn_list *fnl)
@@ -11159,7 +11243,7 @@ static struct {
 	{GIMPLE_PREDICT,		dec_ignore},
 	{GIMPLE_TRANSACTION,		NULL},
 	{GIMPLE_LABEL,			dec_ignore},
-	{GIMPLE_NOP,			NULL},
+	{GIMPLE_NOP,			dec_nop},
 };
 
 static int do_dec(struct sample_set *sset, int idx, struct fn_list *fnl,

@@ -167,3 +167,27 @@ A BUG_ON triggered in __do_constructor_init(). We could find the target var_list
 	*) break at each dec_gimple_* function we found in the previous step.
 
 	*) find out the data we mishandle.
+
+3.2) loop for UINT_MAX times
+	In linux kernel __fb_pad_aligned_buffer, there is a loop:
+		for (i = height; i--; ) {
+			for (j = 0; j < s_pitch; j++)
+				*dst++ = *src++;
+			dst += d_pitch;
+		}
+
+	The i-- statement has two gimples: GIMPLE_ASSIGN, GIMPLE_COND.
+	GIMPLE_ASSIGN:
+		op[0]: SSA_NAME, reference to VAR_DECL i.
+		op[1]: SSA_NAME, reference to VAR_DECL i.
+		op[2]: 0xffffffff.
+	GIMPLE_COND:
+		op[0]: the op[1] of previous GIMPLE_ASSIGN.
+		op[1]: 0.
+
+	When handle GIMPLE_ASSIGN, both the op[0] and op[1] will get the
+	data_state_rw of i. And then the GIMPLE_ASSIGN statement will
+	set 0xffffffff to the i. This leads the following GIMPLE_COND statement
+	mischecked.
+
+	So, we need to handle SSA_NAME properly.

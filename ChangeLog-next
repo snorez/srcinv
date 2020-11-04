@@ -1,3 +1,8 @@
+2020-11-04
+	* analysis/gcc/c.cc: get_ds_via_tree() handle SSA_NAMEs carefully
+	* analysis/gcc/c.cc: ignore GIMPLE_NOP statement
+	* analysis/gcc/c.cc: get_ds_via_tree() handle GIMPLE_NOP for SSA_NAME
+
 2020-11-03
 	* analysis/gcc/c.cc: dsv_extend() load target sibuf if needed
 
