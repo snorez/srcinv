@@ -10519,6 +10519,7 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 						idx * BITS_PER_UNIT;
 				DSV_SEC2_VAL(lhs_val)->bits =
 					DSV_SEC2_VAL(rhs1_val)->bits;
+				data_state_hold(DSV_SEC2_VAL(lhs_val)->ds);
 			}
 		} else if (DSV_TYPE(rhs1_val) == DSVT_INT_CST) {
 			/* FIXME: rhs1_val MUST be NULL. */

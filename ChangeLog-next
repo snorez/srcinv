@@ -4,6 +4,8 @@
 	* analysis/gcc/c.cc: get_ds_via_tree() handle GIMPLE_NOP for SSA_NAME
 	* analysis/gcc/c.cc: try to fix previous commit issus, some global
 	data states get destoryed too early
+	* analysis/gcc/c.cc: dec_gimple_assign() hold the target data_state_rw
+	in POINTER_PLUS_EXPR
 
 2020-11-03
 	* analysis/gcc/c.cc: dsv_extend() load target sibuf if needed
