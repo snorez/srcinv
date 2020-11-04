@@ -191,3 +191,4 @@ A BUG_ON triggered in __do_constructor_init(). We could find the target var_list
 	mischecked.
 
 	So, we need to handle SSA_NAME properly.
+	This issue seems to be resolved in e50e21e244786872588af4e054a580d4c3883ee0.
