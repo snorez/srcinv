@@ -1157,7 +1157,6 @@ static inline void ds_vref_setv(struct data_state_val *t,
 		dsvr = DS_SEC2_VAL(ds);
 		data_state_hold(dsvr->ds);
 		__ds_vref_setv(t, dsvr->ds, offset + dsvr->offset, bits);
-		data_state_drop(ds);
 		break;
 	}
 	default:
@@ -1333,8 +1332,6 @@ struct data_state_rw *global_data_state_rw_find(u64 addr, u8 type)
 	ret = __global_data_state_rw_find(addr, type);
 	si_unlock_r();
 
-	if (ret)
-		data_state_hold(ret);
 	return ret;
 }
 

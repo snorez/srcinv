@@ -9426,7 +9426,7 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 		if (gimple_nop_p(SSA_NAME_DEF_STMT(n))) {
 			if (!SSA_NAME_IS_DEFAULT_DEF(n)) {
 				si_log1_warn("Should not happen\n");
-			} else {
+			} else if (DSV_TYPE(&ret->val) == DSVT_UNK) {
 				struct data_state_val *var_dsv;
 				var_dsv = get_ds_val(sset, idx, fnl,
 						     &var_ds->val, 0, 0);
