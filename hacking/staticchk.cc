@@ -78,7 +78,6 @@ check_saved:
 		(!analysis__sample_set_validate(sset))) {
 		if (!sample_set_zeroflag(sset))
 			analysis__sample_set_dump(sset);
-		err = 1;
 		save_sample_set(sset);
 		src_set_sset_curid(sset->id+1);
 	}

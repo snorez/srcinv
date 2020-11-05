@@ -9246,6 +9246,7 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 				memset(DSV_SEC1_VAL(dsv), 0,
 					dsv->info.v1_info.bytes);
 
+#if 0
 			/* XXX: init the value of ds */
 			struct possible_list *pl;
 			slist_for_each_entry(pl, &gvn->possible_values,
@@ -9283,6 +9284,7 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 				}
 				break;
 			}
+#endif
 			break;
 		}
 
@@ -9313,6 +9315,7 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 		if (DS_VTYPE(ds) != DSVT_UNK)
 			break;
 
+#if 0
 		struct possible_list *pl;
 		slist_for_each_entry(pl, &vnl->var.possible_values, sibling) {
 			switch (pl->value_flag) {
@@ -9344,6 +9347,7 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 			}
 			break;
 		}
+#endif
 
 		break;
 	}
@@ -9453,6 +9457,15 @@ ssa_name_out:
 			break;
 		}
 
+		/* we got the array, now we need to get the offset and bits */
+		s32 this_offset = 0;
+		u32 this_bits = 0;
+		u64 elem_size = TREE_INT_CST_LOW(array_ref_element_size(n));
+		u64 low_idx = TREE_INT_CST_LOW(array_ref_low_bound(n));
+		u64 up_idx __maybe_unused = 0;
+		if (array_ref_up_bound(n))
+			up_idx = TREE_INT_CST_LOW(array_ref_up_bound(n));
+
 		/* TODO: the op1 may be a variable. */
 		u64 index = 0;
 		struct data_state_rw *index_ds;
@@ -9470,19 +9483,16 @@ ssa_name_out:
 						 DSV_SEC1_VAL(index_dsv),
 						 index_dsv->info.v1_info.bytes *
 							BITS_PER_UNIT);
+				if (up_idx && (index > up_idx)) {
+					/* OOB */
+					sample_set_set_flag(sset,
+							    SAMPLE_SF_OOBR);
+				}
 			}
 			data_state_drop(index_ds);
 			index_ds = NULL;
 		}
 
-		/* we got the array, now we need to get the offset and bits */
-		s32 this_offset = 0;
-		u32 this_bits = 0;
-		u64 elem_size = TREE_INT_CST_LOW(array_ref_element_size(n));
-		u64 low_idx = TREE_INT_CST_LOW(array_ref_low_bound(n));
-		u64 up_idx __maybe_unused = 0;
-		if (array_ref_up_bound(n))
-			up_idx = TREE_INT_CST_LOW(array_ref_up_bound(n));
 		this_offset = elem_size * BITS_PER_UNIT * (index - low_idx);
 		this_bits = elem_size * BITS_PER_UNIT;
 

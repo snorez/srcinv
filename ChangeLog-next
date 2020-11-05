@@ -1,6 +1,8 @@
 2020-11-05
 	* analysis/sample.c: fix sample_state_check_loop()
 	* analysis: check if global_data_rw_states empty before find
+	* analysis/gcc/c.cc: get_ds_via_tree() do not init var_decl node
+	* hacking/staticchk.cc: do not set err when save sample_set
 
 2020-11-04
 	* analysis/gcc/c.cc: get_ds_via_tree() handle SSA_NAMEs carefully
