@@ -1310,6 +1310,16 @@ struct data_state_base *global_data_state_base_add(u64 addr, u8 type)
 	return ret;
 }
 
+static inline void init_global_data_rw_states(void)
+{
+	struct data_state_base *base;
+	slist_for_each_entry(base, &si->global_data_states, sibling) {
+		struct data_state_rw *tmp;
+		tmp = data_state_dup_base(base);
+		slist_add_tail(&tmp->base.sibling, &si->global_data_rw_states);
+	}
+}
+
 static inline
 struct data_state_rw *__global_data_state_rw_find(u64 addr, u8 type)
 {
@@ -1328,9 +1338,11 @@ static inline
 struct data_state_rw *global_data_state_rw_find(u64 addr, u8 type)
 {
 	struct data_state_rw *ret;
-	si_lock_r();
+	si_lock_w();
+	if (unlikely(slist_empty(&si->global_data_rw_states)))
+		init_global_data_rw_states();
 	ret = __global_data_state_rw_find(addr, type);
-	si_unlock_r();
+	si_unlock_w();
 
 	return ret;
 }
@@ -1341,6 +1353,8 @@ struct data_state_rw *global_data_state_rw_add(u64 addr, u8 type, void *raw)
 	struct data_state_rw *ret;
 
 	si_lock_w();
+	if (unlikely(slist_empty(&si->global_data_rw_states)))
+		init_global_data_rw_states();
 	ret = __global_data_state_rw_find(addr, type);
 	if (!ret) {
 		ret = data_state_rw_new(addr, type, raw);
@@ -1448,6 +1462,25 @@ static inline void fn_list_free(struct fn_list *fnl)
 	free(fnl);
 }
 
+static inline void sample_state_init_loopinfo(struct sample_state *sstate)
+{
+	memset(&sstate->loop_info.lhs_val, 0, sizeof(sstate->loop_info.lhs_val));
+	memset(&sstate->loop_info.rhs_val, 0, sizeof(sstate->loop_info.rhs_val));
+	sstate->loop_info.start = -1;
+	sstate->loop_info.end = -1;
+	sstate->loop_info.head = -1;
+	sstate->loop_info.tail = -1;
+}
+
+static inline void sample_state_cleanup_loopinfo(struct sample_state *sstate)
+{
+	if (sstate->loop_info.lhs_val.value.v1)
+		dsv_free_data(&sstate->loop_info.lhs_val);
+	if (sstate->loop_info.rhs_val.value.v1)
+		dsv_free_data(&sstate->loop_info.rhs_val);
+	sample_state_init_loopinfo(sstate);
+}
+
 static inline struct sample_state *sample_state_alloc(int dyn)
 {
 	struct sample_state *_new;
@@ -1459,6 +1492,8 @@ static inline struct sample_state *sample_state_alloc(int dyn)
 	INIT_SLIST_HEAD(&_new->fn_list_head);
 	INIT_SLIST_HEAD(&_new->cp_list_head);
 	INIT_SLIST_HEAD(&_new->arg_head);
+
+	sample_state_init_loopinfo(_new);
 
 	_new->entry_curidx = -1;
 	return _new;
@@ -1492,18 +1527,6 @@ static inline void sample_empty_arg_head(struct sample_state *sample)
 		slist_del(&tmp->base.sibling, &sample->arg_head);
 		data_state_drop(tmp);
 	}
-}
-
-static inline void sample_state_cleanup_loopinfo(struct sample_state *sstate)
-{
-	if (sstate->loop_info.lhs_val.value.v1)
-		dsv_free_data(&sstate->loop_info.lhs_val);
-	if (sstate->loop_info.rhs_val.value.v1)
-		dsv_free_data(&sstate->loop_info.rhs_val);
-	memset(&sstate->loop_info.lhs_val, 0, sizeof(sstate->loop_info.lhs_val));
-	memset(&sstate->loop_info.rhs_val, 0, sizeof(sstate->loop_info.rhs_val));
-	sstate->loop_info.head = NULL;
-	sstate->loop_info.tail = NULL;
 }
 
 static inline void sample_state_free(struct sample_state *state)
@@ -1868,12 +1891,7 @@ static inline int src_init(int empty)
 	}
 
 	INIT_SLIST_HEAD(&si->global_data_rw_states);
-	struct data_state_base *base;
-	slist_for_each_entry(base, &si->global_data_states, sibling) {
-		struct data_state_rw *tmp;
-		tmp = data_state_dup_base(base);
-		slist_add_tail(&tmp->base.sibling, &si->global_data_rw_states);
-	}
+	init_global_data_rw_states();
 
 	return 0;
 }

@@ -852,10 +852,11 @@ struct sample_state {
 	struct data_state_rw	*retval;
 
 	struct {
-		struct cp_list		*start;	/* the pos to search at */
+		int			start;
+		int			end;
+		int			head;
+		int			tail;
 
-		struct cp_list		*head;
-		struct cp_list		*tail;
 		struct data_state_val	lhs_val;
 		struct data_state_val	rhs_val;
 	} loop_info;

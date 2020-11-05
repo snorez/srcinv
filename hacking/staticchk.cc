@@ -74,7 +74,7 @@ static int staticchk_sample_set(struct sample_set *sset, char *modname)
 	}
 
 check_saved:
-	if (modname && (!analysis__sample_set_exists(sset)) &&
+	if ((!analysis__sample_set_exists(sset)) &&
 		(!analysis__sample_set_validate(sset))) {
 		if (!sample_set_zeroflag(sset))
 			analysis__sample_set_dump(sset);

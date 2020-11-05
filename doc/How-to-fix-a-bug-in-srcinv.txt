@@ -151,7 +151,7 @@ A BUG_ON triggered in __do_constructor_init(). We could find the target var_list
 	This could save us one hour to wait for triggering the BUG.
 
 3) dec phase issues
-3.1) infinite loop
+3.1) infinite loop case 0
 	Usually, the output message will show you the function cause the
 	infinite loop.
 

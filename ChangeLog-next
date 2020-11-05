@@ -1,3 +1,7 @@
+2020-11-05
+	* analysis/sample.c: fix sample_state_check_loop()
+	* analysis: check if global_data_rw_states empty before find
+
 2020-11-04
 	* analysis/gcc/c.cc: get_ds_via_tree() handle SSA_NAMEs carefully
 	* analysis/gcc/c.cc: ignore GIMPLE_NOP statement

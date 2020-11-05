@@ -200,9 +200,9 @@ int sample_state_check_loop(struct sample_set *sset, int idx,
 			    struct code_path *next_cp)
 {
 	struct sample_state *sstate = sset->samples[idx];
-	struct cp_list *start_cpl, *head_cpl, *tail_cpl;
 
 	size_t count = slist_count(&sstate->cp_list_head);
+	count += 1;	/* for next_cp */
 	void **arr = (void **)xmalloc(count * sizeof(void *));
 
 	int _idx = 0;
@@ -211,46 +211,40 @@ int sample_state_check_loop(struct sample_set *sset, int idx,
 		arr[_idx] = (void *)tmp->cp;
 		_idx++;
 	}
+	arr[_idx] = (void *)next_cp;
+	_idx++;
 
-	int start = 0, head = -1, tail = -1;
-	if (sstate->loop_info.start)
-		start = slist_ele_idx(&sstate->cp_list_head,
-					&sstate->loop_info.start->sibling);
-	if (sstate->loop_info.head)
-		head = slist_ele_idx(&sstate->cp_list_head,
-					&sstate->loop_info.head->sibling);
-	if (sstate->loop_info.tail)
-		tail = slist_ele_idx(&sstate->cp_list_head,
-					&sstate->loop_info.tail->sibling);
+	int start = 0, end = 0, head = -1, tail = -1;
+	if (sstate->loop_info.start != -1)
+		start = sstate->loop_info.start;
+	if (sstate->loop_info.end != -1)
+		end = sstate->loop_info.end;
+	if (sstate->loop_info.head != -1)
+		head = sstate->loop_info.head;
+	if (sstate->loop_info.tail != -1)
+		tail = sstate->loop_info.tail;
 
 	int in_loop;
-	in_loop = clib_in_loop(arr, count, sizeof(void *), &start,
-				&head, &tail, (void *)&next_cp);
+	in_loop = clib_in_loop(arr, count, sizeof(void *),
+				&start, &end, &head, &tail);
 	free(arr);
-	start_cpl = slist_entry(slist_idx_ele(&sstate->cp_list_head, start),
-				struct cp_list, sibling);
-	sstate->loop_info.start = start_cpl;
+	sstate->loop_info.start = start;
+	sstate->loop_info.end = end;
 
-	if (!in_loop) {
+	if (in_loop == -1) {
+		return 0;
+	} else if (!in_loop) {
 		sample_state_cleanup_loopinfo(sstate);
 		return 0;
 	}
 
-	head_cpl = slist_entry(slist_idx_ele(&sstate->cp_list_head, head),
-				struct cp_list, sibling);
-	tail_cpl = slist_entry(slist_idx_ele(&sstate->cp_list_head, tail),
-				struct cp_list, sibling);
-
-	if (!sstate->loop_info.head) {
-		sstate->loop_info.head = head_cpl;
-		sstate->loop_info.tail = tail_cpl;
+	if (sstate->loop_info.head == -1) {
+		sstate->loop_info.head = head;
+		sstate->loop_info.tail = tail;
 		dsv_copy_data(&sstate->loop_info.lhs_val, lhs_dsv);
 		dsv_copy_data(&sstate->loop_info.rhs_val, rhs_dsv);
 		return 0;
 	}
-
-	if ((count - head) % (tail - head + 1))
-		return 0;
 
 	/* now, we can compare the given lhs/rhs against the saved ones */
 	int err;
@@ -278,9 +272,6 @@ int sample_state_check_loop(struct sample_set *sset, int idx,
 	return 1;
 
 not_infinite:
-	sstate->loop_info.start =
-		slist_entry(slist_idx_ele(&sstate->cp_list_head, count - 1),
-				struct cp_list, sibling);
 	sample_state_cleanup_loopinfo(sstate);
 	return 0;
 }
