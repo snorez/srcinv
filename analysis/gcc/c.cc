@@ -8651,7 +8651,8 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 						int *complete_type_p,
 						int *ssa_write);
 
-static int dsv_fill(struct data_state_val *dsv, int fill_on_zero)
+static int dsv_fill(struct sample_set *sset, int idx, struct fn_list *fnl,
+		    struct data_state_val *dsv, int fill_on_zero)
 {
 	dsv_free_data(dsv);
 
@@ -8664,6 +8665,30 @@ static int dsv_fill(struct data_state_val *dsv, int fill_on_zero)
 		return 0;
 
 	switch (TREE_CODE(n)) {
+	case INTEGER_CST:
+	{
+		/* FIXME: what if TREE_INT_CST_EXT_NUNITS(n)>1 */
+		u32 this_bytes = get_type_bytes(TREE_TYPE(n));
+		dsv_alloc_data(dsv, DSVT_INT_CST, this_bytes);
+		clib_memcpy_bits(DSV_SEC1_VAL(dsv), this_bytes * BITS_PER_UNIT,
+				 &TREE_INT_CST_ELT(n, 0),
+				 sizeof(TREE_INT_CST_ELT(n, 0)) * BITS_PER_UNIT);
+		return 0;
+	}
+	case ADDR_EXPR:
+	{
+		struct data_state_rw *target_ds;
+		target_ds = get_ds_via_tree(sset, idx, fnl, n, NULL, NULL);
+		if (!target_ds) {
+			si_log1_warn("Should not happen\n");
+			return -1;
+		}
+
+		u32 this_bits = get_type_bytes(TREE_TYPE(n)) * BITS_PER_UNIT;
+		dsv_alloc_data(dsv, DSVT_REF, 0);
+		ds_vref_setv(dsv, target_ds, 0, this_bits);
+		return 0;
+	}
 	default:
 	{
 		si_log1_todo("miss %s\n", tree_code_name[TREE_CODE(n)]);
@@ -8674,6 +8699,9 @@ static int dsv_fill(struct data_state_val *dsv, int fill_on_zero)
 
 static int do_dec(struct sample_set *sset, int idx, struct fn_list *fnl,
 		  gimple_seq gs);
+static int get_ds_val_via_constructor(struct sample_set *sset, int idx,
+					struct fn_list *fnl,
+					struct data_state_val *dsv, tree n);
 static int guess_ds_val(struct sample_set *sset, int idx, struct fn_list *fnl,
 			struct data_state_val *dsv, tree node, int force)
 {
@@ -8701,6 +8729,9 @@ static int guess_ds_val(struct sample_set *sset, int idx, struct fn_list *fnl,
 				analysis__sibuf_drop(b);
 			return err;
 		}
+	} else if ((TREE_CODE(node) == CONSTRUCTOR) &&
+			CONSTRUCTOR_ELTS(node)) {
+		return get_ds_val_via_constructor(sset, idx, fnl, dsv, node);
 	}
 
 	tree type = NULL;
@@ -8898,7 +8929,7 @@ static int get_ds_val_via_constructor(struct sample_set *sset, int idx,
 			tmp = data_state_val1_alloc(val);
 			tmp->offset = pos;
 			tmp->bits = fieldsize * BITS_PER_UNIT;
-			if (dsv_fill(&tmp->val, 1) == -1) {
+			if (dsv_fill(sset, idx, fnl, &tmp->val, 1) == -1) {
 				si_log1_todo("dsv_fill err\n");
 				return -1;
 			} else {
@@ -8940,6 +8971,20 @@ static int get_ds_val_via_constructor(struct sample_set *sset, int idx,
 				pos = (tree_to_shwi(index) - min_index) *
 					fieldsize;
 
+			if (val && (TREE_CODE(val) == ADDR_EXPR) &&
+			    (TREE_CODE(TREE_OPERAND(val, 0)) == FUNCTION_DECL))
+				val = TREE_OPERAND(val, 0);
+
+			tmp = data_state_val1_alloc(val);
+			tmp->offset = curpos * BITS_PER_UNIT;
+			tmp->bits = fieldsize * BITS_PER_UNIT;
+			if (dsv_fill(sset, idx, fnl, &tmp->val, 1) == -1) {
+				si_log1_todo("dsv_fill err\n");
+				return -1;
+			} else {
+				slist_add_tail(&tmp->sibling, DSV_SEC3_VAL(dsv));
+			}
+
 			curpos = pos + fieldsize;
 			if (index && (TREE_CODE(index) == RANGE_EXPR)) {
 				int count;
@@ -8951,20 +8996,6 @@ static int get_ds_val_via_constructor(struct sample_set *sset, int idx,
 					}
 					curpos += fieldsize;
 				}
-			}
-
-			if (val && (TREE_CODE(val) == ADDR_EXPR) &&
-			    (TREE_CODE(TREE_OPERAND(val, 0)) == FUNCTION_DECL))
-				val = TREE_OPERAND(val, 0);
-
-			tmp = data_state_val1_alloc(val);
-			tmp->offset = curpos * BITS_PER_UNIT;
-			tmp->bits = fieldsize * BITS_PER_UNIT;
-			if (dsv_fill(dsv, 1) == -1) {
-				si_log1_todo("dsv_fill err\n");
-				return -1;
-			} else {
-				slist_add_tail(&tmp->sibling, DSV_SEC3_VAL(dsv));
 			}
 		}
 		break;
@@ -9198,6 +9229,11 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 			analysis__sibuf_drop(b);
 		xloc = get_location(GET_LOC_VAR, b->payload, n);
 
+		tree init_node;
+		init_node = n;
+		if (DECL_INITIAL(n))
+			init_node = DECL_INITIAL(n);
+
 		if (si_is_global_var(n, xloc)) {
 			struct sinode *gvsn;
 			struct var_node *gvn;
@@ -9214,7 +9250,8 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 				get_var_name((void *)n, name);
 				si_log1_warn("global var not found, %s\n",
 						name);
-				ret = data_state_rw_new((u64)n, DSRT_RAW, n);
+				ret = data_state_rw_new((u64)n, DSRT_RAW,
+							init_node);
 				/* TODO: init the value? */
 				break;
 			}
@@ -9230,6 +9267,8 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 				si_log1_warn("Should not happen, %s\n",
 						gvn->name);
 			}
+			dsv_set_raw(&ds->val, (void *)init_node);
+
 			ret = data_state_dup_base(&ds->base);
 			dsv_alloc_data(&ret->val, DSVT_REF, 0);
 			ds_vref_setv(&ret->val, ds, 0, bits);
@@ -9306,6 +9345,8 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 		struct data_state_rw *ds;
 		ds = data_state_rw_find(sset, idx, fnl, (u64)&vnl->var,
 					DSRT_VN);
+		dsv_set_raw(&ds->val, (void *)init_node);
+
 		ret = data_state_dup_base(&ds->base);
 		dsv_alloc_data(&ret->val, DSVT_REF, 0);
 		ds_vref_setv(&ret->val, ds, 0, bits);

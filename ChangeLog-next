@@ -1,3 +1,7 @@
+2020-11-06
+	* analysis/gcc/c.cc: fix get/guess_ds_val issues when handling
+	CONSTRUCTOR as init value of VAR_DECL
+
 2020-11-05
 	* analysis/sample.c: fix sample_state_check_loop()
 	* analysis: check if global_data_rw_states empty before find
