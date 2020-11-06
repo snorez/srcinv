@@ -7,6 +7,9 @@
 	data state
 	* analysis/gcc/c.cc: fix some data states of variables can not be
 	found in get_ds_via_tree()
+	* analysis/gcc/c.cc: load target sibuf for getting target init_node of
+	global variables
+	* analysis/gcc/c.cc: load target sibuf in dsv_fill()
 
 2020-11-05
 	* analysis/sample.c: fix sample_state_check_loop()

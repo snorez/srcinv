@@ -8664,6 +8664,11 @@ static int dsv_fill(struct sample_set *sset, int idx, struct fn_list *fnl,
 	} else if (!n)
 		return 0;
 
+	struct sibuf *b;
+	int ret = 0;
+	b = find_target_sibuf((void *)n);
+	int held = analysis__sibuf_hold(b);
+
 	switch (TREE_CODE(n)) {
 	case INTEGER_CST:
 	{
@@ -8673,7 +8678,7 @@ static int dsv_fill(struct sample_set *sset, int idx, struct fn_list *fnl,
 		clib_memcpy_bits(DSV_SEC1_VAL(dsv), this_bytes * BITS_PER_UNIT,
 				 &TREE_INT_CST_ELT(n, 0),
 				 sizeof(TREE_INT_CST_ELT(n, 0)) * BITS_PER_UNIT);
-		return 0;
+		break;
 	}
 	case ADDR_EXPR:
 	{
@@ -8681,20 +8686,25 @@ static int dsv_fill(struct sample_set *sset, int idx, struct fn_list *fnl,
 		target_ds = get_ds_via_tree(sset, idx, fnl, n, NULL, NULL);
 		if (!target_ds) {
 			si_log1_warn("Should not happen\n");
-			return -1;
+			ret = -1;
+			break;
 		}
 
 		u32 this_bits = get_type_bytes(TREE_TYPE(n)) * BITS_PER_UNIT;
 		dsv_alloc_data(dsv, DSVT_REF, 0);
 		ds_vref_setv(dsv, target_ds, 0, this_bits);
-		return 0;
+		break;
 	}
 	default:
 	{
 		si_log1_todo("miss %s\n", tree_code_name[TREE_CODE(n)]);
-		return -1;
+		ret = -1;
 	}
 	}
+
+	if (!held)
+		analysis__sibuf_drop(b);
+	return ret;
 }
 
 static int do_dec(struct sample_set *sset, int idx, struct fn_list *fnl,
@@ -9255,6 +9265,7 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 				/* TODO: init the value? */
 				break;
 			}
+			int held = analysis__sibuf_hold(gvsn->buf);
 			gvn = (struct var_node *)gvsn->data;
 			if (gvn->type)
 				bits = gvn->type->ofsize * BITS_PER_UNIT;
@@ -9283,6 +9294,8 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 			dsv_alloc_data(&ret->val, DSVT_REF, 0);
 			ds_vref_setv(&ret->val, ds, 0, bits);
 			data_state_drop(ds);
+			if (!held)
+				analysis__sibuf_drop(gvsn->buf);
 
 			/* XXX: check if the value of ds is already set */
 			if (DS_VTYPE(ds) != DSVT_UNK)
