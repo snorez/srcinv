@@ -9405,6 +9405,17 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 		struct data_state_rw *tmp;
 		tmp = data_state_rw_find(sset, idx, fnl, (u64)fsn->data,
 					 DSRT_FN);
+		if (unlikely(!tmp)) {
+			/* this function probably is used in some global var */
+			struct data_state_base *base;
+			base = global_data_state_base_add((u64)fsn->data,
+							  DSRT_FN);
+			tmp = data_state_dup_base(base);
+			si_lock_w();
+			slist_add_tail(&tmp->base.sibling,
+					&si->global_data_rw_states);
+			si_unlock_w();
+		}
 		ret = data_state_dup_base(&tmp->base);
 		data_state_drop(tmp);
 
