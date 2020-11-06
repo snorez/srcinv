@@ -3,6 +3,10 @@
 	CONSTRUCTOR as init value of VAR_DECL
 	* analysis/gcc/c.cc: fix some data states of function can not be 
 	found in get_ds_via_tree()
+	* analysis/gcc/c.cc: fix previous commit: forget to hold the function
+	data state
+	* analysis/gcc/c.cc: fix some data states of variables can not be
+	found in get_ds_via_tree()
 
 2020-11-05
 	* analysis/sample.c: fix sample_state_check_loop()

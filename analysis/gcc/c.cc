@@ -9264,9 +9264,19 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 			ds = data_state_rw_find(sset, idx, fnl,
 						(u64)gvn, DSRT_VN);
 			if (unlikely(!ds)) {
-				si_log1_warn("Should not happen, %s\n",
-						gvn->name);
+				/* like FUNCTION_DECL */
+				struct data_state_base *base;
+				base = global_data_state_base_add((u64)gvn,
+								  DSRT_VN);
+				ds = data_state_dup_base(base);
+				si_lock_w();
+				slist_add_tail(&ds->base.sibling,
+						&si->global_data_rw_states);
+				si_unlock_w();
+				data_state_hold(ds);
 			}
+			if (DECL_INITIAL((tree)gvn->node))
+				init_node = DECL_INITIAL((tree)gvn->node);
 			dsv_set_raw(&ds->val, (void *)init_node);
 
 			ret = data_state_dup_base(&ds->base);
@@ -9406,7 +9416,10 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 		tmp = data_state_rw_find(sset, idx, fnl, (u64)fsn->data,
 					 DSRT_FN);
 		if (unlikely(!tmp)) {
-			/* this function probably is used in some global var */
+			/*
+			 * FIXME: this function probably is used in some global
+			 * var, we should handle this in parse PHASE4.
+			 */
 			struct data_state_base *base;
 			base = global_data_state_base_add((u64)fsn->data,
 							  DSRT_FN);
@@ -9415,6 +9428,7 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 			slist_add_tail(&tmp->base.sibling,
 					&si->global_data_rw_states);
 			si_unlock_w();
+			data_state_hold(tmp);
 		}
 		ret = data_state_dup_base(&tmp->base);
 		data_state_drop(tmp);
