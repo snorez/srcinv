@@ -1,5 +1,7 @@
 2020-11-10
 	* analysis/gcc/c.cc: redo get_ds_val() guess_ds_val() etc.
+	* analysis/gcc/c.cc: get_ds_via_tree() use TREE_TYPE on MEM_REF to
+	calculate the bits
 
 2020-11-06
 	* analysis/gcc/c.cc: fix get/guess_ds_val issues when handling

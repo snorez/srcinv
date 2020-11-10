@@ -9556,7 +9556,9 @@ ssa_name_out:
 		u64 this_offset = *(mem_ref_offset(n).coeffs[0].get_val()) *
 					BITS_PER_UNIT;
 		tree ptype;
-		ptype = TYPE_MAIN_VARIANT(TREE_TYPE(TREE_OPERAND(n, 1)));
+		/* ptype = TYPE_MAIN_VARIANT(TREE_TYPE(TREE_OPERAND(n, 1))); */
+		/* FIXME: what exactly is the type to calculate the bits? */
+		ptype = TREE_TYPE(n);
 		u64 this_bits = TREE_INT_CST_LOW(TYPE_SIZE(ptype));
 
 		tmp_dsv = get_ds_val(sset, idx, fnl, &tmp->val, 0, 0);
