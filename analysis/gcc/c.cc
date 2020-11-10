@@ -16,7 +16,7 @@
  *	todos and si_log1_todo
  *	TREE_INT_CST_LOW may not be enough to represent the INT_CST
  *	ARRAY_REF size is quite different. array_ref_element_size().
- *	guess_ds_val:
+ *	dsv_init:
  *		use possible_list
  *		give a condition, and a proposed result, gen the value
  *		lookup the related functions, to init some kinds of objects.
@@ -6283,7 +6283,6 @@ out:
 }
 
 static struct var_list *get_target_field0(struct type_node *tn, tree field);
-/* same as get_ds_val_via_constructor() */
 static void __do_constructor_init(struct type_node *tn, tree init_tree)
 {
 	vec<constructor_elt, va_gc> *init_elts;
@@ -8650,18 +8649,165 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 						struct fn_list *fnl, tree n,
 						int *complete_type_p,
 						int *ssa_write);
+static int do_dec(struct sample_set *sset, int idx, struct fn_list *fnl,
+		  gimple_seq gs);
+static int dsv_fill(struct sample_set *sset, int idx, struct fn_list *fnl,
+		    struct data_state_val *dsv, tree node);
+
+static int get_dsv_via_constructor(struct sample_set *sset, int idx,
+					struct fn_list *fnl,
+					struct data_state_val *dsv, tree n)
+{
+	/* check dump_generic_node() and native_encode_initializer() */
+	tree type = TREE_TYPE(n);
+	if (!CONSTRUCTOR_ELTS(n))
+		return 0;
+
+	switch (TREE_CODE(type)) {
+	case RECORD_TYPE:
+	case UNION_TYPE:
+	{
+		tree field = NULL_TREE;
+		unsigned HOST_WIDE_INT cnt;
+		constructor_elt *ce;
+
+		if (TREE_CODE(type) == RECORD_TYPE)
+			field = TYPE_FIELDS(type);
+
+		if (DSV_TYPE(dsv) != DSVT_CONSTRUCTOR)
+			dsv_alloc_data(dsv, DSVT_CONSTRUCTOR, 0);
+		FOR_EACH_VEC_SAFE_ELT(CONSTRUCTOR_ELTS(n), cnt, ce) {
+			struct data_state_val1 *tmp;
+			tree val = ce->value;
+			int pos, fieldsize;
+
+			if (ce->index != 0)
+				field = ce->index;
+
+			if (val)
+				STRIP_NOPS(val);
+
+			if (field == NULL_TREE || DECL_BIT_FIELD(field)) {
+				si_log1_todo("not handled\n");
+				return -1;
+			}
+
+			if ((TREE_CODE(TREE_TYPE(field)) == ARRAY_TYPE) &&
+				TYPE_DOMAIN(TREE_TYPE(field)) &&
+			      (!TYPE_MAX_VALUE(TYPE_DOMAIN(TREE_TYPE(field))))) {
+				si_log1_todo("not handled\n");
+				return -1;
+			} else if ((DECL_SIZE_UNIT(field) == NULL_TREE) ||
+				    (!tree_fits_shwi_p(DECL_SIZE_UNIT(field)))) {
+				si_log1_todo("not handled\n");
+				return -1;
+			}
+
+			fieldsize = tree_to_shwi(DECL_SIZE_UNIT(field));
+			/*
+			 * native_encode_initializer() use int_byte_position().
+			 * However, we need to get the bit position.
+			 * FIXME: Can we use bit_position()?
+			 * XXX: int_bit_position() use LOG2_BITS_PER_UNIT, which
+			 * is determined by BITS_PER_UNIT.
+			 */
+			pos = int_bit_position(field);
+
+			tmp = dsv_constructor_find_elem(dsv, pos,
+						fieldsize * BITS_PER_UNIT);
+			if (!tmp) {
+				si_log1_warn("Should not happen\n");
+				return -1;
+			}
+			dsv_set_raw(&tmp->val, val);
+			if (dsv_fill(sset, idx, fnl, &tmp->val, val) == -1) {
+				si_log1_todo("dsv_fill err\n");
+				return -1;
+			}
+		}
+		break;
+	}
+	case ARRAY_TYPE:
+	{
+		HOST_WIDE_INT min_index;
+		unsigned HOST_WIDE_INT cnt;
+		int curpos = 0, fieldsize;
+		constructor_elt *ce;
+
+		if ((TYPE_DOMAIN(type) == NULL_TREE) ||
+			(!tree_fits_shwi_p(TYPE_MIN_VALUE(TYPE_DOMAIN(type))))) {
+			si_log1_todo("not handled\n");
+			return -1;
+		}
+
+		fieldsize = int_size_in_bytes(TREE_TYPE(type));
+		if (fieldsize <= 0) {
+			si_log1_warn("should not happen\n");
+			return -1;
+		}
+
+		min_index = tree_to_shwi(TYPE_MIN_VALUE(TYPE_DOMAIN(type)));
+		if (DSV_TYPE(dsv) != DSVT_CONSTRUCTOR)
+			dsv_alloc_data(dsv, DSVT_CONSTRUCTOR, 0);
+		FOR_EACH_VEC_SAFE_ELT(CONSTRUCTOR_ELTS(n), cnt, ce) {
+			struct data_state_val1 *tmp;
+			tree val = ce->value;
+			tree index = ce->index;
+			int pos = curpos;
+			if (index && (TREE_CODE(index) == RANGE_EXPR))
+				pos = (tree_to_shwi(TREE_OPERAND(index, 0)) - 
+					min_index) * fieldsize;
+			else if (index)
+				pos = (tree_to_shwi(index) - min_index) *
+					fieldsize;
+
+			if (val && (TREE_CODE(val) == ADDR_EXPR) &&
+			    (TREE_CODE(TREE_OPERAND(val, 0)) == FUNCTION_DECL))
+				val = TREE_OPERAND(val, 0);
+
+			tmp = dsv_constructor_find_elem(dsv,
+							curpos * BITS_PER_UNIT,
+						      fieldsize * BITS_PER_UNIT);
+			if (!tmp) {
+				si_log1_warn("Should not happen\n");
+				return -1;
+			}
+			dsv_set_raw(&tmp->val, val);
+			if (dsv_fill(sset, idx, fnl, &tmp->val, val) == -1) {
+				si_log1_todo("dsv_fill err\n");
+				return -1;
+			}
+
+			curpos = pos + fieldsize;
+			if (index && (TREE_CODE(index) == RANGE_EXPR)) {
+				int count;
+				count = tree_to_shwi(TREE_OPERAND(index, 1)) -
+					tree_to_shwi(TREE_OPERAND(index, 0));
+				while (count-- > 0) {
+					if (val) {
+						si_log1_todo("not handled\n");
+					}
+					curpos += fieldsize;
+				}
+			}
+		}
+		break;
+	}
+	default:
+	{
+		si_log1_todo("miss %s\n", tree_code_name[TREE_CODE(type)]);
+		return -1;
+	}
+	}
+
+	return 0;
+}
 
 static int dsv_fill(struct sample_set *sset, int idx, struct fn_list *fnl,
-		    struct data_state_val *dsv, int fill_on_zero)
+		    struct data_state_val *dsv, tree node)
 {
-	dsv_free_data(dsv);
-
-	tree n = (tree)(long)dsv->raw;
-	if ((!n) && fill_on_zero) {
-		/* FIXME: we better use si_sizetype() to get the size */
-		dsv_alloc_data(dsv, DSVT_INT_CST, sizeof(long));
-		return 0;
-	} else if (!n)
+	tree n = node;
+	if (!n)
 		return 0;
 
 	struct sibuf *b;
@@ -8674,7 +8820,8 @@ static int dsv_fill(struct sample_set *sset, int idx, struct fn_list *fnl,
 	{
 		/* FIXME: what if TREE_INT_CST_EXT_NUNITS(n)>1 */
 		u32 this_bytes = get_type_bytes(TREE_TYPE(n));
-		dsv_alloc_data(dsv, DSVT_INT_CST, this_bytes);
+		if (DSV_TYPE(dsv) != DSVT_INT_CST)
+			dsv_alloc_data(dsv, DSVT_INT_CST, this_bytes);
 		clib_memcpy_bits(DSV_SEC1_VAL(dsv), this_bytes * BITS_PER_UNIT,
 				 &TREE_INT_CST_ELT(n, 0),
 				 sizeof(TREE_INT_CST_ELT(n, 0)) * BITS_PER_UNIT);
@@ -8683,6 +8830,7 @@ static int dsv_fill(struct sample_set *sset, int idx, struct fn_list *fnl,
 	case ADDR_EXPR:
 	{
 		struct data_state_rw *target_ds;
+		struct data_state_val *target_dsv;
 		target_ds = get_ds_via_tree(sset, idx, fnl, n, NULL, NULL);
 		if (!target_ds) {
 			si_log1_warn("Should not happen\n");
@@ -8690,15 +8838,34 @@ static int dsv_fill(struct sample_set *sset, int idx, struct fn_list *fnl,
 			break;
 		}
 
-		u32 this_bits = get_type_bytes(TREE_TYPE(n)) * BITS_PER_UNIT;
-		dsv_alloc_data(dsv, DSVT_REF, 0);
-		ds_vref_setv(dsv, target_ds, 0, this_bits);
+		/* we know the value is DSVT_ADDR */
+		target_dsv = &target_ds->val;
+
+		dsv_copy_data(dsv, target_dsv);
+		break;
+	}
+	case CONSTRUCTOR:
+	{
+		ret = get_dsv_via_constructor(sset, idx, fnl, dsv, n);
+		break;
+	}
+	case FIELD_DECL:
+	case INTEGER_TYPE:
+	case PARM_DECL:
+	case RECORD_TYPE:
+	case ARRAY_TYPE:
+	case SSA_NAME:
+	case VAR_DECL:
+	case POINTER_TYPE:
+	{
+		ret = 0;
 		break;
 	}
 	default:
 	{
 		si_log1_todo("miss %s\n", tree_code_name[TREE_CODE(n)]);
 		ret = -1;
+		break;
 	}
 	}
 
@@ -8707,21 +8874,10 @@ static int dsv_fill(struct sample_set *sset, int idx, struct fn_list *fnl,
 	return ret;
 }
 
-static int do_dec(struct sample_set *sset, int idx, struct fn_list *fnl,
-		  gimple_seq gs);
-static int get_ds_val_via_constructor(struct sample_set *sset, int idx,
-					struct fn_list *fnl,
-					struct data_state_val *dsv, tree n);
-static int guess_ds_val(struct sample_set *sset, int idx, struct fn_list *fnl,
-			struct data_state_val *dsv, tree node, int force)
+static int dsv_init(struct sample_set *sset, int idx, struct fn_list *fnl,
+			struct data_state_val *dsv, tree node)
 {
 	int err = 0;
-	if (DSV_TYPE(dsv) != DSVT_UNK) {
-		if (!force)
-			return 0;
-		else
-			dsv_free_data(dsv);
-	}
 
 	struct sibuf *b;
 	b = find_target_sibuf((void *)node);
@@ -8739,9 +8895,6 @@ static int guess_ds_val(struct sample_set *sset, int idx, struct fn_list *fnl,
 				analysis__sibuf_drop(b);
 			return err;
 		}
-	} else if ((TREE_CODE(node) == CONSTRUCTOR) &&
-			CONSTRUCTOR_ELTS(node)) {
-		return get_ds_val_via_constructor(sset, idx, fnl, dsv, node);
 	}
 
 	tree type = NULL;
@@ -8779,6 +8932,11 @@ static int guess_ds_val(struct sample_set *sset, int idx, struct fn_list *fnl,
 			dsv1->bits = this_bits;
 			slist_add_tail(&dsv1->sibling, DSV_SEC3_VAL(dsv));
 
+			/* for each element, run dsv_init() */
+			err = dsv_init(sset, idx, fnl, &dsv1->val, this_type);
+			if (err)
+				break;
+
 			field = DECL_CHAIN(field);
 		}
 		break;
@@ -8803,6 +8961,10 @@ static int guess_ds_val(struct sample_set *sset, int idx, struct fn_list *fnl,
 			dsv1->offset = this_offset;
 			dsv1->bits = this_bits;
 			slist_add_tail(&dsv1->sibling, DSV_SEC3_VAL(dsv));
+
+			err = dsv_init(sset, idx, fnl, &dsv1->val, elem_type);
+			if (err)
+				break;
 		}
 		break;
 	}
@@ -8873,151 +9035,63 @@ static int guess_ds_val(struct sample_set *sset, int idx, struct fn_list *fnl,
 	}
 	}
 
+	dsv_fill(sset, idx, fnl, dsv, node);
+
 	if (!held)
 		analysis__sibuf_drop(b);
 	return err;
 }
 
-static int get_ds_val_via_constructor(struct sample_set *sset, int idx,
-					struct fn_list *fnl,
-					struct data_state_val *dsv, tree n)
+/*
+ * @get_ds_val: get the target data_state_val the given @dsv reference to.
+ * If the dsv is not initialised, init it.
+ */
+static struct data_state_val *get_ds_val(struct sample_set *sset, int idx,
+					 struct fn_list *fnl,
+					 struct data_state_val *dsv,
+					 s32 offset, u32 bits)
 {
-	/* check dump_generic_node() and native_encode_initializer() */
-	tree type = TREE_TYPE(n);
-	if (!CONSTRUCTOR_ELTS(n))
-		return guess_ds_val(sset, idx, fnl, dsv, type, 1);
+	struct data_state_val *ret = NULL;
 
-	switch (TREE_CODE(type)) {
-	case RECORD_TYPE:
-	case UNION_TYPE:
-	{
-		tree field = NULL_TREE;
-		unsigned HOST_WIDE_INT cnt;
-		constructor_elt *ce;
+	if ((!dsv) || ((long)dsv == (long)offsetof(struct data_state_rw, val)))
+		return ret;
 
-		if (TREE_CODE(type) == RECORD_TYPE)
-			field = TYPE_FIELDS(type);
+	if ((DSV_TYPE(dsv) == DSVT_UNK) || (!DSV_SEC1_VAL(dsv))) {
+		tree n = (tree)(long)dsv->raw;
+		struct sibuf *b;
+		b = find_target_sibuf((void *)n);
+		int held = analysis__sibuf_hold(b);
 
-		dsv_alloc_data(dsv, DSVT_CONSTRUCTOR, 0);
-		FOR_EACH_VEC_SAFE_ELT(CONSTRUCTOR_ELTS(n), cnt, ce) {
-			struct data_state_val1 *tmp;
-			tree val = ce->value;
-			int pos, fieldsize;
-
-			if (ce->index != 0)
-				field = ce->index;
-
-			if (val)
-				STRIP_NOPS(val);
-
-			if (field == NULL_TREE || DECL_BIT_FIELD(field)) {
-				si_log1_todo("not handled\n");
-				return -1;
-			}
-
-			if ((TREE_CODE(TREE_TYPE(field)) == ARRAY_TYPE) &&
-				TYPE_DOMAIN(TREE_TYPE(field)) &&
-			      (!TYPE_MAX_VALUE(TYPE_DOMAIN(TREE_TYPE(field))))) {
-				si_log1_todo("not handled\n");
-				return -1;
-			} else if ((DECL_SIZE_UNIT(field) == NULL_TREE) ||
-				    (!tree_fits_shwi_p(DECL_SIZE_UNIT(field)))) {
-				si_log1_todo("not handled\n");
-				return -1;
-			}
-
-			fieldsize = tree_to_shwi(DECL_SIZE_UNIT(field));
-			/*
-			 * native_encode_initializer() use int_byte_position().
-			 * However, we need to get the bit position.
-			 * FIXME: Can we use bit_position()?
-			 * XXX: int_bit_position() use LOG2_BITS_PER_UNIT, which
-			 * is determined by BITS_PER_UNIT.
-			 */
-			pos = int_bit_position(field);
-
-			tmp = data_state_val1_alloc(val);
-			tmp->offset = pos;
-			tmp->bits = fieldsize * BITS_PER_UNIT;
-			if (dsv_fill(sset, idx, fnl, &tmp->val, 1) == -1) {
-				si_log1_todo("dsv_fill err\n");
-				return -1;
-			} else {
-				slist_add_tail(&tmp->sibling, DSV_SEC3_VAL(dsv));
-			}
-		}
-		break;
-	}
-	case ARRAY_TYPE:
-	{
-		HOST_WIDE_INT min_index;
-		unsigned HOST_WIDE_INT cnt;
-		int curpos = 0, fieldsize;
-		constructor_elt *ce;
-
-		if ((TYPE_DOMAIN(type) == NULL_TREE) ||
-			(!tree_fits_shwi_p(TYPE_MIN_VALUE(TYPE_DOMAIN(type))))) {
-			si_log1_todo("not handled\n");
-			return -1;
+		if (dsv_init(sset, idx, fnl, dsv, n)) {
+			si_log1_warn("dsv_init err\n");
+		} else {
+			ret = get_ds_val(sset, idx, fnl, dsv, offset, bits);
 		}
 
-		fieldsize = int_size_in_bytes(TREE_TYPE(type));
-		if (fieldsize <= 0) {
-			si_log1_warn("should not happen\n");
-			return -1;
-		}
-
-		min_index = tree_to_shwi(TYPE_MIN_VALUE(TYPE_DOMAIN(type)));
-		dsv_alloc_data(dsv, DSVT_CONSTRUCTOR, 0);
-		FOR_EACH_VEC_SAFE_ELT(CONSTRUCTOR_ELTS(n), cnt, ce) {
-			struct data_state_val1 *tmp;
-			tree val = ce->value;
-			tree index = ce->index;
-			int pos = curpos;
-			if (index && (TREE_CODE(index) == RANGE_EXPR))
-				pos = (tree_to_shwi(TREE_OPERAND(index, 0)) - 
-					min_index) * fieldsize;
-			else if (index)
-				pos = (tree_to_shwi(index) - min_index) *
-					fieldsize;
-
-			if (val && (TREE_CODE(val) == ADDR_EXPR) &&
-			    (TREE_CODE(TREE_OPERAND(val, 0)) == FUNCTION_DECL))
-				val = TREE_OPERAND(val, 0);
-
-			tmp = data_state_val1_alloc(val);
-			tmp->offset = curpos * BITS_PER_UNIT;
-			tmp->bits = fieldsize * BITS_PER_UNIT;
-			if (dsv_fill(sset, idx, fnl, &tmp->val, 1) == -1) {
-				si_log1_todo("dsv_fill err\n");
-				return -1;
-			} else {
-				slist_add_tail(&tmp->sibling, DSV_SEC3_VAL(dsv));
-			}
-
-			curpos = pos + fieldsize;
-			if (index && (TREE_CODE(index) == RANGE_EXPR)) {
-				int count;
-				count = tree_to_shwi(TREE_OPERAND(index, 1)) -
-					tree_to_shwi(TREE_OPERAND(index, 0));
-				while (count-- > 0) {
-					if (val) {
-						si_log1_todo("not handled\n");
-					}
-					curpos += fieldsize;
-				}
-			}
-		}
-		break;
-	}
-	default:
-	{
-		si_log1_todo("miss %s\n", tree_code_name[TREE_CODE(type)]);
-		return -1;
-	}
+		if (!held)
+			analysis__sibuf_drop(b);
+	} else if (DSV_TYPE(dsv) == DSVT_REF) {
+		ret = get_ds_val(sset, idx, fnl, &DSV_SEC2_VAL(dsv)->ds->val,
+				 DSV_SEC2_VAL(dsv)->offset,
+				 DSV_SEC2_VAL(dsv)->bits);
+	} else if (DSV_TYPE(dsv) == DSVT_CONSTRUCTOR) {
+		struct data_state_val1 *tmp;
+		tmp = dsv_constructor_find_elem(dsv, offset, bits);
+		if (tmp)
+			ret = &tmp->val;
+	} else {
+		/*
+		 * TODO: If dsv is a string, and it is used as an array,
+		 * how to return the value? Should be better to use ARRAY
+		 * to represent STRING_CST
+		 */
+		ret = dsv;
 	}
 
-	return 0;
+	/* if target dsv not found, return the given one */
+	if (!ret)
+		ret = dsv;
+	return ret;
 }
 
 static struct data_state_rw *get_ds_via_constructor(struct sample_set *sset,
@@ -9034,90 +9108,8 @@ static struct data_state_rw *get_ds_via_constructor(struct sample_set *sset,
 
 	ret = data_state_rw_new((u64)n, DSRT_RAW, (void *)n);
 
-	(void)get_ds_val_via_constructor(sset, idx, fnl, &ret->val, n);
+	(void)dsv_init(sset, idx, fnl, &ret->val, n);
 
-	return ret;
-}
-
-/*
- * @get_ds_val: get the target data_state_val the given @dsv reference to.
- */
-static struct data_state_val *get_ds_val(struct sample_set *sset, int idx,
-					 struct fn_list *fnl,
-					 struct data_state_val *dsv,
-					 s32 offset, u32 bits)
-{
-	struct data_state_val *ret = NULL;
-
-	if ((!dsv) || ((long)dsv == (long)offsetof(struct data_state_rw, val)))
-		return ret;
-
-	switch (DSV_TYPE(dsv)) {
-	case DSVT_UNK:
-	{
-		tree n = NULL;
-		n = (tree)(long)dsv->raw;
-
-		if (!n)
-			break;
-
-		if (guess_ds_val(sset, idx, fnl, dsv, n, 0)) {
-			si_log1_warn("guess_ds_val err\n");
-		} else {
-			ret = get_ds_val(sset, idx, fnl, dsv, offset, bits);
-		}
-
-		break;
-	}
-	case DSVT_REF:
-	{
-		ret = get_ds_val(sset, idx, fnl, &DSV_SEC2_VAL(dsv)->ds->val,
-				 DSV_SEC2_VAL(dsv)->offset,
-				 DSV_SEC2_VAL(dsv)->bits);
-		break;
-	}
-	case DSVT_CONSTRUCTOR:
-	{
-		struct data_state_val1 *tmp;
-		slist_for_each_entry(tmp, DSV_SEC3_VAL(dsv), sibling) {
-			/*
-			 * [offset, offset+bits] must be a subset of
-			 * [tmp->offset, tmp->offset+tmp->bits]
-			 */
-			if (!((offset >= tmp->offset) &&
-			      ((offset + bits) <= (tmp->offset + tmp->bits))))
-				continue;
-			offset -= tmp->offset;
-			if (guess_ds_val(sset, idx, fnl, &tmp->val,
-					  (tree)(long)tmp->val.raw, 0)) {
-				si_log1_warn("guess_ds_val err\n");
-			} else {
-				ret = get_ds_val(sset, idx, fnl,
-						 &tmp->val, offset, bits);
-			}
-			break;
-		}
-
-		if (slist_empty(DSV_SEC3_VAL(dsv))) {
-			si_log1_warn("Should not happen, dsv: %p\n", dsv);
-		}
-		break;
-	}
-	default:
-	{
-		/*
-		 * TODO: If dsv is a string, and it is used as an array,
-		 * how to return the value? Should be better to use ARRAY
-		 * to represent STRING_CST
-		 */
-		ret = dsv;
-		break;
-	}
-	}
-
-	/* if target dsv not found, return the given one */
-	if (!ret)
-		ret = dsv;
 	return ret;
 }
 
@@ -9297,56 +9289,6 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 			if (!held)
 				analysis__sibuf_drop(gvsn->buf);
 
-			/* XXX: check if the value of ds is already set */
-			if (DS_VTYPE(ds) != DSVT_UNK)
-				break;
-
-			struct data_state_val *dsv;
-			dsv = get_ds_val(sset, idx, fnl, &ds->val, 0, 0);
-			/* TODO: handle DSVT_ARRAY/DSVT_COMPONENT... */
-			if (ds_get_section(DSV_TYPE(dsv)) == 1)
-				memset(DSV_SEC1_VAL(dsv), 0,
-					dsv->info.v1_info.bytes);
-
-#if 0
-			/* XXX: init the value of ds */
-			struct possible_list *pl;
-			slist_for_each_entry(pl, &gvn->possible_values,
-						sibling) {
-				switch (pl->value_flag) {
-				case VALUE_IS_INT_CST:
-				{
-					u32 bytes;
-					tree n = (tree)(long)ds->val.raw;
-					bytes = get_type_bytes(n);
-					dsv_alloc_data(&ds->val, DSVT_INT_CST,
-							bytes);
-					clib_memcpy_bits(DS_SEC1_VAL(ds),
-							 bytes * BITS_PER_UNIT,
-							 &pl->value,
-							 sizeof(pl->value) *
-							 BITS_PER_UNIT);
-					break;
-				}
-				case VALUE_IS_STR_CST:
-				{
-					u32 bytes;
-					tree n = (tree)(long)ds->val.raw;
-					bytes = pl->extra_param;
-					dsv_alloc_data(&ds->val,
-						       DSVT_CONSTRUCTOR, 0);
-					dsv_fill_str_data(&ds->val,
-							  (void *)n,
-							  (char *)pl->value,
-							  bytes);
-					break;
-				}
-				default:
-					break;
-				}
-				break;
-			}
-#endif
 			break;
 		}
 
@@ -9374,44 +9316,6 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 		dsv_alloc_data(&ret->val, DSVT_REF, 0);
 		ds_vref_setv(&ret->val, ds, 0, bits);
 		data_state_drop(ds);
-
-		/* If the value is already set, then we are done */
-		if (DS_VTYPE(ds) != DSVT_UNK)
-			break;
-
-#if 0
-		struct possible_list *pl;
-		slist_for_each_entry(pl, &vnl->var.possible_values, sibling) {
-			switch (pl->value_flag) {
-			case VALUE_IS_INT_CST:
-			{
-				u32 bytes;
-				tree n = (tree)(long)ds->val.raw;
-				bytes = get_type_bytes(n);
-				dsv_alloc_data(&ds->val, DSVT_INT_CST, bytes);
-				clib_memcpy_bits(DS_SEC1_VAL(ds),
-						bytes * BITS_PER_UNIT,
-						 &pl->value,
-						 sizeof(pl->value) *
-						 BITS_PER_UNIT);
-				break;
-			}
-			case VALUE_IS_STR_CST:
-			{
-				u32 bytes;
-				tree n = (tree)(long)ds->val.raw;
-				bytes = pl->extra_param;
-				dsv_alloc_data(&ds->val, DSVT_CONSTRUCTOR, 0);
-				dsv_fill_str_data(&ds->val, n, (char *)pl->value,
-						  bytes);
-				break;
-			}
-			default:
-				break;
-			}
-			break;
-		}
-#endif
 
 		break;
 	}
@@ -10595,20 +10499,20 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 					 rhs2_val->info.v1_info.bytes *
 						BITS_PER_UNIT);
 
+			struct data_state_rw *newds;
+			s32 new_offset;
+			u32 new_bits;
+			newds = DSV_SEC2_VAL(rhs1_val)->ds;
+			new_offset = DSV_SEC2_VAL(rhs1_val)->offset +
+					idx * BITS_PER_UNIT;
+			new_bits = DSV_SEC2_VAL(rhs1_val)->bits;
+
 			if (lhs_val == rhs1_val) {
-				DSV_SEC2_VAL(lhs_val)->offset =
-					DSV_SEC2_VAL(rhs1_val)->offset +
-						idx * BITS_PER_UNIT;
+				DSV_SEC2_VAL(lhs_val)->offset = new_offset;
 			} else {
 				dsv_alloc_data(lhs_val, DSVT_ADDR, 0);
-				DSV_SEC2_VAL(lhs_val)->ds =
-					DSV_SEC2_VAL(rhs1_val)->ds;
-				DSV_SEC2_VAL(lhs_val)->offset =
-					DSV_SEC2_VAL(rhs1_val)->offset +
-						idx * BITS_PER_UNIT;
-				DSV_SEC2_VAL(lhs_val)->bits =
-					DSV_SEC2_VAL(rhs1_val)->bits;
-				data_state_hold(DSV_SEC2_VAL(lhs_val)->ds);
+				ds_vref_hold_setv(lhs_val, newds, new_offset,
+						  new_bits);
 			}
 		} else if (DSV_TYPE(rhs1_val) == DSVT_INT_CST) {
 			/* FIXME: rhs1_val MUST be NULL. */
@@ -10696,9 +10600,17 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 			dsv_extend(rhs1_val);
 
 			dsv_alloc_data(lhs_val, DSVT_INT_CST, bytes);
-			memcpy(DSV_SEC1_VAL(lhs_val),
-			       DSV_SEC1_VAL(rhs1_val),
-			       bytes);
+			clib_memcpy_bits(DSV_SEC1_VAL(lhs_val),
+					 bytes * BITS_PER_UNIT,
+					 DSV_SEC1_VAL(rhs1_val),
+					 rhs1_val->info.v1_info.bytes *
+						BITS_PER_UNIT);
+			break;
+		}
+		case DSVT_ADDR:
+		case DSVT_CONSTRUCTOR:
+		{
+			dsv_copy_data(lhs_val, rhs1_val);
 			break;
 		}
 		default:
@@ -10751,12 +10663,12 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 			s32 target_offset = DSV_SEC2_VAL(rhs1_val)->offset;
 			u32 target_bits = DSV_SEC2_VAL(rhs1_val)->bits;
 			target_ds = DSV_SEC2_VAL(rhs1_val)->ds;
-			data_state_hold(target_ds);
 
-			dsv_alloc_data(lhs_val, DSV_TYPE(rhs1_val), 0);
-			DSV_SEC2_VAL(lhs_val)->ds = target_ds;
-			DSV_SEC2_VAL(lhs_val)->offset = target_offset;
-			DSV_SEC2_VAL(lhs_val)->bits = target_bits;
+			if (lhs_val != rhs1_val) {
+				dsv_alloc_data(lhs_val, DSV_TYPE(rhs1_val), 0);
+				ds_vref_hold_setv(lhs_val, target_ds,
+						  target_offset, target_bits);
+			}
 			break;
 		}
 		default:
@@ -10861,40 +10773,11 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 		 * the value is represented as a STRING_CST, but the
 		 * lhs_state is an ARRAY.
 		 */
-		if (TREE_CODE(TREE_TYPE(lhs)) == ARRAY_TYPE) {
-			/* the lhs_val should be DSVT_CONSTRUCTOR. */
-			if (DSV_TYPE(lhs_val) != DSVT_CONSTRUCTOR) {
-				si_log1_warn("Should not happen\n");
-				err = -1;
-				break;
-			}
-
-			char *string = (char *)DSV_SEC1_VAL(rhs1_val);
-			size_t elen = rhs1_val->info.v1_info.bytes - 1;
-			for (size_t i = 0; i < elen; i++) {
-				char c = string[i];
-				s32 _offset = i * sizeof(c) * BITS_PER_UNIT;
-				u32 _bits = sizeof(c) * BITS_PER_UNIT;
-				struct data_state_val1 *tmp;
-				slist_for_each_entry(tmp, DSV_SEC3_VAL(lhs_val),
-						     sibling) {
-					if ((tmp->offset == _offset) &&
-					    (_bits <= tmp->bits)) {
-						dsv_alloc_data(&tmp->val,
-								DSVT_INT_CST,
-								sizeof(c));
-						memcpy(DSV_SEC1_VAL(&tmp->val),
-							&c, sizeof(c));
-						break;
-					}
-				}
-			}
+		if (DSV_TYPE(lhs_val) != DSV_TYPE(rhs1_val)) {
+			si_log1_warn("Should not happen, (%d %d)\n",
+					DSV_TYPE(lhs_val), DSV_TYPE(rhs1_val));
 		} else {
-			size_t this_bytes = rhs1_val->info.v1_info.bytes;
-			dsv_alloc_data(lhs_val, DSVT_CONSTRUCTOR, 0);
-			dsv_fill_str_data(lhs_val, rhs1,
-					  (char *)DSV_SEC1_VAL(rhs1_val),
-					  this_bytes);
+			dsv_copy_data(lhs_val, rhs1_val);
 		}
 
 		break;

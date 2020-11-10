@@ -1,3 +1,6 @@
+2020-11-10
+	* analysis/gcc/c.cc: redo get_ds_val() guess_ds_val() etc.
+
 2020-11-06
 	* analysis/gcc/c.cc: fix get/guess_ds_val issues when handling
 	CONSTRUCTOR as init value of VAR_DECL

@@ -38,6 +38,98 @@ C_SYM int si_module_load_all(struct slist_head *head);
 C_SYM int si_module_unload_all(struct slist_head *head);
 C_SYM void si_module_cleanup(void);
 
+#include "defdefine.h"
+
+static inline int si_current_workdir(char *p, size_t len)
+{
+	if (unlikely(!si))
+		return -1;
+
+	snprintf(p, len, "%s/%s/", DEF_TMPDIR, si->src_id);
+	return 0;
+}
+
+static inline int si_current_resfile(char *p, size_t len, char *name)
+{
+	if (unlikely(!si))
+		return -1;
+
+	memset(p, 0, len);
+	if (!strchr(name, '/'))
+		snprintf(p, len, "%s/%s/%s", DEF_TMPDIR, si->src_id, name);
+	else
+		snprintf(p, len, "%s", name);
+	return 0;
+}
+
+#define	si_get_logfile() ({\
+		char ____path[PATH_MAX];\
+		snprintf(____path, PATH_MAX, "%s/%s/log", DEF_TMPDIR,\
+				si->src_id);\
+		____path;\
+		})
+
+static inline void __si_log(const char *fmt, ...)
+{
+	char logbuf[MAXLINE];
+	memset(logbuf, 0, MAXLINE);
+
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(logbuf, MAXLINE, fmt, ap);
+	va_end(ap);
+
+	char *logfile = si_get_logfile();
+	int logfd = open(logfile, O_WRONLY | O_APPEND);
+	if (unlikely(logfd == -1))
+		logfd = open(logfile, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
+
+	if (logfd == -1) {
+		fprintf(stderr, "%s", logbuf);
+	} else {
+		int err __maybe_unused = write(logfd, logbuf, strlen(logbuf));
+		close(logfd);
+	}
+}
+
+#define	SI_LOG_FMT(fmt)	"[%02d/%02d %02d:%02d][%s %s:%d][%s] " fmt
+#define	SI_LOG_TMARGS \
+	____tm.tm_mon+1, ____tm.tm_mday, \
+	____tm.tm_hour, ____tm.tm_min
+#define	SI_LOG_LINEINFO \
+	__FILE__, __LINE__
+
+#define	SI_LOG_GETTM() ({\
+	time_t ____t = time(NULL);\
+	struct tm ____tm = *localtime(&____t);\
+	____tm;\
+	})
+#define	SI_LOG_TM() \
+	struct tm ____tm = SI_LOG_GETTM()
+
+#define	SI_LOG(LEVEL, str, fmt, ...) ({\
+	SI_LOG_TM();\
+	__si_log(SI_LOG_FMT(fmt),SI_LOG_TMARGS,str,\
+			SI_LOG_LINEINFO,LEVEL,##__VA_ARGS__);\
+	})
+#define	SI_LOG_NOLINE(LEVEL, str, fmt, ...) ({\
+	SI_LOG_TM();\
+	__si_log(SI_LOG_FMT(fmt),SI_LOG_TMARGS,str,\
+			"NOFILE",0,LEVEL,##__VA_ARGS__);\
+	})
+
+#define	si_log(fmt, ...)	SI_LOG_NOLINE("INFO", "0", fmt, ##__VA_ARGS__)
+
+#define	si_log1(fmt, ...)	SI_LOG("INFO", "1", fmt, ##__VA_ARGS__)
+#define	si_log1_todo(fmt, ...)	SI_LOG("TODO", "1", fmt, ##__VA_ARGS__)
+#define	si_log1_warn(fmt, ...)	SI_LOG("WARN", "1", fmt, ##__VA_ARGS__)
+#define	si_log1_err(fmt, ...)	SI_LOG(" ERR", "1", fmt, ##__VA_ARGS__)
+
+#define	si_log2(fmt, ...)	SI_LOG("INFO", "2", fmt, ##__VA_ARGS__)
+#define	si_log2_todo(fmt, ...)	SI_LOG("TODO", "2", fmt, ##__VA_ARGS__)
+#define	si_log2_warn(fmt, ...)	SI_LOG("WARN", "2", fmt, ##__VA_ARGS__)
+#define	si_log2_err(fmt, ...)	SI_LOG(" ERR", "2", fmt, ##__VA_ARGS__)
+
 #define	SI_MOD_SUBSHELL_CMDS() \
 static void ____help_usage(void)\
 {\
@@ -1077,10 +1169,91 @@ static inline void data_state_drop(struct data_state_rw *ds)
 }
 
 static inline
+struct data_state_val1 *dsv_constructor_find_elem(struct data_state_val *dsv,
+						  s32 offset, u32 bits)
+{
+	if ((!offset) && (!bits))
+		return NULL;
+
+	if ((DSV_TYPE(dsv) != DSVT_CONSTRUCTOR) || (!DSV_SEC1_VAL(dsv))) {
+		WARN();
+	}
+
+	struct data_state_val1 *ret = NULL, *tmp;
+	slist_for_each_entry(tmp, DSV_SEC3_VAL(dsv), sibling) {
+		/*
+		 * [offset, offset+bits] must be a subset of
+		 * [tmp->offset, tmp->offset+tmp->bits]
+		 */
+		if (!((offset >= tmp->offset) &&
+		      ((offset + bits) <= (tmp->offset + tmp->bits))))
+			continue;
+		if ((offset == tmp->offset) && (bits == tmp->bits))
+			ret = tmp;
+		else {
+			ret = dsv_constructor_find_elem(&tmp->val,
+							offset - tmp->offset,
+							bits);
+			if (!ret)
+				ret = tmp;
+		}
+		break;
+	}
+
+	return ret;
+}
+
+static inline void __ds_vref_setv(struct data_state_val *t,
+				struct data_state_rw *ds, s32 offset, u32 bits)
+{
+	if ((DSV_TYPE(t) == DSVT_REF) && (&ds->val == t)) {
+		WARN();
+	}
+
+	struct data_state_val_ref *dsvr;
+	dsvr = DSV_SEC2_VAL(t);
+	dsvr->ds = ds;
+	dsvr->offset = offset;
+	dsvr->bits = bits;
+}
+
+static inline
+void ds_vref_hold_setv(struct data_state_val *t,
+			struct data_state_rw *ds, s32 offset, u32 bits)
+{
+	data_state_hold(ds);
+	__ds_vref_setv(t, ds, offset, bits);
+}
+
+static inline void ds_vref_setv(struct data_state_val *t,
+				struct data_state_rw *ds, s32 offset, u32 bits)
+{
+	switch (DS_VTYPE(ds)) {
+	case DSVT_REF:
+	{
+		struct data_state_val_ref *dsvr;
+		dsvr = DS_SEC2_VAL(ds);
+		ds_vref_hold_setv(t, dsvr->ds, offset + dsvr->offset, bits);
+		break;
+	}
+	default:
+	{
+		ds_vref_hold_setv(t, ds, offset, bits);
+		break;
+	}
+	}
+}
+
+static inline
 void dsv_copy_data(struct data_state_val *dst, struct data_state_val *src)
 {
 	if (dst == src)
 		return;
+
+	if ((DSV_TYPE(dst) == DSVT_CONSTRUCTOR) &&
+			(DSV_TYPE(src) != DSVT_CONSTRUCTOR)) {
+		WARN();
+	}
 
 	dsv_free_data(dst);
 
@@ -1103,10 +1276,9 @@ void dsv_copy_data(struct data_state_val *dst, struct data_state_val *src)
 	{
 		/* FIXME: increase the target ds refcount if DSVT_ADDR */
 		dsv_alloc_data(dst, DSV_TYPE(src), 0);
-		DSV_SEC2_VAL(dst)->ds = DSV_SEC2_VAL(src)->ds;
-		data_state_hold(DSV_SEC2_VAL(dst)->ds);
-		DSV_SEC2_VAL(dst)->offset = DSV_SEC2_VAL(src)->offset;
-		DSV_SEC2_VAL(dst)->bits = DSV_SEC2_VAL(src)->bits;
+		ds_vref_hold_setv(dst, DSV_SEC2_VAL(src)->ds,
+				  DSV_SEC2_VAL(src)->offset,
+				  DSV_SEC2_VAL(src)->bits);
 		break;
 	}
 	case 3:
@@ -1135,37 +1307,6 @@ void dsv_copy_data(struct data_state_val *dst, struct data_state_val *src)
 	memcpy(&dst->info, &src->info, sizeof(src->info));
 
 	return;
-}
-
-static inline void __ds_vref_setv(struct data_state_val *t,
-				struct data_state_rw *ds, s32 offset, u32 bits)
-{
-	struct data_state_val_ref *dsvr;
-	dsvr = DSV_SEC2_VAL(t);
-	dsvr->ds = ds;
-	dsvr->offset = offset;
-	dsvr->bits = bits;
-}
-
-static inline void ds_vref_setv(struct data_state_val *t,
-				struct data_state_rw *ds, s32 offset, u32 bits)
-{
-	switch (DS_VTYPE(ds)) {
-	case DSVT_REF:
-	{
-		struct data_state_val_ref *dsvr;
-		dsvr = DS_SEC2_VAL(ds);
-		data_state_hold(dsvr->ds);
-		__ds_vref_setv(t, dsvr->ds, offset + dsvr->offset, bits);
-		break;
-	}
-	default:
-	{
-		data_state_hold(ds);
-		__ds_vref_setv(t, ds, offset, bits);
-		break;
-	}
-	}
 }
 
 static inline
@@ -1919,98 +2060,6 @@ static inline int src_is_linux_kernel(void)
 		return 1;
 	return 0;
 }
-
-#include "defdefine.h"
-
-static inline int si_current_workdir(char *p, size_t len)
-{
-	if (unlikely(!si))
-		return -1;
-
-	snprintf(p, len, "%s/%s/", DEF_TMPDIR, si->src_id);
-	return 0;
-}
-
-static inline int si_current_resfile(char *p, size_t len, char *name)
-{
-	if (unlikely(!si))
-		return -1;
-
-	memset(p, 0, len);
-	if (!strchr(name, '/'))
-		snprintf(p, len, "%s/%s/%s", DEF_TMPDIR, si->src_id, name);
-	else
-		snprintf(p, len, "%s", name);
-	return 0;
-}
-
-#define	si_get_logfile() ({\
-		char ____path[PATH_MAX];\
-		snprintf(____path, PATH_MAX, "%s/%s/log", DEF_TMPDIR,\
-				si->src_id);\
-		____path;\
-		})
-
-static inline void __si_log(const char *fmt, ...)
-{
-	char logbuf[MAXLINE];
-	memset(logbuf, 0, MAXLINE);
-
-	va_list ap;
-	va_start(ap, fmt);
-	vsnprintf(logbuf, MAXLINE, fmt, ap);
-	va_end(ap);
-
-	char *logfile = si_get_logfile();
-	int logfd = open(logfile, O_WRONLY | O_APPEND);
-	if (unlikely(logfd == -1))
-		logfd = open(logfile, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
-
-	if (logfd == -1) {
-		fprintf(stderr, "%s", logbuf);
-	} else {
-		int err __maybe_unused = write(logfd, logbuf, strlen(logbuf));
-		close(logfd);
-	}
-}
-
-#define	SI_LOG_FMT(fmt)	"[%02d/%02d %02d:%02d][%s %s:%d][%s] " fmt
-#define	SI_LOG_TMARGS \
-	____tm.tm_mon+1, ____tm.tm_mday, \
-	____tm.tm_hour, ____tm.tm_min
-#define	SI_LOG_LINEINFO \
-	__FILE__, __LINE__
-
-#define	SI_LOG_GETTM() ({\
-	time_t ____t = time(NULL);\
-	struct tm ____tm = *localtime(&____t);\
-	____tm;\
-	})
-#define	SI_LOG_TM() \
-	struct tm ____tm = SI_LOG_GETTM()
-
-#define	SI_LOG(LEVEL, str, fmt, ...) ({\
-	SI_LOG_TM();\
-	__si_log(SI_LOG_FMT(fmt),SI_LOG_TMARGS,str,\
-			SI_LOG_LINEINFO,LEVEL,##__VA_ARGS__);\
-	})
-#define	SI_LOG_NOLINE(LEVEL, str, fmt, ...) ({\
-	SI_LOG_TM();\
-	__si_log(SI_LOG_FMT(fmt),SI_LOG_TMARGS,str,\
-			"NOFILE",0,LEVEL,##__VA_ARGS__);\
-	})
-
-#define	si_log(fmt, ...)	SI_LOG_NOLINE("INFO", "0", fmt, ##__VA_ARGS__)
-
-#define	si_log1(fmt, ...)	SI_LOG("INFO", "1", fmt, ##__VA_ARGS__)
-#define	si_log1_todo(fmt, ...)	SI_LOG("TODO", "1", fmt, ##__VA_ARGS__)
-#define	si_log1_warn(fmt, ...)	SI_LOG("WARN", "1", fmt, ##__VA_ARGS__)
-#define	si_log1_err(fmt, ...)	SI_LOG(" ERR", "1", fmt, ##__VA_ARGS__)
-
-#define	si_log2(fmt, ...)	SI_LOG("INFO", "2", fmt, ##__VA_ARGS__)
-#define	si_log2_todo(fmt, ...)	SI_LOG("TODO", "2", fmt, ##__VA_ARGS__)
-#define	si_log2_warn(fmt, ...)	SI_LOG("WARN", "2", fmt, ##__VA_ARGS__)
-#define	si_log2_err(fmt, ...)	SI_LOG(" ERR", "2", fmt, ##__VA_ARGS__)
 
 /* for CLIB_MODULE_CALL_FUNC */
 #undef PLUGIN_SYMBOL_CONFLICT
