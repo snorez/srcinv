@@ -1188,9 +1188,9 @@ struct data_state_val1 *dsv_constructor_find_elem(struct data_state_val *dsv,
 		if (!((offset >= tmp->offset) &&
 		      ((offset + bits) <= (tmp->offset + tmp->bits))))
 			continue;
-		if ((offset == tmp->offset) && (bits == tmp->bits))
+		if ((offset == tmp->offset) && (bits == tmp->bits)) {
 			ret = tmp;
-		else {
+		} else {
 			ret = dsv_constructor_find_elem(&tmp->val,
 							offset - tmp->offset,
 							bits);

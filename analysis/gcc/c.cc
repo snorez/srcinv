@@ -8853,6 +8853,7 @@ static int dsv_fill(struct sample_set *sset, int idx, struct fn_list *fnl,
 	case INTEGER_TYPE:
 	case PARM_DECL:
 	case RECORD_TYPE:
+	case UNION_TYPE:
 	case ARRAY_TYPE:
 	case SSA_NAME:
 	case VAR_DECL:
@@ -9561,7 +9562,8 @@ ssa_name_out:
 		ptype = TREE_TYPE(n);
 		u64 this_bits = TREE_INT_CST_LOW(TYPE_SIZE(ptype));
 
-		tmp_dsv = get_ds_val(sset, idx, fnl, &tmp->val, 0, 0);
+		tmp_dsv = get_ds_val(sset, idx, fnl, &tmp->val,
+					this_offset, this_bits);
 		/* check NULL pointer deref */
 		if (DSV_TYPE(tmp_dsv) == DSVT_INT_CST) {
 			void **pptr = (void **)DSV_SEC1_VAL(tmp_dsv);
