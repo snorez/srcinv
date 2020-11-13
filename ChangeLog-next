@@ -1,5 +1,9 @@
 2020-11-13
 	* analysis/gcc/c.cc: make dec return err on UNION type for now.
+	* analysis/gcc/c.cc: fix local var not found in get_ds_via_tree()
+	issue
+	* analysis/gcc/c.cc: load target sibuf in dec_gimple_assign() when
+	handling COMPONENT_REF/ARRAY_REF
 
 2020-11-10
 	* analysis/gcc/c.cc: redo get_ds_val() guess_ds_val() etc.

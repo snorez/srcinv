@@ -9342,6 +9342,22 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 
 		struct var_list *vnl;
 		vnl = var_list_find(&fn->local_vars, (void *)n);
+		if (unlikely(!vnl)) {
+			vnl = var_list_new((void *)n);
+			if (DECL_NAME(n)) {
+				char name[NAME_MAX];
+				memset(name, 0, NAME_MAX);
+				get_node_name(DECL_NAME(n), name);
+				vnl->var.name = name_list_add(name,
+								strlen(name)+1);
+			}
+			slist_add_tail(&vnl->sibling, &fn->local_vars);
+
+			/* XXX: need to add fn ds and fnl ds */
+			(void)fn_ds_add(fn, (u64)&vnl->var, DSRT_VN);
+			(void)fnl_ds_add(fnl, (u64)&vnl->var, DSRT_VN,
+					 (void *)n);
+		}
 		if (vnl->var.type)
 			bits = vnl->var.type->ofsize * BITS_PER_UNIT;
 		else
@@ -10755,6 +10771,9 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 		 */
 		tree n = (tree)(long)rhs1_val->raw;
 		tree type;
+		struct sibuf *b;
+		b = find_target_sibuf((void *)n);
+		int held = analysis__sibuf_hold(b);
 		if (TREE_CODE_CLASS(TREE_CODE(n)) != tcc_type)
 			type = TREE_TYPE(n);
 		else
@@ -10798,6 +10817,8 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 			break;
 		}
 		}
+		if (!held)
+			analysis__sibuf_drop(b);
 		break;
 	}
 	case MIN_EXPR:
