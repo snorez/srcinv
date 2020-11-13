@@ -4,6 +4,8 @@
 	issue
 	* analysis/gcc/c.cc: load target sibuf in dec_gimple_assign() when
 	handling COMPONENT_REF/ARRAY_REF
+	* srcinv: staticchk_quick on linux kernel 5.4.0 done
+	* NEW RELEASE: v0.8
 
 2020-11-10
 	* analysis/gcc/c.cc: redo get_ds_val() guess_ds_val() etc.
