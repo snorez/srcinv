@@ -57,6 +57,8 @@ the `si_global_trees` memory area overlaps with the thread stack.
 + locks and `_name_list_add` in phase 3 still take too long, about 70%.
 + rewrite phase 4 in analysis/gcc/c.cc.
 + handle global data defined in asm files.
++ `dsv_find_constructor_elem` and `dsv_union_data_update`
+	- It seems quite hard to find the right field for union.
 + GCC use CONSTRUCTOR as op[1] in gimple assign statements. e.g.
 	- `knc_pmu_init` `x86_pmu = knc_pmu`
 	`knc_pmu` is a static variable, the gimple\_assign statement op[1] is

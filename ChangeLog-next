@@ -1,3 +1,6 @@
+2020-11-13
+	* analysis/gcc/c.cc: make dec return err on UNION type for now.
+
 2020-11-10
 	* analysis/gcc/c.cc: redo get_ds_val() guess_ds_val() etc.
 	* analysis/gcc/c.cc: get_ds_via_tree() use TREE_TYPE on MEM_REF to

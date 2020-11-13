@@ -739,8 +739,8 @@ enum data_state_val_type {
 	DSVT_REF,	/* value stored in some other data_state, sec2 last */
 
 	/* section 3: data_state_val1 */
-	/* DSVT_ARRAY, DSVT_COMPONENT, */
-	DSVT_CONSTRUCTOR,
+	/* ARRAY, RECORD, UNION */
+	DSVT_CONSTRUCTOR, /* sec3 first */
 };
 
 enum data_state_val_compare_flag {
@@ -773,6 +773,13 @@ struct dsv_flag {
 	u8			used: 1;
 };
 
+enum dsv_section {
+	DSV_SEC_UNK,
+	DSV_SEC_1,
+	DSV_SEC_2,
+	DSV_SEC_3,
+};
+
 #define	DSV_SEC1_VAL(dsv)	((dsv)->value.v1)
 #define	DSV_SEC2_VAL(dsv)	((dsv)->value.v2)
 #define	DSV_SEC3_VAL(dsv)	(&((dsv)->value.v3))
@@ -782,6 +789,11 @@ struct dsv_flag {
 #define	DS_SEC2_VAL(ds)		DSV_SEC2_VAL(&ds->val)
 #define	DS_SEC3_VAL(ds)		DSV_SEC3_VAL(&ds->val)
 #define	DS_VTYPE(ds)		DSV_TYPE(&ds->val)
+
+enum dsv_subtype {
+	DSV_SUBTYPE_DEF,
+	DSV_SUBTYPE_UNION,
+};
 
 struct data_state_val {
 	union {
@@ -796,7 +808,9 @@ struct data_state_val {
 	 */
 	u64					raw: 48;
 	u64					type: 8;
-	u64					reserved: 8;
+	/* for DSVT_CONSTRUCTOR, 1: union, 0: array/record */
+	u64					subtype: 1;
+	u64					reserved: 7;
 
 	struct slist_head			trace_id_head;
 
@@ -808,9 +822,18 @@ struct data_state_val {
 			u32			sign: 1;
 		} v1_info;
 
-		struct {
-			/* How many bytes this array/struct/union contains */
-			u32			total_bytes;
+		union {
+			struct {
+				u32		total_bytes;
+			} record_info;
+
+			struct {
+				u32		total_bytes;
+			} array_info;
+
+			struct {
+				u32		total_bytes;
+			} union_info;
 		} v3_info;
 	} info;
 };

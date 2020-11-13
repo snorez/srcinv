@@ -238,16 +238,25 @@ int sample_state_check_loop(struct sample_set *sset, int idx,
 		return 0;
 	}
 
+	int err;
 	if (sstate->loop_info.head == -1) {
+		err = dsv_copy_data(&sstate->loop_info.lhs_val, lhs_dsv);
+		if (err == -1) {
+			si_log1_todo("dsv_copy_data err\n");
+			return -1;
+		}
+		err = dsv_copy_data(&sstate->loop_info.rhs_val, rhs_dsv);
+		if (err == -1) {
+			si_log1_todo("dsv_copy_data err\n");
+			dsv_free_data(&sstate->loop_info.lhs_val);
+			return -1;
+		}
 		sstate->loop_info.head = head;
 		sstate->loop_info.tail = tail;
-		dsv_copy_data(&sstate->loop_info.lhs_val, lhs_dsv);
-		dsv_copy_data(&sstate->loop_info.rhs_val, rhs_dsv);
 		return 0;
 	}
 
 	/* now, we can compare the given lhs/rhs against the saved ones */
-	int err;
 	cur_max_signint _retval;
 	err = analysis__dsv_compute(&sstate->loop_info.lhs_val, lhs_dsv,
 					CLIB_COMPUTE_F_COMPARE,

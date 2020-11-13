@@ -568,6 +568,21 @@ static inline struct name_list *_name_list_add(char *tname, size_t namelen)
 	return nl;
 }
 
+static inline char *name_list_find(char *tname, size_t namelen)
+{
+	si_lock_r();
+	char *ret = NULL;
+	struct name_list *nl;
+	struct rb_root *root __maybe_unused;
+	struct rb_node **newtmp __maybe_unused, *parent __maybe_unused;
+	nl = __name_list_find(tname, namelen, &root, &newtmp, &parent);
+	if (nl) {
+		ret = nl->name;
+	}
+	si_unlock_r();
+	return ret;
+}
+
 static inline char *name_list_add(char *tname, size_t namelen)
 {
 	struct name_list *nl;
@@ -965,606 +980,7 @@ static inline void cp_list_free(struct cp_list *cp)
 	free(cp);
 }
 
-static inline int ds_get_section(u8 val_type)
-{
-	if (val_type == DSVT_UNK) {
-		return 0;
-	} else if ((val_type >= DSVT_INT_CST) &&
-			(val_type <= DSVT_REAL_CST)) {
-		return 1;
-	} else if ((val_type >= DSVT_ADDR) &&
-			(val_type <= DSVT_REF)) {
-		return 2;
-	} else if (val_type >= DSVT_CONSTRUCTOR) {
-		return 3;
-	} else {
-		BUG();
-	}
-}
-
-static inline void data_state_init_base(struct data_state_base *base, 
-				        u64 addr, u8 type)
-{
-	base->ref_base = addr;
-	base->ref_type = type;
-}
-
-static inline struct data_state_base *data_state_base_new(u64 addr, u8 type)
-{
-	struct data_state_base *_new;
-	_new = (struct data_state_base *)src_buf_get(sizeof(*_new));
-	memset(_new, 0, sizeof(*_new));
-	data_state_init_base(_new, addr, type);
-	return _new;
-}
-
-static inline void dsv_set_raw(struct data_state_val *dsv, void *raw)
-{
-	dsv->raw = (u64)raw;
-}
-
-static inline struct data_state_rw *data_state_rw_new(u64 addr, u8 type,
-							void *raw)
-{
-	struct data_state_rw *_new;
-	_new = (struct data_state_rw *)xmalloc(sizeof(*_new));
-	memset(_new, 0, sizeof(*_new));
-	data_state_init_base(&_new->base, addr, type);
-	dsv_set_raw(&_new->val, raw);
-	atomic_set(&_new->refcnt, 1);
-	return _new;
-}
-
-static inline void data_state_drop(struct data_state_rw *ds);
-static inline void dsv_free_data(struct data_state_val *dsv)
-{
-	switch (ds_get_section(DSV_TYPE(dsv))) {
-	case 0:
-	{
-		break;
-	}
-	case 1:
-	{
-		free(DSV_SEC1_VAL(dsv));
-		DSV_SEC1_VAL(dsv) = NULL;
-		break;
-	}
-	case 2:
-	{
-		struct data_state_val_ref *dsvr;
-		dsvr = DSV_SEC2_VAL(dsv);
-		data_state_drop(dsvr->ds);
-
-		free(DSV_SEC2_VAL(dsv));
-		DSV_SEC2_VAL(dsv) = NULL;
-		break;
-	}
-	case 3:
-	{
-		struct data_state_val1 *tmp, *next;
-		slist_for_each_entry_safe(tmp, next, DSV_SEC3_VAL(dsv),
-					  sibling) {
-			slist_del(&tmp->sibling, DSV_SEC3_VAL(dsv));
-			dsv_free_data(&tmp->val);
-			free(tmp);
-		}
-		break;
-	}
-	default:
-	{
-		BUG();
-	}
-	}
-	DSV_TYPE(dsv) = DSVT_UNK;
-	return;
-}
-
-static inline void dsv_alloc_data(struct data_state_val *dsv, u8 val_type,
-				  u32 bytes)
-{
-	if ((ds_get_section(val_type) == 1) && (DSV_TYPE(dsv) == val_type) &&
-			(dsv->info.v1_info.bytes == bytes)) {
-		memset(DSV_SEC1_VAL(dsv), 0, dsv->info.v1_info.bytes);
-		return;
-	}
-
-	dsv_free_data(dsv);
-
-	switch (ds_get_section(val_type)) {
-	case 0:
-	{
-		break;
-	}
-	case 1:
-	{
-		BUG_ON(!bytes);
-		DSV_SEC1_VAL(dsv) = xmalloc(bytes);
-		memset(DSV_SEC1_VAL(dsv), 0, bytes);
-		dsv->info.v1_info.bytes = bytes;
-		break;
-	}
-	case 2:
-	{
-		bytes = sizeof(struct data_state_val_ref);
-		DSV_SEC2_VAL(dsv) = (struct data_state_val_ref *)xmalloc(bytes);
-		memset((void *)DSV_SEC2_VAL(dsv), 0, bytes);
-		break;
-	}
-	case 3:
-	{
-		break;
-	}
-	default:
-	{
-		BUG();
-	}
-	}
-	DSV_TYPE(dsv) = val_type;
-	return;
-}
-
-static inline struct data_state_val1 *data_state_val1_alloc(void *raw)
-{
-	struct data_state_val1 *_new;
-	_new = (struct data_state_val1 *)xmalloc(sizeof(*_new));
-	memset(_new, 0, sizeof(*_new));
-	dsv_set_raw(&_new->val, raw);
-	return _new;
-}
-
-static inline void __dsv_str_data_add_byte(struct data_state_val *dsv, void *raw,
-					   char c, u32 idx)
-{
-	struct data_state_val1 *tmp;
-	u32 this_bytes = sizeof(c);
-
-	tmp = data_state_val1_alloc(raw);
-	dsv_alloc_data(&tmp->val, DSVT_INT_CST, this_bytes);
-	clib_memcpy_bits(DSV_SEC1_VAL(&tmp->val), this_bytes * BITS_PER_UNIT,
-			 &c, this_bytes * BITS_PER_UNIT);
-	tmp->bits = this_bytes * BITS_PER_UNIT;
-	tmp->offset = idx * BITS_PER_UNIT;
-	slist_add_tail(&tmp->sibling, DSV_SEC3_VAL(dsv));
-}
-
-static inline void dsv_fill_str_data(struct data_state_val *dsv, void *raw, 
-					char *str, u32 bytes)
-{
-	for (u32 i = 0; i < bytes; i++) {
-		__dsv_str_data_add_byte(dsv, raw, str[i], i);
-	}
-
-	if (bytes && str[bytes-1])
-		__dsv_str_data_add_byte(dsv, raw, '\0', bytes);
-}
-
-static inline void data_state_destroy(struct data_state_rw *ds)
-{
-	if (!slist_empty(&ds->base.sibling)) {
-		WARN();
-	}
-
-	dsv_free_data(&ds->val);
-	free(ds);
-}
-
-static inline struct data_state_rw *data_state_hold(struct data_state_rw *ds)
-{
-	if (!ds)
-		return NULL;
-
-	atomic_inc(&ds->refcnt);
-	return ds;
-}
-
-static inline void data_state_drop(struct data_state_rw *ds)
-{
-	if (!ds)
-		return;
-
-	if (atomic_dec_and_test(&ds->refcnt))
-		data_state_destroy(ds);
-
-	return;
-}
-
-static inline
-struct data_state_val1 *dsv_constructor_find_elem(struct data_state_val *dsv,
-						  s32 offset, u32 bits)
-{
-	if ((!offset) && (!bits))
-		return NULL;
-
-	if ((DSV_TYPE(dsv) != DSVT_CONSTRUCTOR) || (!DSV_SEC1_VAL(dsv))) {
-		WARN();
-	}
-
-	struct data_state_val1 *ret = NULL, *tmp;
-	slist_for_each_entry(tmp, DSV_SEC3_VAL(dsv), sibling) {
-		/*
-		 * [offset, offset+bits] must be a subset of
-		 * [tmp->offset, tmp->offset+tmp->bits]
-		 */
-		if (!((offset >= tmp->offset) &&
-		      ((offset + bits) <= (tmp->offset + tmp->bits))))
-			continue;
-		if ((offset == tmp->offset) && (bits == tmp->bits)) {
-			ret = tmp;
-		} else {
-			ret = dsv_constructor_find_elem(&tmp->val,
-							offset - tmp->offset,
-							bits);
-			if (!ret)
-				ret = tmp;
-		}
-		break;
-	}
-
-	return ret;
-}
-
-static inline void __ds_vref_setv(struct data_state_val *t,
-				struct data_state_rw *ds, s32 offset, u32 bits)
-{
-	if ((DSV_TYPE(t) == DSVT_REF) && (&ds->val == t)) {
-		WARN();
-	}
-
-	struct data_state_val_ref *dsvr;
-	dsvr = DSV_SEC2_VAL(t);
-	dsvr->ds = ds;
-	dsvr->offset = offset;
-	dsvr->bits = bits;
-}
-
-static inline
-void ds_vref_hold_setv(struct data_state_val *t,
-			struct data_state_rw *ds, s32 offset, u32 bits)
-{
-	data_state_hold(ds);
-	__ds_vref_setv(t, ds, offset, bits);
-}
-
-static inline void ds_vref_setv(struct data_state_val *t,
-				struct data_state_rw *ds, s32 offset, u32 bits)
-{
-	switch (DS_VTYPE(ds)) {
-	case DSVT_REF:
-	{
-		struct data_state_val_ref *dsvr;
-		dsvr = DS_SEC2_VAL(ds);
-		ds_vref_hold_setv(t, dsvr->ds, offset + dsvr->offset, bits);
-		break;
-	}
-	default:
-	{
-		ds_vref_hold_setv(t, ds, offset, bits);
-		break;
-	}
-	}
-}
-
-static inline
-void dsv_copy_data(struct data_state_val *dst, struct data_state_val *src)
-{
-	if (dst == src)
-		return;
-
-	if ((DSV_TYPE(dst) == DSVT_CONSTRUCTOR) &&
-			(DSV_TYPE(src) != DSVT_CONSTRUCTOR)) {
-		WARN();
-	}
-
-	dsv_free_data(dst);
-
-	switch (ds_get_section(DSV_TYPE(src))) {
-	case 0:
-	{
-		break;
-	}
-	case 1:
-	{
-		size_t sz = src->info.v1_info.bytes;
-
-		dsv_alloc_data(dst, DSV_TYPE(src), sz);
-		clib_memcpy_bits(DSV_SEC1_VAL(dst), sz * BITS_PER_UNIT,
-				 DSV_SEC1_VAL(src),
-				 src->info.v1_info.bytes * BITS_PER_UNIT);
-		break;
-	}
-	case 2:
-	{
-		/* FIXME: increase the target ds refcount if DSVT_ADDR */
-		dsv_alloc_data(dst, DSV_TYPE(src), 0);
-		ds_vref_hold_setv(dst, DSV_SEC2_VAL(src)->ds,
-				  DSV_SEC2_VAL(src)->offset,
-				  DSV_SEC2_VAL(src)->bits);
-		break;
-	}
-	case 3:
-	{
-		struct data_state_val1 *tmp;
-		dsv_alloc_data(dst, DSV_TYPE(src), 0);
-		slist_for_each_entry(tmp, DSV_SEC3_VAL(src), sibling) {
-			struct data_state_val1 *_tmp;
-			void *raw = (void *)(long)tmp->val.raw;
-			_tmp = data_state_val1_alloc(raw);
-			_tmp->bits = tmp->bits;
-			_tmp->offset = tmp->offset;
-			dsv_copy_data(&_tmp->val, &tmp->val);
-			slist_add_tail(&_tmp->sibling, DSV_SEC3_VAL(dst));
-		}
-		break;
-	}
-	default:
-	{
-		BUG();
-	}
-	}
-
-	dsv_set_raw(dst, (void *)(long)src->raw);
-	/* TODO: trace_id_head */
-	memcpy(&dst->info, &src->info, sizeof(src->info));
-
-	return;
-}
-
-static inline
-struct data_state_rw *data_state_dup_base(struct data_state_base *base)
-{
-	struct data_state_rw *_new;
-	void *raw = NULL;
-	switch (base->ref_type) {
-	case DSRT_VN:
-	{
-		struct var_node *vn;
-		vn = (struct var_node *)(long)base->ref_base;
-		raw = vn->node;
-		break;
-	}
-	case DSRT_FN:
-	{
-		struct func_node *fn;
-		fn = (struct func_node *)(long)base->ref_base;
-		raw = fn->node;
-		break;
-	}
-	case DSRT_RAW:
-	{
-		raw = (void *)(long)base->ref_base;
-		break;
-	}
-	default:
-	{
-		/* should not happen here */
-		err_dbg(0, "miss %d\n", base->ref_type);
-		BUG();
-	}
-	}
-	_new = data_state_rw_new(base->ref_base, base->ref_type, raw);
-	return _new;
-}
-
-static inline
-struct data_state_base *__data_state_find(struct slist_head *head,
-					  u64 addr, u8 type)
-{
-	struct data_state_base *tmp;
-	slist_for_each_entry(tmp, head, sibling) {
-		if ((tmp->ref_base == addr) && (tmp->ref_type == type))
-			return tmp;
-	}
-
-	return NULL;
-}
-
-static inline
-struct data_state_base *fn_data_state_find(struct func_node *fn,
-					   u64 addr, u8 type)
-{
-	return __data_state_find(&fn->data_state_list, addr, type);
-}
-
-static inline
-struct data_state_base *fn_data_state_add(struct func_node *fn,
-					  u64 addr, u8 type)
-{
-	struct data_state_base *ret;
-
-	ret = fn_data_state_find(fn, addr, type);
-	if (ret)
-		return ret;
-
-	/* insert into func_node, use src_buf_get to alloc */
-	ret = data_state_base_new(addr, type);
-	slist_add_tail(&ret->sibling, &fn->data_state_list);
-
-	return ret;
-}
-
-static inline
-struct data_state_rw *fnl_data_state_find(struct fn_list *fnl,
-					  u64 addr, u8 type)
-{
-	struct data_state_base *base;
-	struct data_state_rw *ret;
-	base = __data_state_find(&fnl->data_state_list, addr, type);
-	if (!base)
-		return NULL;
-
-	ret = container_of(base, struct data_state_rw, base);
-	data_state_hold(ret);
-	return ret;
-}
-
-static inline
-struct data_state_rw *fnl_data_state_add(struct fn_list *fnl,
-					 u64 addr, u8 type, void *raw)
-{
-	struct data_state_rw *ret;
-
-	ret = fnl_data_state_find(fnl, addr, type);
-	if (ret)
-		return ret;
-
-	ret = data_state_rw_new(addr, type, raw);
-	if (slist_add_tail_check(&ret->base.sibling, &fnl->data_state_list)) {
-		data_state_drop(ret);
-		return NULL;
-	} else {
-		data_state_hold(ret);
-	}
-
-	return ret;
-}
-
-static inline
-struct data_state_base *__global_data_state_base_find(u64 addr, u8 type)
-{
-	return __data_state_find(&si->global_data_states, addr, type);
-}
-
-static inline
-struct data_state_base *global_data_state_base_find(u64 addr, u8 type)
-{
-	struct data_state_base *ret;
-	si_lock_r();
-	ret = __global_data_state_base_find(addr, type);
-	si_unlock_r();
-	return ret;
-}
-
-static inline
-struct data_state_base *global_data_state_base_add(u64 addr, u8 type)
-{
-	struct data_state_base *ret;
-
-	si_lock_w();
-	ret = __global_data_state_base_find(addr, type);
-	if (!ret) {
-		/* likewise */
-		ret = data_state_base_new(addr, type);
-		slist_add_tail(&ret->sibling, &si->global_data_states);
-	}
-	si_unlock_w();
-
-	return ret;
-}
-
-static inline void init_global_data_rw_states(void)
-{
-	struct data_state_base *base;
-	slist_for_each_entry(base, &si->global_data_states, sibling) {
-		struct data_state_rw *tmp;
-		tmp = data_state_dup_base(base);
-		slist_add_tail(&tmp->base.sibling, &si->global_data_rw_states);
-	}
-}
-
-static inline
-struct data_state_rw *__global_data_state_rw_find(u64 addr, u8 type)
-{
-	struct data_state_base *base;
-	struct data_state_rw *ret;
-	base = __data_state_find(&si->global_data_rw_states, addr, type);
-	if (!base)
-		return NULL;
-
-	ret = container_of(base, struct data_state_rw, base);
-	data_state_hold(ret);
-	return ret;
-}
-
-static inline
-struct data_state_rw *global_data_state_rw_find(u64 addr, u8 type)
-{
-	struct data_state_rw *ret;
-	si_lock_w();
-	if (unlikely(slist_empty(&si->global_data_rw_states)))
-		init_global_data_rw_states();
-	ret = __global_data_state_rw_find(addr, type);
-	si_unlock_w();
-
-	return ret;
-}
-
-static inline
-struct data_state_rw *global_data_state_rw_add(u64 addr, u8 type, void *raw)
-{
-	struct data_state_rw *ret;
-
-	si_lock_w();
-	if (unlikely(slist_empty(&si->global_data_rw_states)))
-		init_global_data_rw_states();
-	ret = __global_data_state_rw_find(addr, type);
-	if (!ret) {
-		ret = data_state_rw_new(addr, type, raw);
-		if (slist_add_tail_check(&ret->base.sibling,
-					 &si->global_data_rw_states)) {
-			data_state_drop(ret);
-			ret = NULL;
-		} else {
-			data_state_hold(ret);
-		}
-	}
-	si_unlock_w();
-
-	return ret;
-}
-
-/*
- * @data_state_find: search for data_state_*
- * 1st, search in the global data_state_*
- * 2nd, Optional, search in the sample set allocated_data_states
- * 3rd, search in the local func_node
- */
-static inline
-struct data_state_base *data_state_base_find(struct sample_set *sset, int idx,
-					     struct func_node *fn,
-					     u64 addr, u8 type)
-{
-	struct data_state_base *ret;
-
-	si_lock_r();
-	ret = __global_data_state_base_find(addr, type);
-	si_unlock_r();
-
-	if (ret)
-		return ret;
-
-	if (fn)
-		ret = fn_data_state_find(fn, addr, type);
-
-	return ret;
-}
-
-static inline
-struct data_state_rw *data_state_rw_find(struct sample_set *sset, int idx,
-					 struct fn_list *fnl,
-					 u64 addr, u8 type)
-{
-	struct data_state_rw *ret;
-
-	ret = global_data_state_rw_find(addr, type);
-	if (ret)
-		return ret;
-
-	if (sset) {
-		struct data_state_base *base;
-		base = __data_state_find(&sset->allocated_data_states,
-					 addr, type);
-		if (base) {
-			ret = container_of(base, struct data_state_rw, base);
-			data_state_hold(ret);
-			return ret;
-		}
-	}
-
-	if (fnl)
-		ret = fnl_data_state_find(fnl, addr, type);
-
-	return ret;
-}
+#include "si_ds.h"
 
 static inline struct fn_list *fn_list_new(struct func_node *fn)
 {
@@ -1577,7 +993,7 @@ static inline struct fn_list *fn_list_new(struct func_node *fn)
 	struct data_state_base *tmp0;
 	struct data_state_rw *tmp1;
 	slist_for_each_entry(tmp0, &fn->data_state_list, sibling) {
-		tmp1 = data_state_dup_base(tmp0);
+		tmp1 = ds_dup_base(tmp0);
 		slist_add_tail(&tmp1->base.sibling, &_new->data_state_list);
 	}
 
@@ -1591,7 +1007,7 @@ static inline void fn_list_free(struct fn_list *fnl)
 	slist_for_each_entry_safe(tmp_ds, next_ds, &fnl->data_state_list,
 				base.sibling) {
 		slist_del(&tmp_ds->base.sibling, &fnl->data_state_list);
-		data_state_drop(tmp_ds);
+		ds_drop(tmp_ds);
 	}
 
 	struct cp_list *tmp_cpl, *next_cpl;
@@ -1666,7 +1082,7 @@ static inline void sample_empty_arg_head(struct sample_state *sample)
 	struct data_state_rw *tmp, *next;
 	slist_for_each_entry_safe(tmp, next, &sample->arg_head, base.sibling) {
 		slist_del(&tmp->base.sibling, &sample->arg_head);
-		data_state_drop(tmp);
+		ds_drop(tmp);
 	}
 }
 
@@ -1688,7 +1104,7 @@ static inline void sample_state_free(struct sample_state *state)
 	sample_empty_arg_head(state);
 
 	if (state->retval && (state->retval != VOID_RETVAL))
-		data_state_drop(state->retval);
+		ds_drop(state->retval);
 
 	sample_state_cleanup_loopinfo(state);
 
@@ -1914,7 +1330,7 @@ static inline void sample_set_free(struct sample_set *sset)
 	slist_for_each_entry_safe(tmp, next,
 				 &sset->allocated_data_states, base.sibling) {
 		slist_del(&tmp->base.sibling, &sset->allocated_data_states);
-		data_state_drop(tmp);
+		ds_drop(tmp);
 	}
 
 	for (u64 i = 0; i < sset->count; i++) {
@@ -2032,7 +1448,7 @@ static inline int src_init(int empty)
 	}
 
 	INIT_SLIST_HEAD(&si->global_data_rw_states);
-	init_global_data_rw_states();
+	init_global_ds_rw();
 
 	return 0;
 }

@@ -204,10 +204,10 @@ static void staticchk_quick_single_func(unsigned long funcid)
 
 	if (!err) {
 		fprintf(stdout, "done\n");
-		si_log2("checking %s done\n", target_fsn->name);
+		si_log2("checking %s done\n\n", target_fsn->name);
 	} else {
 		fprintf(stdout, "err\n");
-		si_log2("checking %s err\n", target_fsn->name);
+		si_log2("checking %s err\n\n", target_fsn->name);
 	}
 	fflush(stdout);
 

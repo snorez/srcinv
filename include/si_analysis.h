@@ -242,6 +242,10 @@ CLIB_MODULE_CALL_FUNC(analysis, dsv_compute, int,
 		(struct data_state_val *l, struct data_state_val *r, int flag,
 		 int extra_flag, cur_max_signint *retval),
 		5, l, r, flag, extra_flag, retval);
+CLIB_MODULE_CALL_FUNC(analysis, dsv_union_data_update, int,
+		(struct data_state_val *union_dsv,
+		 struct data_state_val *updated_dsv),
+		2, union_dsv, updated_dsv);
 
 static inline int __si_data_fmt(struct sibuf *buf)
 {

@@ -1,6 +1,10 @@
 /*
  * Copyright (C) 2020 zerons
  *
+ * handling data state is a little complicated.
+ * We need some interfaces to handle most cases in using data states in
+ * case of modifications in the future.
+ *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
@@ -113,8 +117,16 @@ int dsv_compute(struct data_state_val *l, struct data_state_val *r,
 
 	DSV_TYPE(&fake_l) = DSVT_UNK;
 	DSV_TYPE(&fake_r) = DSVT_UNK;
-	dsv_copy_data(&fake_l, l);
-	dsv_copy_data(&fake_r, r);
+	err = dsv_copy_data(&fake_l, l);
+	if (err == -1) {
+		si_log1_warn("dsv_copy_data err\n");
+		return -1;
+	}
+	err = dsv_copy_data(&fake_r, r);
+	if (err == -1) {
+		si_log1_warn("dsv_copy_data err\n");
+		return -1;
+	}
 
 	for (int i = 0; i < 2; i++) {
 		struct data_state_val *cur_dsv, *fake_dsv;
@@ -135,7 +147,8 @@ int dsv_compute(struct data_state_val *l, struct data_state_val *r,
 		case DSVT_ADDR:
 		{
 			dsv_free_data(fake_dsv);
-			dsv_alloc_data(fake_dsv, DSVT_INT_CST, sizeof(void *));
+			dsv_alloc_data(fake_dsv, DSVT_INT_CST,
+				       0, sizeof(void *));
 			void *ptr;
 			ptr = (void *)DSV_SEC2_VAL(cur_dsv)->ds;
 			ptr = (char *)ptr + DSV_SEC2_VAL(cur_dsv)->offset;
@@ -169,4 +182,11 @@ out:
 	dsv_free_data(&fake_l);
 	dsv_free_data(&fake_r);
 	return err;
+}
+
+int dsv_union_data_update(struct data_state_val *union_dsv,
+			  struct data_state_val *updated_dsv)
+{
+	si_log1_todo("not implemented yet\n");
+	return -1;
 }
