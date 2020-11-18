@@ -1,0 +1,162 @@
+2020-11-13
+	* analysis/gcc/c.cc: make dec return err on UNION type for now.
+	* analysis/gcc/c.cc: fix local var not found in get_ds_via_tree()
+	issue
+	* analysis/gcc/c.cc: load target sibuf in dec_gimple_assign() when
+	handling COMPONENT_REF/ARRAY_REF
+	* srcinv: staticchk_quick on linux kernel 5.4.0 done
+	* NEW RELEASE: v0.8
+
+2020-11-10
+	* analysis/gcc/c.cc: redo get_ds_val() guess_ds_val() etc.
+	* analysis/gcc/c.cc: get_ds_via_tree() use TREE_TYPE on MEM_REF to
+	calculate the bits
+
+2020-11-06
+	* analysis/gcc/c.cc: fix get/guess_ds_val issues when handling
+	CONSTRUCTOR as init value of VAR_DECL
+	* analysis/gcc/c.cc: fix some data states of function can not be 
+	found in get_ds_via_tree()
+	* analysis/gcc/c.cc: fix previous commit: forget to hold the function
+	data state
+	* analysis/gcc/c.cc: fix some data states of variables can not be
+	found in get_ds_via_tree()
+	* analysis/gcc/c.cc: load target sibuf for getting target init_node of
+	global variables
+	* analysis/gcc/c.cc: load target sibuf in dsv_fill()
+
+2020-11-05
+	* analysis/sample.c: fix sample_state_check_loop()
+	* analysis: check if global_data_rw_states empty before find
+	* analysis/gcc/c.cc: get_ds_via_tree() do not init var_decl node
+	* hacking/staticchk.cc: do not set err when save sample_set
+
+2020-11-04
+	* analysis/gcc/c.cc: get_ds_via_tree() handle SSA_NAMEs carefully
+	* analysis/gcc/c.cc: ignore GIMPLE_NOP statement
+	* analysis/gcc/c.cc: get_ds_via_tree() handle GIMPLE_NOP for SSA_NAME
+	* analysis/gcc/c.cc: try to fix previous commit issus, some global
+	data states get destoryed too early
+	* analysis/gcc/c.cc: dec_gimple_assign() hold the target data_state_rw
+	in POINTER_PLUS_EXPR
+	* srcinv: update docs
+
+2020-11-03
+	* analysis/gcc/c.cc: dsv_extend() load target sibuf if needed
+
+2020-11-02
+	* analysis/gcc/c.cc: handle assign ARRAY to a pointer
+	* analysis/gcc/c.cc: use ARRAY to represent STRING_CST
+
+2020-11-01
+	* analysis/gcc/c.cc: get_ds_via_tree() miscalculate this_bits for
+	ARRAY_REF
+	* analysis/gcc/c.cc: get_ds_via_tree() mishandle MEM_REF, should check
+	if the DSVT_ADDR type
+	* analysis/gcc/c.cc: get_ds_via_tree() MEM_REF drop tmp too early
+	* analysis/gcc/c.cc: fix previous commit
+
+2020-10-31
+	* analysis/gcc/c.cc: fix assign a NULL CONSTRUCTOR
+	* analysis/gcc/c.cc: use guess_ds_val to get a NULL CONSTRUCTOR
+	* analysis/gcc/c.cc: hold the data_state when handle COMPONENT_REF
+	* analysis/gcc/c.cc: dsv_alloc_data() check if need to free old
+	data
+	* analysis/gcc/c.cc: dec_gimple_assign() handle NOP_EXPR
+	* analysis/gcc/c.cc: get_ds_via_tree() handle the ARRAY_REF index
+	* analysis/gcc/c.cc: get_ds_via_tree() drop the ARRAY_REF index_ds
+
+2020-10-30
+	* analysis/gcc/c.cc: handle assign STRING_CST to an array.
+
+2020-10-29
+	* srcinv: automatically detect the system memory size, use 3/4 for
+	resfile
+	* srcinv: _name_list_add(): get the position to insert if name not found
+	* srcinv: hold global data_state_rw if found
+	* analysis/gcc/c.cc: get_type_b*(): check if the TYPE_SIZE(type) NULL
+	* analysis/gcc/c.cc: check if the return value of get_ds_via_tree() NULL
+
+2020-10-27
+	* collect/asm.cc: fix BUG_ON on some abnormal filename
+	* srcinv: fix issues
+
+2020-10-13
+	* srcinv: fix issues when parsing ubuntu linux kernel 5.4.0
+
+2020-10-09
+	* analysis/gcc/c.cc: copy the current file path out to thread stack.
+	* srcinv: remove packed attribute.
+
+2020-10-07
+	* analysis/gcc/c.cc: check no_sanitize attribute.
+	* analysis/gcc/c.cc: rewrite do_struct/union_init().
+	* analysis/gcc/c.cc: is_same_field() check DECL_CONTEXT first if
+	macro_expanded is true.
+
+2020-10-06
+	* analysis: increase THREAD_STACKSZ in case some files' obj_cnt too
+	large.
+	* analysis: add an extra check against the file's obj_cnt.
+	* analysis/gcc/c.cc: fix a bug in __get_real_addr when the obj_cnt is
+	larger than (MAX_OBJS_PER_FILE / 8).
+
+2020-10-05
+	* analysis: fix a bug in parse 4. Some trees are not used in neither
+	phi_nodes nor seq.
+	* analysis: guess_ds_val() check SSA_NAMEs def_stmt.
+	* srcinv: fix gcc-8 compile errors
+
+2020-10-04
+	* srcinv: USE BITS_PER_UNIT instead of 8
+	* srcinv: fix collect libraries errors
+
+2020-10-01
+	* srcinv: code for v1.0
+
+2020-09-27
+	* srcinv: reset DSVT_ARRAY/DSVT_COMPONENT as DSVT_CONSTRUCTOR
+
+2020-09-21
+	* srcinv: prepare for v1.0
+	* hacking/staticchk: mishandle the return value of chk_func()
+
+2020-07-01
+	* srcinv: add insn_desc_head list in code_path
+	* analysis: do dec in parsing
+	* analysis: keep a dec interface
+
+2020-06-26
+	* analysis/gcc_c: get the global var node while add data_state
+
+2020-06-25
+	* core/si_conf: use clib_json
+	* srcinv: reset si_type
+	* srcinv: add a new field global_data_states in src
+	* srcinv: add a new field alloced_data_states in sample_states
+	* srcinv: add a helper data_state_find()
+
+2020-06-23
+	* srcinv: add status for cp_state
+	* srcinv: check if the module exists before load it
+	* analysis/gcc_asm: EMPTY cp_state
+	* srcinv: move load_sibuf cmd from hacking to analysis
+
+2020-06-19
+	* analysis: implement init_cp_state in gcc/*
+
+2020-06-17
+	* analysis/gcc_asm: parse branches
+	* analysis/gcc_asm: check if the func size zero and check the retval
+	of clib_bitmap_set()
+
+2020-06-16
+	* srcinv: use a global names_root to store all name
+	* analysis: init code_path.state while parsing
+	* analysis/gcc_asm: prepare to get branches
+
+2020-06-13
+	* srcinv: rename code_path.cq to cp
+	* srcinv: Makefile check GCC version
+	* analysis: add dec*
+	* srcinv: reset structures

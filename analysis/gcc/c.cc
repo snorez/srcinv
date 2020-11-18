@@ -8880,6 +8880,10 @@ static int dsv_fill(struct sample_set *sset, int idx, struct fn_list *fnl,
 	case SSA_NAME:
 	case VAR_DECL:
 	case POINTER_TYPE:
+	case ENUMERAL_TYPE:
+	case BOOLEAN_TYPE:
+	case NOP_EXPR:
+	case STRING_CST:
 	{
 		ret = 0;
 		break;
@@ -9900,7 +9904,6 @@ static void *get_dsv_raw_func(struct sample_set *sset, int idx,
 		case DSV_SEC_UNK:
 		default:
 		{
-			si_log1_todo("miss %d\n", DS_VTYPE(ds));
 			done = 1;
 			break;
 		}
@@ -10450,6 +10453,31 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 		*(char *)(DSV_SEC1_VAL(lhs_val)) = _retval ? 1 : 0;
 		break;
 	}
+	case BIT_NOT_EXPR:
+	{
+		if (rhs2 || rhs3) {
+			err = -1;
+			si_log1_warn("rhs2/rhs3 is supposed to be NULL\n");
+			break;
+		}
+
+		dsv_extend(rhs1_val);
+
+		int flag = CLIB_COMPUTE_F_BITNOT;
+		cur_max_signint _retval;
+
+		/* XXX: need to alloc BEFORE dsv_compute() */
+		dsv_alloc_data(lhs_val, DSVT_INT_CST, 0, bytes);
+		err = analysis__dsv_compute(rhs1_val, lhs_val, flag, 0,
+					    &_retval);
+		if (err == -1) {
+			si_log1_warn("analysis__dsv_compute err\n");
+			break;
+		}
+		clib_memcpy_bits(DSV_SEC1_VAL(lhs_val), bytes * BITS_PER_UNIT,
+				 &_retval, sizeof(_retval) * BITS_PER_UNIT);
+		break;
+	}
 	case BIT_IOR_EXPR:
 	case BIT_XOR_EXPR:
 	case BIT_AND_EXPR:
@@ -10810,6 +10838,12 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 			}
 			break;
 		}
+		case DSVT_CONSTRUCTOR:
+		{
+			/* TODO: be careful */
+			dsv_copy_data(lhs_val, rhs1_val);
+			break;
+		}
 		default:
 		{
 			err = -1;
@@ -10877,6 +10911,7 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 	}
 	case SSA_NAME:
 	case VAR_DECL:
+	case PARM_DECL:
 	{
 		if (rhs2 || rhs3) {
 			err = -1;
