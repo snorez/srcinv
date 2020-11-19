@@ -1122,6 +1122,33 @@ static inline tree si_lookup_attribute(const char *attr_name, tree list)
 	}
 }
 
+static inline char *si_get_alias_name(char *name, size_t namelen, tree n)
+{
+	memset(name, 0, NAME_MAX);
+	tree node = (tree)n;
+	if (!node)
+		return NULL;
+
+	struct sibuf *b = find_target_sibuf(node);
+	int held = analysis__sibuf_hold(b);
+	if (TREE_CODE(node) == IDENTIFIER_NODE) {
+		get_node_name(node, name);
+	} else if (TREE_CODE(node) == STRING_CST) {
+		size_t copylen = TREE_STRING_LENGTH(node);
+		if (copylen >= namelen) {
+			return NULL;
+		}
+		memcpy(name, TREE_STRING_POINTER(node), copylen);
+	} else {
+		BUG();
+	}
+
+	if (!held)
+		analysis__sibuf_drop(b);
+
+	return name;
+}
+
 /*
  * some functions in gcc header files
  */

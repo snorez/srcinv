@@ -1,6 +1,8 @@
 2020-11-19
 	* hacking/staticchk.cc: dump sample_set if nonzero flag, not only when
 	no error occurred
+	* analysis/gcc/c.cc: dec_gimple_call(): handle functions with alias
+						attribute
 
 2020-11-18
 	* analysis/gcc/c.cc: dec_gimple_assign(): handle BIT_NOT_EXPR

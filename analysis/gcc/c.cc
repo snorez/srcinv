@@ -10141,6 +10141,51 @@ static int dec_gimple_call(struct sample_set *sset, int idx,
 	}
 
 	if (target_fsn) {
+		/*
+		 * XXX: check if target_fsn has an alias
+		 */
+		struct attr_list *attr;
+		int has_alias = 0;
+		if (unlikely(slist_empty(&target_fsn->attributes))) {
+			tree fsn_node;
+			struct sibuf *b;
+			b = target_fsn->buf;
+			int held = analysis__sibuf_hold(b);
+			fsn_node = (tree)(long)target_fsn->obj->real_addr;
+			get_attributes(&target_fsn->attributes,
+					DECL_ATTRIBUTES(fsn_node));
+			if (!held)
+				analysis__sibuf_drop(b);
+		}
+		slist_for_each_entry(attr, &target_fsn->attributes, sibling) {
+			if (!strcmp("alias", attr->attr_name)) {
+				has_alias = 1;
+				break;
+			}
+		}
+
+		if (has_alias) {
+			struct attrval_list *attrval;
+			char name[NAME_MAX];
+			slist_for_each_entry(attrval, &attr->values, sibling) {
+				char *ret = si_get_alias_name(name, NAME_MAX,
+							(tree)attrval->node);
+				if (!ret)
+					continue;
+
+				long args[3];
+				struct sibuf *b;
+				b = find_target_sibuf(attrval->node);
+				args[0] = (long)b->rf;
+				args[1] = (long)get_builtin_resfile();
+				args[2] = (long)name;
+				target_fsn = analysis__sinode_search(
+							TYPE_FUNC_GLOBAL,
+							SEARCH_BY_SPEC,
+							(void *)args);
+				break;
+			}
+		}
 		struct sinode *caller_fsn;
 		get_func_sinode((tree)fnl->fn->node, &caller_fsn, 1);
 		analysis__add_callee(caller_fsn, target_fsn, gs,
