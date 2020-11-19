@@ -76,13 +76,13 @@ static int staticchk_sample_set(struct sample_set *sset, char *modname)
 check_saved:
 	if ((!analysis__sample_set_exists(sset)) &&
 		(!analysis__sample_set_validate(sset))) {
-		if (!sample_set_zeroflag(sset))
-			analysis__sample_set_dump(sset);
 		save_sample_set(sset);
 		src_set_sset_curid(sset->id+1);
 	}
 
 out:
+	if (!sample_set_zeroflag(sset))
+		analysis__sample_set_dump(sset);
 	return err;
 }
 
