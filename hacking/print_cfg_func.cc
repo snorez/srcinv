@@ -28,7 +28,8 @@ CLIB_MODULE_NEEDED0();
 static char cmdname[] = "print_cfg_func";
 static unsigned long func_id[CALL_DEPTH_MAX];
 static const char *suffix = "nested";
-static const char *tab_ch = "  ";
+static const char *tab_ch = "    ";
+static int max_tabs = 0;
 
 static int __match(struct sinode *sn)
 {
@@ -70,6 +71,15 @@ static inline int func_id_arr_find(unsigned long _func_id, int depth)
 	}
 
 	return 0;
+}
+
+static void __init(void)
+{
+	reset_func_id_arr();
+	max_tabs = 0;
+
+	opterr = 0;
+	optind = 0;
 }
 
 static long __do_single_func(FILE *s, struct sinode *fsn, int tabs)
@@ -127,7 +137,8 @@ static long __do_single_func(FILE *s, struct sinode *fsn, int tabs)
 					"Should not happen\n");
 			continue;
 		}
-		(void)__do_single_func(s, callee_fsn, tabs+1);
+		if ((!max_tabs) || (tabs < max_tabs))
+			(void)__do_single_func(s, callee_fsn, tabs+1);
 	}
 
 	return 0;
@@ -181,18 +192,20 @@ static void usage(void)
 			"stderr/@OUTFILE\n"
 			"\t-o (outfile)\n"
 			"\t-f (funcid)\n"
-			"\t-r: Run mark_entry before print\n");
+			"\t-r: Run mark_entry before print\n"
+			"\t-l (level): check callees less than level\n");
 }
 
 static long cb(int argc, char *argv[])
 {
+	__init();
+
 	unsigned long tfun = 0;
 	FILE *s = stderr;
 	long ret = 0;
 
-	opterr = 0;
 	int ch;
-	while ((ch = getopt(argc, argv, "o:f:r"))) {
+	while ((ch = getopt(argc, argv, "o:f:rl:"))) {
 		if (ch == -1)
 			break;
 
@@ -218,6 +231,11 @@ static long cb(int argc, char *argv[])
 				err_dbg(0, "analysis__mark_entry err");
 				goto out;
 			}
+			break;
+		}
+		case 'l':
+		{
+			max_tabs = (unsigned long)atoi(optarg);
 			break;
 		}
 		default:

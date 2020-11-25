@@ -1,6 +1,7 @@
 2020-11-25
 	* hacking: add submodule print_cfg_func.cc
 	* analysis/mark-entry.c: callees are callf_list, not id_list
+	* hacking/print_cfg_func.cc: fix issues
 
 2020-11-19
 	* hacking/staticchk.cc: dump sample_set if nonzero flag, not only when
