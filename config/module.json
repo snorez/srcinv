@@ -79,6 +79,13 @@
 		"autoload": "1"
 	},
 	{
+		"name": "print_cfg_func",
+		"path": "print_cfg_func.so",
+		"comment": "print call graph to stderr or specific file",
+		"category": "hacking",
+		"autoload": "1"
+	}
+	{
 		"name": "uaf",
 		"path": "uaf.so",
 		"comment": "static detect uaf bugs",

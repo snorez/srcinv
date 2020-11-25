@@ -22,6 +22,7 @@ CXX_SRCS = \
 	   staticchk.cc \
 	   replay_sset.cc \
 	   uaf.cc \
+	   print_cfg_func.cc \
 	   test.cc
 CXX_EXTRA_SRCS = 
 CXX_SRCS += $(wildcard $(CXX_EXTRA_SRCS))

@@ -533,6 +533,7 @@ struct code_path {
 /* for TYPE_FUNC */
 #define	LABEL_MAX		(2048+1024)
 #define CALL_DEPTH_BITS		(10)
+#define	CALL_DEPTH_MAX		((1 << (CALL_DEPTH_BITS)) - 1)
 struct func_node {
 	rwlock_t		lock;
 	struct code_path	**cps;
@@ -546,6 +547,7 @@ struct func_node {
 	struct slist_head	local_vars;
 	/* id_list */
 	struct slist_head	global_vars;
+	/* callf_list */
 	struct slist_head	callees;
 	struct slist_head	callers;
 

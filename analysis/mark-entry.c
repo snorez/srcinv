@@ -24,7 +24,7 @@ static void mark_subcall_entry(struct func_node *fn, int call_level)
 	if ((fn->call_depth) && (fn->call_depth <= call_level))
 		return;
 
-	int call_level_max = (1 << CALL_DEPTH_BITS) - 1;
+	int call_level_max = CALL_DEPTH_MAX;
 	if (call_level > call_level_max) {
 		si_log1_warn("call_level exceed %d\n", call_level_max);
 		return;
@@ -32,7 +32,7 @@ static void mark_subcall_entry(struct func_node *fn, int call_level)
 
 	fn->call_depth = call_level;
 
-	struct id_list *tmp;
+	struct callf_list *tmp;
 	slist_for_each_entry(tmp, &fn->callees, sibling) {
 		struct sinode *sub_fsn;
 		if (tmp->value_flag)
