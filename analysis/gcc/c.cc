@@ -10441,10 +10441,6 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 		return -1;
 	}
 
-	if ((rhs_code == COMPONENT_REF) &&
-	    (TREE_OPERAND(rhs1, 1) == (tree)0x10002eacd6)) {
-		fprintf(stderr, "hello world\n");
-	}
 	struct data_state_val *rhs1_val, *rhs2_val, *rhs3_val __maybe_unused;
 	struct data_state_val *lhs_val;
 	lhs_val = get_ds_val(sset, idx, fnl, &lhs_state->val, 0, 0);
