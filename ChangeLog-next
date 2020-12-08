@@ -1,3 +1,6 @@
+2020-12-08
+	* analysis/gcc/c.cc: get_ds_via_tree() MEM_REF mishandled
+
 2020-11-25
 	* hacking: add submodule print_cfg_func.cc
 	* analysis/mark-entry.c: callees are callf_list, not id_list

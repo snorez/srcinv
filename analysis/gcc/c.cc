@@ -9107,12 +9107,14 @@ static struct data_state_val *get_ds_val(struct sample_set *sset, int idx,
 		struct data_state_val *tmp_dsv, *union_dsv;
 		err = dsv_find_constructor_elem(dsv, offset, bits,
 						&tmp, &tmp_dsv, &union_dsv);
-		if (err == -1) {
+		if ((!err) && tmp) {
+			ret = tmp_dsv;
+#if 0
+		} else if (err == -1) {
 			si_log1_warn("dsv_find_constructor_elem err\n");
 		} else if (!tmp) {
 			si_log1_warn("Should not happen\n");
-		} else {
-			ret = tmp_dsv;
+#endif
 		}
 	} else {
 		/*
@@ -9642,10 +9644,17 @@ ssa_name_out:
 		BUG_ON(NUM_POLY_INT_COEFFS > 1);
 		u64 this_offset = *(mem_ref_offset(n).coeffs[0].get_val()) *
 					BITS_PER_UNIT;
+
 		tree ptype;
-		/* ptype = TYPE_MAIN_VARIANT(TREE_TYPE(TREE_OPERAND(n, 1))); */
 		/* FIXME: what exactly is the type to calculate the bits? */
-		ptype = TREE_TYPE(n);
+		/* ptype = TYPE_MAIN_VARIANT(TREE_TYPE(TREE_OPERAND(n, 1))); */
+		/* ptype = TREE_TYPE(n); */
+		ptype = TREE_TYPE(TREE_OPERAND(n, 0));
+		if (TREE_TYPE(TREE_OPERAND(n, 0)) !=
+		    TREE_TYPE(TREE_OPERAND(n, 1))) {
+			ptype = TREE_TYPE(TREE_OPERAND(n, 1));
+		}
+
 		u64 this_bits = TREE_INT_CST_LOW(TYPE_SIZE(ptype));
 
 		tmp_dsv = get_ds_val(sset, idx, fnl, &tmp->val,
