@@ -275,7 +275,7 @@ int dsv_find_constructor_elem(struct data_state_val *dsv,
 	if ((!offset) && (!bits))
 		return 0; 
 
-	struct data_state_val *_dsv = dsv, *_union_dsv = NULL;
+	struct data_state_val *_dsv = dsv;
 	int done = 0;
 	int err = 0;
 	while (1) {
@@ -287,8 +287,11 @@ int dsv_find_constructor_elem(struct data_state_val *dsv,
 
 		/* record the outer union */
 		if ((DSV_TYPE(_dsv) == DSVT_CONSTRUCTOR) &&
-		    (_dsv->subtype == DSV_SUBTYPE_UNION) && (!_union_dsv)) {
-			_union_dsv = _dsv;
+		    (_dsv->subtype == DSV_SUBTYPE_UNION)) {
+			/* TODO: as of now, we return err on UNION type. */
+			*union_dsv = _dsv;
+			err = -1;
+			break;
 		}
 
 		struct data_state_val1 *tmp;
@@ -309,7 +312,10 @@ int dsv_find_constructor_elem(struct data_state_val *dsv,
 				continue;
 
 			has_match = 1;
-			if (DSV_TYPE(&tmp->val) == DSVT_CONSTRUCTOR) {
+
+			if ((DSV_TYPE(&tmp->val) == DSVT_CONSTRUCTOR) &&
+			    (tmp->val.subtype == DSV_SUBTYPE_UNION)) {
+				/* TODO: has to check UNION_TYPE first */
 				_dsv = &tmp->val;
 				offset -= fieldoffset;
 			} else if ((offset == fieldoffset) &&
@@ -317,6 +323,9 @@ int dsv_find_constructor_elem(struct data_state_val *dsv,
 				done = 1;
 				*ret_dsv1 = tmp;
 				*ret_dsv = &tmp->val;
+			} else if (DSV_TYPE(&tmp->val) == DSVT_CONSTRUCTOR) {
+				_dsv = &tmp->val;
+				offset -= fieldoffset;
 			} else {
 				err = -1;
 			}
@@ -330,12 +339,6 @@ int dsv_find_constructor_elem(struct data_state_val *dsv,
 			break;
 		if (done)
 			break;
-	}
-
-	if (done && _union_dsv) {
-		*union_dsv = _union_dsv;
-		/* TODO: as of now, we return err on UNION type */
-		err = -1;
 	}
 
 	return err;

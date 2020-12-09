@@ -8779,7 +8779,7 @@ static int get_dsv_via_constructor(struct sample_set *sset, int idx,
 			struct data_state_val1 *tmp;
 			struct data_state_val *tmp_dsv, *union_dsv;
 			err = dsv_find_constructor_elem(dsv,
-							curpos * BITS_PER_UNIT,
+							pos * BITS_PER_UNIT,
 						      fieldsize * BITS_PER_UNIT,
 						      &tmp, &tmp_dsv,
 						      &union_dsv);

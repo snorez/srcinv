@@ -1,3 +1,8 @@
+2020-12-09
+	* analysis/gcc/c.cc: fix a typo in get_dsv_via_constructor()
+	* include/si_ds.h: remove _union_dsv, return error immediately if
+	UNION_TYPE is met
+
 2020-12-08
 	* analysis/gcc/c.cc: get_ds_via_tree() MEM_REF mishandled
 
