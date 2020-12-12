@@ -294,6 +294,12 @@ int dsv_find_constructor_elem(struct data_state_val *dsv,
 			break;
 		}
 
+		if ((offset == 0) &&
+		    (bits == _dsv->info.v3_info.total_bytes * BITS_PER_UNIT)) {
+			*ret_dsv = _dsv;
+			break;
+		}
+
 		struct data_state_val1 *tmp;
 		int has_match = 0;
 		slist_for_each_entry(tmp, DSV_SEC3_VAL(_dsv), sibling) {
@@ -444,6 +450,7 @@ int __dsv_copy_data(struct data_state_val *dst, struct data_state_val *src)
 	{
 		struct data_state_val1 *tmp;
 		dsv_alloc_data(dst, DSV_TYPE(src), src->subtype, 0);
+		dst->info.v3_info.total_bytes = src->info.v3_info.total_bytes;
 		slist_for_each_entry(tmp, DSV_SEC3_VAL(src), sibling) {
 			struct data_state_val1 *_tmp;
 			void *raw = (void *)(long)tmp->val.raw;

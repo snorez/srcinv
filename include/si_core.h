@@ -825,17 +825,7 @@ struct data_state_val {
 		} v1_info;
 
 		union {
-			struct {
-				u32		total_bytes;
-			} record_info;
-
-			struct {
-				u32		total_bytes;
-			} array_info;
-
-			struct {
-				u32		total_bytes;
-			} union_info;
+			u32			total_bytes;
 		} v3_info;
 	} info;
 };

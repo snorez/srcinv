@@ -8680,6 +8680,8 @@ static int get_dsv_via_constructor(struct sample_set *sset, int idx,
 				subtype = DSV_SUBTYPE_UNION;
 			dsv_alloc_data(dsv, DSVT_CONSTRUCTOR, subtype, 0);
 		}
+		dsv->info.v3_info.total_bytes = get_type_bytes(type);
+
 		FOR_EACH_VEC_SAFE_ELT(CONSTRUCTOR_ELTS(n), cnt, ce) {
 			tree val = ce->value;
 			int pos, fieldsize;
@@ -8722,12 +8724,8 @@ static int get_dsv_via_constructor(struct sample_set *sset, int idx,
 			err = dsv_find_constructor_elem(dsv, pos,
 						fieldsize * BITS_PER_UNIT,
 						&tmp, &tmp_dsv, &union_dsv);
-			if (err == -1) {
+			if ((err == -1) || (!tmp_dsv)) {
 				si_log1_warn("dsv_find_constructor_elem err\n");
-				return -1;
-			}
-			if (!tmp) {
-				si_log1_warn("Should not happen\n");
 				return -1;
 			}
 			dsv_set_raw(tmp_dsv, val);
@@ -8760,6 +8758,8 @@ static int get_dsv_via_constructor(struct sample_set *sset, int idx,
 		min_index = tree_to_shwi(TYPE_MIN_VALUE(TYPE_DOMAIN(type)));
 		if (DSV_TYPE(dsv) != DSVT_CONSTRUCTOR)
 			dsv_alloc_data(dsv, DSVT_CONSTRUCTOR, 0, 0);
+		dsv->info.v3_info.total_bytes = get_type_bytes(type);
+
 		FOR_EACH_VEC_SAFE_ELT(CONSTRUCTOR_ELTS(n), cnt, ce) {
 			tree val = ce->value;
 			tree index = ce->index;
@@ -8783,12 +8783,8 @@ static int get_dsv_via_constructor(struct sample_set *sset, int idx,
 						      fieldsize * BITS_PER_UNIT,
 						      &tmp, &tmp_dsv,
 						      &union_dsv);
-			if (err == -1) {
+			if ((err == -1) || (!tmp_dsv)) {
 				si_log1_warn("dsv_find_constructor_elem err\n");
-				return -1;
-			}
-			if (!tmp) {
-				si_log1_warn("Should not happen\n");
 				return -1;
 			}
 			dsv_set_raw(tmp_dsv, val);
@@ -8942,6 +8938,8 @@ static int dsv_init(struct sample_set *sset, int idx, struct fn_list *fnl,
 		if (tc_type == UNION_TYPE)
 			subtype = DSV_SUBTYPE_UNION;
 		dsv_alloc_data(dsv, DSVT_CONSTRUCTOR, subtype, 0);
+		dsv->info.v3_info.total_bytes = get_type_bytes(type);
+
 		while (field) {
 			tree this_type = TREE_TYPE(field);
 			struct data_state_val1 *dsv1;
@@ -8983,6 +8981,8 @@ static int dsv_init(struct sample_set *sset, int idx, struct fn_list *fnl,
 		unsigned long this_offset = 0;
 		u32 this_bits = (u32)elem_size * BITS_PER_UNIT;
 		dsv_alloc_data(dsv, DSVT_CONSTRUCTOR, 0, 0);
+		dsv->info.v3_info.total_bytes = get_type_bytes(type);
+
 		for (size_t i = 0; i < elem_cnt; i++) {
 			struct data_state_val1 *dsv1;
 			this_offset = i * this_bits;
@@ -9102,12 +9102,12 @@ static struct data_state_val *get_ds_val(struct sample_set *sset, int idx,
 				 DSV_SEC2_VAL(dsv)->offset,
 				 DSV_SEC2_VAL(dsv)->bits);
 	} else if (DSV_TYPE(dsv) == DSVT_CONSTRUCTOR) {
-		int err;
+		int err = 0;
 		struct data_state_val1 *tmp;
 		struct data_state_val *tmp_dsv, *union_dsv;
 		err = dsv_find_constructor_elem(dsv, offset, bits,
 						&tmp, &tmp_dsv, &union_dsv);
-		if ((!err) && tmp) {
+		if ((!err) && tmp_dsv) {
 			ret = tmp_dsv;
 #if 0
 		} else if (err == -1) {
@@ -9125,9 +9125,6 @@ static struct data_state_val *get_ds_val(struct sample_set *sset, int idx,
 		ret = dsv;
 	}
 
-	/* if target dsv not found, return the given one */
-	if (!ret)
-		ret = dsv;
 	return ret;
 }
 
@@ -9219,6 +9216,10 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 		ret = ds_rw_new((u64)n, DSRT_RAW, n);
 		dsv_alloc_data(&ret->val, DSVT_CONSTRUCTOR, 0, 0);
 		dsv_fill_str_data(&ret->val, n, str, srclen);
+		if (srclen && str[srclen-1])
+			ret->val.info.v3_info.total_bytes = srclen + 1;
+		else
+			ret->val.info.v3_info.total_bytes = srclen;
 		break;
 	}
 	case REAL_CST:
@@ -9490,7 +9491,8 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 				struct data_state_val *var_dsv;
 				var_dsv = get_ds_val(sset, idx, fnl,
 						     &var_ds->val, 0, 0);
-				if (dsv_copy_data(&ret->val, var_dsv) == -1) {
+				if ((!var_dsv) ||
+				    (dsv_copy_data(&ret->val, var_dsv) == -1)) {
 					si_log1_warn("dsv_copy_data err\n");
 					ds_drop(ret);
 					ret = NULL;
@@ -9535,7 +9537,8 @@ ssa_name_out:
 			struct data_state_val *index_dsv;
 			index_dsv = get_ds_val(sset, idx, fnl, &index_ds->val,
 						0, 0);
-			if (DSV_TYPE(index_dsv) != DSVT_INT_CST) {
+			if ((!index_dsv) ||
+			    (DSV_TYPE(index_dsv) != DSVT_INT_CST)) {
 				si_log1_todo("Should not happen\n");
 			} else {
 				clib_memcpy_bits(&index,
@@ -9660,7 +9663,9 @@ ssa_name_out:
 		tmp_dsv = get_ds_val(sset, idx, fnl, &tmp->val,
 					this_offset, this_bits);
 		/* check NULL pointer deref */
-		if (DSV_TYPE(tmp_dsv) == DSVT_INT_CST) {
+		if (!tmp_dsv) {
+			;
+		} else if (DSV_TYPE(tmp_dsv) == DSVT_INT_CST) {
 			void **pptr = (void **)DSV_SEC1_VAL(tmp_dsv);
 			if (sample_set_check_nullptr(pptr)) {
 				sample_set_set_flag(sset, SAMPLE_SF_NULLREF);
@@ -10039,6 +10044,11 @@ static int dec_gimple_call(struct sample_set *sset, int idx,
 			}
 
 			dsvtmp = get_ds_val(sset, idx, fnl, &dstmp->val, 0, 0);
+			if (!dsvtmp) {
+				ds_drop(dstmp);
+				si_log1_warn("get_ds_val NULL\n");
+				return -1;
+			}
 
 			err = dsv_copy_data(dsvtmp, &orig_ds->val);
 			if (err == -1) {
@@ -10321,7 +10331,7 @@ static int gimple_cond_compare(struct sample_set *sset, int idx,
 	lhs_val = get_ds_val(sset, idx, fnl, &lhs->val, 0, 0);
 	rhs_val = get_ds_val(sset, idx, fnl, &rhs->val, 0, 0);
 	if ((!lhs_val) || (!rhs_val)) {
-		si_log1_todo("get_ds_val err\n");
+		si_log1_todo("get_ds_val NULL\n");
 		return -1;
 	}
 
@@ -10456,6 +10466,13 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 	rhs1_val = get_ds_val(sset, idx, fnl, &rhs1_state->val, 0, 0);
 	rhs2_val = get_ds_val(sset, idx, fnl, &rhs2_state->val, 0, 0);
 	rhs3_val = get_ds_val(sset, idx, fnl, &rhs3_state->val, 0, 0);
+
+	if ((lhs_state && (!lhs_val)) || (rhs1_state && (!rhs1_val)) ||
+	    (rhs2_state && (!rhs2_val)) || (rhs3_state && (!rhs3_val))) {
+		si_log1_warn("get_ds_val NULL\n");
+		err = -1;
+		goto out;
+	}
 
 	switch (rhs_code) {
 	case GT_EXPR:
@@ -11117,7 +11134,8 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 	}
 	}
 
-	if (ssa_write) {
+out:
+	if ((!err) && ssa_write) {
 		if (lhs_val == &lhs_state->val) {
 			si_log1_warn("Should not happen\n");
 		} else {
@@ -11179,16 +11197,23 @@ static int dec_gimple_cond(struct sample_set *sset, int idx,
 						&lhs_state->val, 0, 0);
 			rhs_dsv = get_ds_val(sset, idx, fnl,
 						&rhs_state->val, 0, 0);
-
-			int _err;
-			_err = analysis__sample_state_check_loop(sset, idx,
-						lhs_dsv, rhs_dsv, next_cp);
-			if (_err == -1) {
-				si_log1_warn("analysis__sample_state_check_loop"
-						" err\n");
+			if ((!lhs_dsv) || (!rhs_dsv)) {
+				si_log1_warn("get_ds_val NULL\n");
 				err = -1;
-			} else if (_err == 1) {
-				sample_set_set_flag(sset, SAMPLE_SF_INFLOOP);
+			} else {
+				int _err;
+				_err = analysis__sample_state_check_loop(sset,
+							idx, lhs_dsv, rhs_dsv,
+							next_cp);
+				if (_err == -1) {
+					si_log1_warn(
+					      "analysis__sample_state_check_loop"
+					      " err\n");
+					err = -1;
+				} else if (_err == 1) {
+					sample_set_set_flag(sset,
+							    SAMPLE_SF_INFLOOP);
+				}
 			}
 		}
 
@@ -11341,6 +11366,12 @@ static int dec_gimple_phi(struct sample_set *sset, int idx,
 
 	result_dsv = get_ds_val(sset, idx, fnl, &result_ds->val, 0, 0);
 	src_dsv = get_ds_val(sset, idx, fnl, &src_ds->val, 0, 0);
+	if ((!result_dsv) || (!src_dsv)) {
+		si_log1_warn("get_ds_val NULL\n");
+		ds_drop(src_ds);
+		ds_drop(result_ds);
+		return -1;
+	}
 
 	/*
 	 * If assign an ARRAY to a pointer, we should get the [0] element's
