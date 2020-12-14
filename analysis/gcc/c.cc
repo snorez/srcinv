@@ -11261,6 +11261,12 @@ static int dec_gimple_switch(struct sample_set *sset, int idx,
 	u64 val = 0;
 	u32 bits = get_type_bits(index);
 	index_dsv = get_ds_val(sset, idx, fnl, &index_ds->val, 0, 0);
+	if (!index_dsv) {
+		si_log1_warn("get_ds_val NULL\n");
+		ds_drop(index_ds);
+		return -1;
+	}
+
 	BUG_ON(DSV_TYPE(index_dsv) != DSVT_INT_CST);
 	clib_memcpy_bits(&val, sizeof(val) * BITS_PER_UNIT,
 			 DSV_SEC1_VAL(index_dsv), bits);

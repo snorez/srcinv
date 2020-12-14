@@ -1,3 +1,7 @@
+2020-12-14
+	* analysis/gcc/c.cc: check return value of get_ds_val() in
+	dec_gimple_switch()
+
 2020-12-12
 	* analysis/gcc/c.cc: set v3_info while allocating DSVT_CONSTRUCTOR data
 	* analysis/gcc/c.cc: check return value of get_ds_val()
