@@ -1038,6 +1038,19 @@ static inline void sample_state_cleanup_loopinfo(struct sample_state *sstate)
 	sample_state_init_loopinfo(sstate);
 }
 
+static inline struct arg_record *arg_record_alloc(void)
+{
+	struct arg_record *_new;
+	_new = (struct arg_record *)xmalloc(sizeof(*_new));
+	memset(_new, 0, sizeof(*_new));
+	return _new;
+}
+
+static inline void arg_record_free(struct arg_record *arg)
+{
+	ds_drop(arg->ds);
+}
+
 static inline struct sample_state *sample_state_alloc(int dyn)
 {
 	struct sample_state *_new;
@@ -1079,10 +1092,10 @@ static inline void sample_state_entry_free(struct sample_state *sstate)
 
 static inline void sample_empty_arg_head(struct sample_state *sample)
 {
-	struct data_state_rw *tmp, *next;
-	slist_for_each_entry_safe(tmp, next, &sample->arg_head, base.sibling) {
-		slist_del(&tmp->base.sibling, &sample->arg_head);
-		ds_drop(tmp);
+	struct arg_record *tmp, *next;
+	slist_for_each_entry_safe(tmp, next, &sample->arg_head, sibling) {
+		slist_del(&tmp->sibling, &sample->arg_head);
+		arg_record_free(tmp);
 	}
 }
 
@@ -1131,6 +1144,15 @@ struct cp_list *sample_add_new_cp(struct sample_state *sample,
 	cpl = cp_list_new(1, cp);
 	slist_add_tail(&cpl->sibling, &sample->cp_list_head);
 	return cpl;
+}
+
+static inline
+struct fn_list *sample_state_first_fnl(struct sample_state *sstate)
+{
+	struct fn_list *fnl = NULL;
+	fnl = slist_first_entry_or_null(&sstate->fn_list_head,
+					struct fn_list, sibling);
+	return fnl;
 }
 
 static inline

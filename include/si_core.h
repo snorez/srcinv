@@ -858,6 +858,11 @@ struct data_state_val1 {
 	struct data_state_val	val;
 };
 
+struct arg_record {
+	struct slist_head	sibling;
+	struct data_state_rw	*ds;
+	void			*raw;
+};
 #define	VOID_RETVAL		((void *)-1)
 struct sample_state {
 	struct slist_head	fn_list_head;
