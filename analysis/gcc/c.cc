@@ -9241,6 +9241,14 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 
 		struct data_state_rw *ds;
 		ds = ds_rw_find(sset, idx, fnl, (u64)&vnl->var, DSRT_VN);
+		if (unlikely(!ds)) {
+			struct data_state_base *base;
+			base = fn_ds_add(fnl->fn, (u64)&vnl->var, DSRT_VN);
+			ds = ds_dup_base(base);
+			slist_add_tail(&ds->base.sibling,
+					&fnl->data_state_list);
+			ds_hold(ds);
+		}
 		ret = ds_dup_base(&ds->base);
 		dsv_alloc_data(&ret->val, DSVT_REF, 0, 0);
 		if (ds_vref_setv(&ret->val, ds, 0, bits) == -1) {
@@ -9287,10 +9295,8 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 				char name[NAME_MAX];
 				memset(name, 0, NAME_MAX);
 				get_var_name((void *)n, name);
-				si_log1_warn("global var not found, %s\n",
-						name);
-				ret = ds_rw_new((u64)n, DSRT_RAW,
-							init_node);
+				si_log1_warn("global var not found, %s\n", name);
+				ret = ds_rw_new((u64)n, DSRT_RAW, init_node);
 				/* TODO: init the value? */
 				break;
 			}
@@ -9301,13 +9307,11 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 			else
 				bits = 0;
 
-			ds = ds_rw_find(sset, idx, fnl,
-						(u64)gvn, DSRT_VN);
+			ds = ds_rw_find(sset, idx, fnl, (u64)gvn, DSRT_VN);
 			if (unlikely(!ds)) {
 				/* like FUNCTION_DECL */
 				struct data_state_base *base;
-				base = global_ds_base_add((u64)gvn,
-								  DSRT_VN);
+				base = global_ds_base_add((u64)gvn, DSRT_VN);
 				ds = ds_dup_base(base);
 				si_lock_w();
 				slist_add_tail(&ds->base.sibling,
