@@ -889,21 +889,22 @@ struct sample_state {
 enum sample_set_flag {
 	SAMPLE_SF_OK = -1,
 
-	/* 0 - 3 */
-	SAMPLE_SF_UAF = 0,
+	/* NULL deref, maybe not inited well */
+	SAMPLE_SF_NULLREF,
+	/* memory leak */
+	SAMPLE_SF_MEMLK,
+	SAMPLE_SF_UAF,
+	/* use uninitialized variables */
+	SAMPLE_SF_UNINIT,
+	/* out-of-bound read */
+	SAMPLE_SF_OOBR,
+	/* out-of-bound write */
+	SAMPLE_SF_OOBW,
+
+	SAMPLE_SF_INFOLK,	/* info leak */
 	SAMPLE_SF_NCHKRV,	/* ignore return value */
 	SAMPLE_SF_VOIDRV,	/* not ignore void return value */
-	SAMPLE_SF_UNINIT,	/* use uninitialized variables */
-
-	/* 4 - 7 */
-	SAMPLE_SF_OOBR,		/* out-of-bound read */
-	SAMPLE_SF_OOBW,		/* out-of-bound write */
-	SAMPLE_SF_INFOLK,	/* info leak */
-	SAMPLE_SF_MEMLK,	/* memory leak */
-
-	/* 8 - 11 */
 	SAMPLE_SF_DEADLK,	/* dead lock */
-	SAMPLE_SF_NULLREF,	/* NULL deref, maybe not inited well */
 	SAMPLE_SF_INFLOOP,	/* infinite loop */
 
 	SAMPLE_SF_DECERR = 31,	/* dec_*() mishandled the data states */

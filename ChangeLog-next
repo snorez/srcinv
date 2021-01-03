@@ -1,3 +1,6 @@
+2021-01-03
+	* analysis/sample.c: update sample_set_flag_string init format
+
 2020-12-31
 	* analysis/gcc/c.cc: handle no data_state_rw exists in fnl when the
 	node is PARM_DECL in get_ds_via_tree()

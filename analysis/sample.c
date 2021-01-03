@@ -19,19 +19,19 @@
 #include "si_core.h"
 
 static const char *sample_set_flag_string[SAMPLE_SF_MAX] = {
-	"use-after-free",
-	"ignore return value",
-	"take void return value",
-	"uninitialized variable used",
-	"out-of-bound read",
-	"out-of-bound write",
-	"information leak",
-	"memory leak",
-	"dead lock",
-	"NULL-deref(maybe not init well?)",
-	"infinite loop",
+	[SAMPLE_SF_UAF] = "use-after-free",
+	[SAMPLE_SF_NCHKRV] = "ignore return value",
+	[SAMPLE_SF_VOIDRV] = "take void return value",
+	[SAMPLE_SF_UNINIT] = "uninitialized variable used",
+	[SAMPLE_SF_OOBR] = "out-of-bound read",
+	[SAMPLE_SF_OOBW] = "out-of-bound write",
+	[SAMPLE_SF_INFOLK] = "information leak",
+	[SAMPLE_SF_MEMLK] = "memory leak",
+	[SAMPLE_SF_DEADLK] = "dead lock",
+	[SAMPLE_SF_NULLREF] = "NULL-deref(maybe not init well?)",
+	[SAMPLE_SF_INFLOOP] = "infinite loop",
 
-	"dec*() mishandled data_states?",
+	[SAMPLE_SF_DECERR] = "dec*() mishandled data_states?",
 };
 
 const char *sample_set_flag_str(int nr)
