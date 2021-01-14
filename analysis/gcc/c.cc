@@ -10398,7 +10398,9 @@ static int gimple_cond_compare(struct sample_set *sset, int idx,
 				struct fn_list *fnl,
 				struct data_state_rw *lhs,
 				struct data_state_rw *rhs,
-				enum tree_code cond_code)
+				enum tree_code cond_code,
+				struct data_state_val **lhs_dsv,
+				struct data_state_val **rhs_dsv)
 {
 	/* If lhs or rhs is unknown, we guess a value */
 	int err = -1;
@@ -10429,6 +10431,8 @@ static int gimple_cond_compare(struct sample_set *sset, int idx,
 		si_log1_todo("get_ds_val NULL\n");
 		return -1;
 	}
+	*lhs_dsv = lhs_val;
+	*rhs_dsv = rhs_val;
 
 	dsv_extend(lhs_val);
 	dsv_extend(rhs_val);
@@ -11501,6 +11505,7 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 static int dec_gimple_cond(struct sample_set *sset, int idx,
 				struct fn_list *fnl, gimple_seq gs)
 {
+	int err = 0;
 	struct gcond *stmt;
 	stmt = (struct gcond *)gs;
 	enum tree_code cond_code;
@@ -11509,7 +11514,6 @@ static int dec_gimple_cond(struct sample_set *sset, int idx,
 	tree rhs = gimple_cond_rhs(gs);
 	struct data_state_rw *lhs_state = NULL, *rhs_state = NULL;
 	struct data_state_val *lhs_dsv = NULL, *rhs_dsv = NULL;
-	struct dsv_find_arg larg = {NULL}, rarg = {NULL};
 
 	/* XXX: decide which cp to go */
 	struct code_path *this_cp = find_cp_by_gs(fnl->fn, gs);
@@ -11526,8 +11530,9 @@ static int dec_gimple_cond(struct sample_set *sset, int idx,
 			return -1;
 		}
 
-		int err = gimple_cond_compare(sset, idx, fnl,
-					  lhs_state, rhs_state, cond_code);
+		err = gimple_cond_compare(sset, idx, fnl,
+					  lhs_state, rhs_state, cond_code,
+					  &lhs_dsv, &rhs_dsv);
 		if (err == 1) {
 			next_cp = this_cp->next[1];
 		} else if (err == 0) {
@@ -11535,43 +11540,21 @@ static int dec_gimple_cond(struct sample_set *sset, int idx,
 		}
 
 		if (next_cp) {
-			if (get_ds_val(sset, idx, fnl,
-					&lhs_state->val, 0, 0, &larg) == -1) {
-				si_log1_warn("get_ds_val NULL\n");
-				err = -1;
-			} else if (get_ds_val(sset, idx, fnl,
-					&rhs_state->val, 0, 0, &rarg) == -1) {
+			if ((!lhs_dsv) || (!rhs_dsv)) {
 				si_log1_warn("get_ds_val NULL\n");
 				err = -1;
 			} else {
-				err = -1;
-				int types[4] = {DSVT_CONSTRUCTOR, DSVT_ADDR,
-						DSVT_REF, DSVT_INT_CST};
-				for (int i = 0; i < 4; i++) {
-					if (types[i] == DSVT_UNK)
-						break;
-
-					int idx0, idx1;
-					idx0 = dsv_arg_find(&larg, types[i], 1);
-					idx1 = dsv_arg_find(&rarg, types[i], 1);
-					if ((idx0 == -1) || (idx1 == -1)) {
-						continue;
-					}
-					lhs_dsv = larg.vals[idx0].dsv;
-					rhs_dsv = rarg.vals[idx1].dsv;
-
-					int _err;
-					_err = analysis__sample_state_check_loop(
-							sset, idx, lhs_dsv,
-							rhs_dsv, next_cp);
-					if (_err == -1)
-						continue;
-
-					if (_err == 1)
-						sample_set_set_flag(sset,
-							      SAMPLE_SF_INFLOOP);
-					err = 0;
-					break;
+				int _err;
+				_err = analysis__sample_state_check_loop(sset,
+						idx, lhs_dsv, rhs_dsv, next_cp);
+				if (_err == -1) {
+					si_log1_warn("analysis__"
+						     "sample_state_check_loop"
+						     " err\n");
+					err = -1;
+				} else if (_err == 1) {
+					sample_set_set_flag(sset,
+						      SAMPLE_SF_INFLOOP);
 				}
 			}
 		}
@@ -11600,7 +11583,7 @@ static int dec_gimple_cond(struct sample_set *sset, int idx,
 	sample_add_new_cp(sset->samples[idx], next_cp);
 	fnl_add_new_cp(fnl, next_cp);
 
-	return 0;
+	return err;
 }
 
 static int dec_gimple_switch(struct sample_set *sset, int idx,

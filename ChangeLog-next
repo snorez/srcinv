@@ -1,5 +1,6 @@
 2021-01-14
 	* analysis/gcc/c.cc: handle union
+	* analysis/gcc/c.cc: mishandled check_loop in dec_gimple_cond()
 
 2021-01-03
 	* analysis/sample.c: update sample_set_flag_string init format
