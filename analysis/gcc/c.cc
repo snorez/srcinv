@@ -8719,19 +8719,24 @@ static int get_dsv_via_constructor(struct sample_set *sset, int idx,
 			pos = int_bit_position(field);
 
 			int err;
-			struct data_state_val1 *tmp;
-			struct data_state_val *tmp_dsv, *union_dsv;
+			struct dsv_find_arg arg = {NULL};
 			err = dsv_find_constructor_elem(dsv, pos,
 						fieldsize * BITS_PER_UNIT,
-						&tmp, &tmp_dsv, &union_dsv);
-			if ((err == -1) || (!tmp_dsv)) {
-				si_log1_warn("dsv_find_constructor_elem err\n");
+						&arg);
+			if ((err == -1) || (!arg.ret_cnt) ||
+			    (arg.ret_cnt > DSV_FIND_ARG_MAX_RESULT)) {
+				si_log1_warn("dsv_find_constructor_elem err,"
+						"ret_cnt(%d)\n", arg.ret_cnt);
 				return -1;
 			}
-			dsv_set_raw(tmp_dsv, val);
-			if (dsv_fill(sset, idx, fnl, tmp_dsv, val) == -1) {
-				si_log1_todo("dsv_fill err\n");
-				return -1;
+			for (int i = 0; i < arg.ret_cnt; i++) {
+				struct data_state_val *_dsv;
+				_dsv = arg.vals[i].dsv;
+				dsv_set_raw(_dsv, val);
+				if (dsv_fill(sset, idx, fnl, _dsv, val) == -1) {
+					si_log1_todo("dsv_fill err\n");
+					return -1;
+				}
 			}
 		}
 		break;
@@ -8776,19 +8781,20 @@ static int get_dsv_via_constructor(struct sample_set *sset, int idx,
 				val = TREE_OPERAND(val, 0);
 
 			int err;
-			struct data_state_val1 *tmp;
-			struct data_state_val *tmp_dsv, *union_dsv;
+			struct dsv_find_arg arg = {NULL};
+			struct data_state_val *_dsv = NULL;
 			err = dsv_find_constructor_elem(dsv,
 							pos * BITS_PER_UNIT,
 						      fieldsize * BITS_PER_UNIT,
-						      &tmp, &tmp_dsv,
-						      &union_dsv);
-			if ((err == -1) || (!tmp_dsv)) {
-				si_log1_warn("dsv_find_constructor_elem err\n");
+						      &arg);
+			if ((err == -1) || (arg.ret_cnt != 1)) {
+				si_log1_warn("dsv_find_constructor_elem err,"
+						"ret_cnt(%d)\n", arg.ret_cnt);
 				return -1;
 			}
-			dsv_set_raw(tmp_dsv, val);
-			if (dsv_fill(sset, idx, fnl, tmp_dsv, val) == -1) {
+			_dsv = arg.vals[0].dsv;
+			dsv_set_raw(_dsv, val);
+			if (dsv_fill(sset, idx, fnl, _dsv, val) == -1) {
 				si_log1_todo("dsv_fill err\n");
 				return -1;
 			}
@@ -9073,15 +9079,14 @@ static int dsv_init(struct sample_set *sset, int idx, struct fn_list *fnl,
  * @get_ds_val: get the target data_state_val the given @dsv reference to.
  * If the dsv is not initialised, init it.
  */
-static struct data_state_val *get_ds_val(struct sample_set *sset, int idx,
-					 struct fn_list *fnl,
-					 struct data_state_val *dsv,
-					 s32 offset, u32 bits)
+static int get_ds_val(struct sample_set *sset, int idx, struct fn_list *fnl,
+			struct data_state_val *dsv, s32 offset, u32 bits,
+			struct dsv_find_arg *arg)
 {
-	struct data_state_val *ret = NULL;
+	int err = 0;
 
 	if ((!dsv) || ((long)dsv == (long)offsetof(struct data_state_rw, val)))
-		return ret;
+		return -1;
 
 	if ((DSV_TYPE(dsv) == DSVT_UNK) || (!DSV_SEC1_VAL(dsv))) {
 		tree n = (tree)(long)dsv->raw;
@@ -9091,36 +9096,33 @@ static struct data_state_val *get_ds_val(struct sample_set *sset, int idx,
 
 		if (dsv_init(sset, idx, fnl, dsv, n)) {
 			si_log1_warn("dsv_init err\n");
+			err = -1;
 		} else {
-			ret = get_ds_val(sset, idx, fnl, dsv, offset, bits);
+			err = get_ds_val(sset, idx, fnl, dsv, offset, bits, arg);
 		}
 
 		if (!held)
 			analysis__sibuf_drop(b);
 	} else if (DSV_TYPE(dsv) == DSVT_REF) {
-		ret = get_ds_val(sset, idx, fnl, &DSV_SEC2_VAL(dsv)->ds->val,
+		err = get_ds_val(sset, idx, fnl, &DSV_SEC2_VAL(dsv)->ds->val,
 				 DSV_SEC2_VAL(dsv)->offset,
-				 DSV_SEC2_VAL(dsv)->bits);
+				 DSV_SEC2_VAL(dsv)->bits, arg);
 	} else if (DSV_TYPE(dsv) == DSVT_CONSTRUCTOR) {
-		int err = 0;
-		struct data_state_val1 *tmp;
-		struct data_state_val *tmp_dsv, *union_dsv;
-		err = dsv_find_constructor_elem(dsv, offset, bits,
-						&tmp, &tmp_dsv, &union_dsv);
-		if ((!err) && tmp_dsv) {
-			ret = tmp_dsv;
-#if 0
-		} else if (err == -1) {
-			si_log1_warn("dsv_find_constructor_elem err\n");
-		} else if (!tmp) {
-			si_log1_warn("Should not happen\n");
-#endif
+		err = dsv_find_constructor_elem(dsv, offset, bits, arg);
+		if ((!err) && (!arg->ret_cnt)) {
+			dsv_find_arg_add(arg, NULL, NULL, dsv);
+			err = 0;
+		} else if (arg->ret_cnt > DSV_FIND_ARG_MAX_RESULT) {
+			si_log1_warn("dsv_find_constructor_elem err,"
+					"ret_cnt(%d)\n", arg->ret_cnt);
+			err = -1;
 		}
 	} else {
-		ret = dsv;
+		dsv_find_arg_add(arg, NULL, NULL, dsv);
+		err = 0;
 	}
 
-	return ret;
+	return err;
 }
 
 static struct data_state_rw *get_ds_via_constructor(struct sample_set *sset,
@@ -9487,14 +9489,19 @@ static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
 			if (!SSA_NAME_IS_DEFAULT_DEF(n)) {
 				si_log1_warn("Should not happen\n");
 			} else if (DSV_TYPE(&ret->val) == DSVT_UNK) {
-				struct data_state_val *var_dsv;
-				var_dsv = get_ds_val(sset, idx, fnl,
-						     &var_ds->val, 0, 0);
-				if ((!var_dsv) ||
-				    (dsv_copy_data(&ret->val, var_dsv) == -1)) {
-					si_log1_warn("dsv_copy_data err\n");
+				struct dsv_find_arg arg = {NULL};
+				if (get_ds_val(sset, idx, fnl, &var_ds->val,
+						0, 0, &arg) == -1) {
+					si_log1_warn("get_ds_val err\n");
 					ds_drop(ret);
 					ret = NULL;
+				} else {
+					if (dsv_copy_from_arg(&ret->val,
+								&arg) == -1) {
+						si_log1_warn("dsv_copy_data err\n");
+						ds_drop(ret);
+						ret = NULL;
+					}
 				}
 			}
 		}
@@ -9533,23 +9540,32 @@ ssa_name_out:
 		index_ds = get_ds_via_tree(sset, idx, fnl, TREE_OPERAND(n, 1),
 						NULL, NULL);
 		if (index_ds) {
+			struct dsv_find_arg arg = {NULL};
 			struct data_state_val *index_dsv;
-			index_dsv = get_ds_val(sset, idx, fnl, &index_ds->val,
-						0, 0);
-			if ((!index_dsv) ||
-			    (DSV_TYPE(index_dsv) != DSVT_INT_CST)) {
-				si_log1_todo("Should not happen\n");
+			if (get_ds_val(sset, idx, fnl, &index_ds->val,
+						0, 0, &arg) == -1) {
+				si_log1_warn("get_ds_val err\n");
 			} else {
-				clib_memcpy_bits(&index,
-						 sizeof(index) * BITS_PER_UNIT,
-						 DSV_SEC1_VAL(index_dsv),
-						 index_dsv->info.v1_info.bytes *
+				int found = 0;
+				for (int i = 0; i < arg.ret_cnt; i++) {
+					index_dsv = arg.vals[i].dsv;
+					if (DSV_TYPE(index_dsv) != DSVT_INT_CST)
+						continue;
+					found = 1;
+					clib_memcpy_bits(&index,
+						sizeof(index) * BITS_PER_UNIT,
+						DSV_SEC1_VAL(index_dsv),
+						index_dsv->info.v1_info.bytes *
 							BITS_PER_UNIT);
-				if (up_idx && (index > up_idx)) {
-					/* OOB */
-					sample_set_set_flag(sset,
-							    SAMPLE_SF_OOBR);
+					if (up_idx && (index > up_idx)) {
+						/* OOB */
+						sample_set_set_flag(sset,
+								SAMPLE_SF_OOBR);
+					}
+					break;
 				}
+				if (!found)
+					si_log1_todo("Should not happen\n");
 			}
 			ds_drop(index_ds);
 			index_ds = NULL;
@@ -9659,20 +9675,33 @@ ssa_name_out:
 
 		u64 this_bits = TREE_INT_CST_LOW(TYPE_SIZE(ptype));
 
-		tmp_dsv = get_ds_val(sset, idx, fnl, &tmp->val,
-					this_offset, this_bits);
-		/* check NULL pointer deref */
-		if (!tmp_dsv) {
-			;
-		} else if (DSV_TYPE(tmp_dsv) == DSVT_INT_CST) {
-			void **pptr = (void **)DSV_SEC1_VAL(tmp_dsv);
-			if (sample_set_check_nullptr(pptr)) {
-				sample_set_set_flag(sset, SAMPLE_SF_NULLREF);
+		struct dsv_find_arg arg = {NULL};
+		if (!get_ds_val(sset, idx, fnl, &tmp->val,
+				this_offset, this_bits, &arg)) {
+			for (int i = 0; i < arg.ret_cnt; i++) {
+				tmp_dsv = arg.vals[i].dsv;
+				if (DSV_TYPE(tmp_dsv) == DSVT_ADDR) {
+					newtmp = DSV_SEC2_VAL(tmp_dsv)->ds;
+					this_offset +=
+						DSV_SEC2_VAL(tmp_dsv)->offset;
+					ds_hold(newtmp);
+					break;
+				}
 			}
-		} else if (DSV_TYPE(tmp_dsv) == DSVT_ADDR) {
-			newtmp = DSV_SEC2_VAL(tmp_dsv)->ds;
-			this_offset += DSV_SEC2_VAL(tmp_dsv)->offset;
-			ds_hold(newtmp);
+			if (!newtmp) {
+				for (int i = 0; i < arg.ret_cnt; i++) {
+					tmp_dsv = arg.vals[i].dsv;
+					if (DSV_TYPE(tmp_dsv) != DSVT_INT_CST)
+						continue;
+					void **pptr;
+					pptr = (void **)DSV_SEC1_VAL(tmp_dsv);
+					if (sample_set_check_nullptr(pptr)) {
+						sample_set_set_flag(sset, 
+							SAMPLE_SF_NULLREF);
+					}
+					break;
+				}
+			}
 		}
 
 		ret = ds_rw_new((u64)n, DSRT_RAW, n);
@@ -10107,19 +10136,21 @@ static int dec_gimple_call(struct sample_set *sset, int idx,
 				return -1;
 			}
 
-			dsvtmp = get_ds_val(sset, idx, fnl, &dstmp->val, 0, 0);
-			if (!dsvtmp) {
-				ds_drop(dstmp);
+			struct dsv_find_arg arg = {NULL};
+			if (get_ds_val(sset, idx, fnl,
+					&dstmp->val, 0, 0, &arg) == -1) {
 				si_log1_warn("get_ds_val NULL\n");
+				ds_drop(dstmp);
 				return -1;
 			}
 
-			err = dsv_copy_data(dsvtmp, &orig_ds->val);
+			err = dsv_copy_to_arg(&arg, &orig_ds->val);
 			if (err == -1) {
-				si_log1_warn("dsv_copy_data err\n");
+				si_log1_warn("dsv_copy_to_arg err\n");
 				ds_drop(dstmp);
 				return -1;
 			}
+			dsvtmp = arg.vals[err].dsv;
 			if (ssa_write) {
 				if (dsvtmp == &dstmp->val) {
 					si_log1_warn("Should not happen\n");
@@ -10372,9 +10403,28 @@ static int gimple_cond_compare(struct sample_set *sset, int idx,
 	/* If lhs or rhs is unknown, we guess a value */
 	int err = -1;
 	cur_max_signint _retval;
-	struct data_state_val *lhs_val, *rhs_val;
-	lhs_val = get_ds_val(sset, idx, fnl, &lhs->val, 0, 0);
-	rhs_val = get_ds_val(sset, idx, fnl, &rhs->val, 0, 0);
+	struct data_state_val *lhs_val = NULL, *rhs_val = NULL;
+	struct dsv_find_arg larg = {NULL}, rarg = {NULL};
+	if (get_ds_val(sset, idx, fnl, &lhs->val, 0, 0, &larg) == -1) {
+		si_log1_todo("get_ds_val NULL\n");
+		return -1;
+	}
+	if (get_ds_val(sset, idx, fnl, &rhs->val, 0, 0, &rarg) == -1) {
+		si_log1_todo("get_ds_val NULL\n");
+		return -1;
+	}
+	for (int i = 0; i < larg.ret_cnt; i++) {
+		if (DSV_TYPE(larg.vals[i].dsv) == DSVT_INT_CST) {
+			lhs_val = larg.vals[i].dsv;
+			break;
+		}
+	}
+	for (int i = 0; i < rarg.ret_cnt; i++) {
+		if (DSV_TYPE(rarg.vals[i].dsv) == DSVT_INT_CST) {
+			rhs_val = rarg.vals[i].dsv;
+			break;
+		}
+	}
 	if ((!lhs_val) || (!rhs_val)) {
 		si_log1_todo("get_ds_val NULL\n");
 		return -1;
@@ -10485,15 +10535,28 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 				gimple_seq gs)
 {
 	int err = 0;
-	struct data_state_val *rhs1_val, *rhs2_val, *rhs3_val __maybe_unused;
-	struct data_state_val *lhs_val;
-	lhs_val = get_ds_val(sset, idx, fnl, &lhs_state->val, 0, 0);
-	rhs1_val = get_ds_val(sset, idx, fnl, &rhs1_state->val, 0, 0);
-	rhs2_val = get_ds_val(sset, idx, fnl, &rhs2_state->val, 0, 0);
-	rhs3_val = get_ds_val(sset, idx, fnl, &rhs3_state->val, 0, 0);
-
-	if ((lhs_state && (!lhs_val)) || (rhs1_state && (!rhs1_val)) ||
-	    (rhs2_state && (!rhs2_val)) || (rhs3_state && (!rhs3_val))) {
+	struct data_state_val *lhs_val = NULL;
+	struct data_state_val *rhs1_val = NULL, *rhs2_val = NULL;
+	struct data_state_val * __maybe_unused rhs3_val = NULL;
+	struct dsv_find_arg larg = {NULL}, rarg1 = {NULL};
+	struct dsv_find_arg rarg2 = {NULL}, rarg3 = {NULL};
+	if (lhs_state &&
+	    (get_ds_val(sset, idx, fnl, &lhs_state->val, 0, 0, &larg) == -1)) {
+		si_log1_warn("get_ds_val NULL\n");
+		return -1;
+	}
+	if (rhs1_state &&
+	    (get_ds_val(sset, idx, fnl, &rhs1_state->val, 0, 0, &rarg1) == -1)) {
+		si_log1_warn("get_ds_val NULL\n");
+		return -1;
+	}
+	if (rhs2_state &&
+	    (get_ds_val(sset, idx, fnl, &rhs2_state->val, 0, 0, &rarg2) == -1)) {
+		si_log1_warn("get_ds_val NULL\n");
+		return -1;
+	}
+	if (rhs3_state &&
+	    (get_ds_val(sset, idx, fnl, &rhs3_state->val, 0, 0, &rarg3) == -1)) {
 		si_log1_warn("get_ds_val NULL\n");
 		return -1;
 	}
@@ -10511,6 +10574,20 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 			si_log1_warn("rhs3 is supposed to be NULL\n");
 			break;
 		}
+
+		int idx0, idx1, idx2;
+		idx0 = dsv_arg_find(&larg, DSVT_INT_CST, 1);
+		idx1 = dsv_arg_find(&rarg1, DSVT_INT_CST, 1);
+		idx2 = dsv_arg_find(&rarg2, DSVT_INT_CST, 1);
+		if ((idx0 == -1) || (idx1 == -1) || (idx2 == -1)) {
+			err = -1;
+			si_log1_warn("dsv_arg_find(s) not right\n");
+			break;
+		}
+
+		lhs_val = larg.vals[idx0].dsv;
+		rhs1_val = rarg1.vals[idx1].dsv;
+		rhs2_val = rarg2.vals[idx2].dsv;
 
 		dsv_extend(rhs1_val);
 		dsv_extend(rhs2_val);
@@ -10552,6 +10629,18 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 			break;
 		}
 
+		int idx0, idx1;
+		idx0 = dsv_arg_find(&larg, DSVT_INT_CST, 1);
+		idx1 = dsv_arg_find(&rarg1, DSVT_INT_CST, 1);
+		if ((idx0 == -1) || (idx1 == -1)) {
+			err = -1;
+			si_log1_warn("dsv_arg_find(s) not right\n");
+			break;
+		}
+
+		lhs_val = larg.vals[idx0].dsv;
+		rhs1_val = rarg1.vals[idx1].dsv;
+
 		dsv_extend(rhs1_val);
 
 		int flag = CLIB_COMPUTE_F_BITNOT;
@@ -10585,6 +10674,20 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 			si_log1_warn("rhs3 is supposed to be NULL\n");
 			break;
 		}
+
+		int idx0, idx1, idx2;
+		idx0 = dsv_arg_first_int_or_real(&larg);
+		idx1 = dsv_arg_first_int_or_real(&rarg1);
+		idx2 = dsv_arg_first_int_or_real(&rarg2);
+		if ((idx0 == -1) || (idx1 == -1) || (idx2 == -1)) {
+			err = -1;
+			si_log1_warn("dsv_arg_find(s) not right\n");
+			break;
+		}
+
+		lhs_val = larg.vals[idx0].dsv;
+		rhs1_val = rarg1.vals[idx1].dsv;
+		rhs2_val = rarg2.vals[idx2].dsv;
 
 		dsv_extend(rhs1_val);
 		dsv_extend(rhs2_val);
@@ -10651,18 +10754,19 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 			break;
 		}
 
-		if (DSV_TYPE(rhs1_val) != DSVT_INT_CST) {
+		int idx0, idx1, idx2;
+		idx0 = dsv_arg_find(&larg, DSVT_INT_CST, 1);
+		idx1 = dsv_arg_find(&rarg1, DSVT_INT_CST, 1);
+		idx2 = dsv_arg_find(&rarg2, DSVT_INT_CST, 1);
+		if ((idx0 == -1) || (idx1 == -1) || (idx2 == -1)) {
 			err = -1;
-			si_log1_warn("rhs1 should be INT_CST\n");
+			si_log1_warn("dsv_arg_find(s) not right\n");
 			break;
 		}
 
-		if (DSV_TYPE(rhs2_val) != DSVT_INT_CST) {
-			err = -1;
-			si_log1_todo("rhs2 should be INT_CST, now is %d\n",
-					DSV_TYPE(rhs2_val));
-			break;
-		}
+		lhs_val = larg.vals[idx0].dsv;
+		rhs1_val = rarg1.vals[idx1].dsv;
+		rhs2_val = rarg2.vals[idx2].dsv;
 
 		dsv_extend(rhs1_val);
 		dsv_extend(rhs2_val);
@@ -10710,15 +10814,49 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 			break;
 		}
 
-		if (DSV_TYPE(rhs2_val) != DSVT_INT_CST) {
+		int idx2;
+		idx2 = dsv_arg_find(&rarg2, DSVT_INT_CST, 1);
+		if (idx2 == -1) {
 			err = -1;
-			si_log1_warn("rhs2_val type must be INT_CST\n");
+			si_log1_warn("dsv_arg_find(s) not right\n");
 			break;
 		}
 
+		rhs2_val = rarg2.vals[idx2].dsv;
+
 		dsv_extend(rhs2_val);
 
-		if (DSV_TYPE(rhs1_val) == DSVT_ADDR) {
+		int idx1, type1;
+		idx1 = dsv_arg_find(&rarg1, DSVT_ADDR, 1);
+		if (idx1 != -1) {
+			rhs1_val = rarg1.vals[idx1].dsv;
+			type1 = DSVT_ADDR;
+		} else {
+			idx1 = dsv_arg_find(&rarg1, DSVT_INT_CST, 1);
+			if (idx1 != -1) {
+				rhs1_val = rarg1.vals[idx1].dsv;
+				type1 = DSVT_INT_CST;
+			}
+		}
+		if (idx1 == -1) {
+			err = -1;
+			si_log1_warn("dsv_arg_find(s) not right\n");
+			break;
+		}
+
+		int idx0;
+		idx0 = dsv_arg_find(&larg, DSVT_ADDR, 1);
+		if (idx0 == -1)
+			idx0 = dsv_arg_find(&larg, DSVT_INT_CST, 1);
+		if (idx0 == -1) {
+			err = -1;
+			si_log1_warn("dsv_arg_find(s) not right\n");
+			break;
+		}
+
+		lhs_val = larg.vals[idx0].dsv;
+
+		if (type1 == DSVT_ADDR) {
 			/*
 			 * Looks like we do NOT need to get the element size
 			 * this pointer point to. The rhs2 is the right offset.
@@ -10764,7 +10902,7 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 					break;
 				}
 			}
-		} else if (DSV_TYPE(rhs1_val) == DSVT_INT_CST) {
+		} else if (type1 == DSVT_INT_CST) {
 			/* FIXME: rhs1_val MUST be NULL. */
 			for (u32 i = 0; i < rhs1_val->info.v1_info.bytes; i++) {
 				if (((char *)DSV_SEC1_VAL(rhs1_val))[i]) {
@@ -10779,9 +10917,6 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 			/* zero lhs_val */
 			dsv_alloc_data(lhs_val, DSVT_INT_CST,
 					0, rhs1_val->info.v1_info.bytes);
-		} else {
-			err = -1;
-			si_log1_todo("miss %d\n", DSV_TYPE(rhs1_val));
 		}
 
 		break;
@@ -10806,32 +10941,34 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 			break;
 		}
 
-		if (DSV_TYPE(rhs1_val) != DSV_TYPE(rhs2_val)) {
+		int idx0, idx1, idx2;
+		idx0 = dsv_arg_find(&larg, DSVT_INT_CST, 1);
+		idx1 = dsv_arg_find(&rarg1, DSVT_ADDR, 1);
+		idx2 = dsv_arg_find(&rarg2, DSVT_ADDR, 1);
+		if ((idx0 == -1) || (idx1 == -1) || (idx2 == -1)) {
 			err = -1;
-			si_log1_warn("rhs1 and rhs2 have different vtype\n");
+			si_log1_warn("dsv_arg_find(s) not right\n");
 			break;
 		}
 
-		if (DSV_TYPE(rhs1_val) == DSVT_ADDR) {
-			if (DSV_SEC2_VAL(rhs1_val)->ds !=
-				DSV_SEC2_VAL(rhs2_val)->ds) {
-				err = -1;
-				si_log1_todo("rhs1 rhs2 have different base\n");
-				break;
-			}
+		lhs_val = larg.vals[idx0].dsv;
+		rhs1_val = rarg1.vals[idx1].dsv;
+		rhs2_val = rarg2.vals[idx2].dsv;
 
-			size_t sub_val;
-			sub_val = DSV_SEC2_VAL(rhs1_val)->offset -
-					DSV_SEC2_VAL(rhs2_val)->offset;
-			dsv_alloc_data(lhs_val, DSVT_INT_CST, 0, lhs_bytes);
-			clib_memcpy_bits(DSV_SEC1_VAL(lhs_val),
-					 lhs_bytes * BITS_PER_UNIT,
-					 &sub_val,
-					 sizeof(sub_val) * BITS_PER_UNIT);
-		} else {
+		if (DSV_SEC2_VAL(rhs1_val)->ds != DSV_SEC2_VAL(rhs2_val)->ds) {
 			err = -1;
-			si_log1_todo("miss %d\n", DSV_TYPE(rhs1_val));
+			si_log1_todo("rhs1 rhs2 have different base\n");
+			break;
 		}
+
+		size_t sub_val;
+		sub_val = DSV_SEC2_VAL(rhs1_val)->offset -
+				DSV_SEC2_VAL(rhs2_val)->offset;
+		dsv_alloc_data(lhs_val, DSVT_INT_CST, 0, lhs_bytes);
+		clib_memcpy_bits(DSV_SEC1_VAL(lhs_val),
+				 lhs_bytes * BITS_PER_UNIT,
+				 &sub_val,
+				 sizeof(sub_val) * BITS_PER_UNIT);
 
 		break;
 	}
@@ -10843,35 +10980,55 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 			break;
 		}
 
-		/* The rhs1_val should be it */
-		switch (DSV_TYPE(rhs1_val)) {
-		case DSVT_INT_CST:
-		{
-			dsv_extend(rhs1_val);
+		err = -1;
 
-			dsv_alloc_data(lhs_val, DSVT_INT_CST, 0, lhs_bytes);
-			clib_memcpy_bits(DSV_SEC1_VAL(lhs_val),
-					 lhs_bytes * BITS_PER_UNIT,
-					 DSV_SEC1_VAL(rhs1_val),
-					 rhs1_val->info.v1_info.bytes *
-						BITS_PER_UNIT);
-			break;
-		}
-		case DSVT_ADDR:
-		case DSVT_CONSTRUCTOR:
-		{
-			err = dsv_copy_data(lhs_val, rhs1_val);
-			if (err == -1) {
-				si_log1_warn("dsv_copy_data err\n");
+		int types[3] = {DSVT_CONSTRUCTOR, DSVT_ADDR, DSVT_INT_CST};
+		for (int i = 0; i < 3; i++) {
+			if (types[i] == DSVT_UNK)
+				break;
+
+			int idx0, idx1;
+			idx0 = dsv_arg_find(&larg, types[i], 1);
+			idx1 = dsv_arg_find(&rarg1, types[i], 1);
+			if ((idx0 == -1) || (idx1 == -1)) {
+				continue;
 			}
+			lhs_val = larg.vals[idx0].dsv;
+			rhs1_val = rarg1.vals[idx1].dsv;
+
+			switch (types[i]) {
+			case DSVT_INT_CST:
+			{
+				dsv_extend(rhs1_val);
+
+				dsv_alloc_data(lhs_val, DSVT_INT_CST, 0,
+						lhs_bytes);
+				clib_memcpy_bits(DSV_SEC1_VAL(lhs_val),
+						 lhs_bytes * BITS_PER_UNIT,
+						 DSV_SEC1_VAL(rhs1_val),
+						 rhs1_val->info.v1_info.bytes *
+							BITS_PER_UNIT);
+				err = 0;
+				break;
+			}
+			case DSVT_ADDR:
+			case DSVT_CONSTRUCTOR:
+			{
+				err = dsv_copy_data(lhs_val, rhs1_val);
+				if (err == -1) {
+					si_log1_warn("dsv_copy_data err\n");
+				}
+				break;
+			}
+			default:
+			{
+				err = -1;
+				si_log1_todo("miss %d\n", types[i]);
+				break;
+			}
+			}
+
 			break;
-		}
-		default:
-		{
-			err = -1;
-			si_log1_todo("miss %d\n", DSV_TYPE(rhs1_val));
-			break;
-		}
 		}
 
 		break;
@@ -10885,68 +11042,99 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 			break;
 		}
 
-		dsv_extend(rhs1_val);
+		err = -1;
 
-		/*
-		 * XXX: we can not just setup a DSVT_REF here
-		 * we need to copy that field data to lhs_state
-		 */
-		tree n = (tree)(long)rhs1_val->raw;
-		tree type;
-		struct sibuf *b;
-		b = find_target_sibuf((void *)n);
-		int held = analysis__sibuf_hold(b);
-		if (TREE_CODE_CLASS(TREE_CODE(n)) != tcc_type)
-			type = TREE_TYPE(n);
-		else
-			type = n;
+		int types[4] = {DSVT_CONSTRUCTOR, DSVT_ADDR, DSVT_REF,
+				DSVT_INT_CST};
+		for (int i = 0; i < 4; i++) {
+			if (types[i] == DSVT_UNK)
+				break;
 
-		switch (DSV_TYPE(rhs1_val)) {
-		case DSVT_INT_CST:
-		{
-			dsv_alloc_data(lhs_val, DSVT_INT_CST, 0, lhs_bytes);
-			clib_memcpy_bits(DSV_SEC1_VAL(lhs_val),
-					 lhs_bytes * BITS_PER_UNIT,
-					 DSV_SEC1_VAL(rhs1_val),
-					 TREE_INT_CST_LOW(TYPE_SIZE(type)));
-			break;
-		}
-		case DSVT_ADDR:
-		case DSVT_REF:
-		{
-			/* in case the lhs_val and rhs1_val are the same */
-			struct data_state_rw *target_ds;
-			s32 target_offset = DSV_SEC2_VAL(rhs1_val)->offset;
-			u32 target_bits = DSV_SEC2_VAL(rhs1_val)->bits;
-			target_ds = DSV_SEC2_VAL(rhs1_val)->ds;
-
-			if (lhs_val != rhs1_val) {
-				dsv_alloc_data(lhs_val, DSV_TYPE(rhs1_val),
-					       0, 0);
-				err = ds_vref_hold_setv(lhs_val, target_ds,
-							target_offset,
-							target_bits);
-				if (err == -1) {
-					si_log1_warn("ds_vref_hold_setv err\n");
-				}
+			int idx0, idx1;
+			idx0 = dsv_arg_find(&larg, types[i], 1);
+			idx1 = dsv_arg_find(&rarg1, types[i], 1);
+			if ((idx0 == -1) || (idx1 == -1)) {
+				continue;
 			}
+			lhs_val = larg.vals[idx0].dsv;
+			rhs1_val = rarg1.vals[idx1].dsv;
+
+			/*
+			 * XXX: we can not just setup a DSVT_REF here
+			 * we need to copy that field data to lhs_state
+			 */
+			tree n = (tree)(long)rhs1_val->raw;
+			tree type;
+			struct sibuf *b;
+			b = find_target_sibuf((void *)n);
+			int held = analysis__sibuf_hold(b);
+			if (TREE_CODE_CLASS(TREE_CODE(n)) != tcc_type)
+				type = TREE_TYPE(n);
+			else
+				type = n;
+
+			switch (types[i]) {
+			case DSVT_INT_CST:
+			{
+				dsv_extend(rhs1_val);
+
+				dsv_alloc_data(lhs_val, DSVT_INT_CST, 0,
+						lhs_bytes);
+				clib_memcpy_bits(DSV_SEC1_VAL(lhs_val),
+						 lhs_bytes * BITS_PER_UNIT,
+						 DSV_SEC1_VAL(rhs1_val),
+					      TREE_INT_CST_LOW(TYPE_SIZE(type)));
+				err = 0;
+				break;
+			}
+			case DSVT_ADDR:
+			case DSVT_REF:
+			{
+				/* in case the lhs_val and rhs1_val are same */
+				struct data_state_rw *target_ds;
+				s32 target_offset;
+				target_offset = DSV_SEC2_VAL(rhs1_val)->offset;
+				u32 target_bits = DSV_SEC2_VAL(rhs1_val)->bits;
+				target_ds = DSV_SEC2_VAL(rhs1_val)->ds;
+
+				if (lhs_val != rhs1_val) {
+					dsv_alloc_data(lhs_val,
+							DSV_TYPE(rhs1_val),
+							0, 0);
+					err = ds_vref_hold_setv(lhs_val,
+								target_ds,
+								target_offset,
+								target_bits);
+					if (err == -1) {
+						si_log1_warn("ds_vref_hold_setv err\n");
+					}
+				} else {
+					err = 0;
+				}
+				break;
+			}
+			case DSVT_CONSTRUCTOR:
+			{
+				/* TODO: be careful */
+				err = dsv_copy_data(lhs_val, rhs1_val);
+				if (err == -1) {
+					si_log1_warn("dsv_copy_data err\n");
+				}
+				break;
+			}
+			default:
+			{
+				err = -1;
+				si_log1_todo("miss %d\n", types[i]);
+				break;
+			}
+			}
+			if (!held)
+				analysis__sibuf_drop(b);
+
 			break;
 		}
-		case DSVT_CONSTRUCTOR:
-		{
-			/* TODO: be careful */
-			dsv_copy_data(lhs_val, rhs1_val);
-			break;
-		}
-		default:
-		{
-			err = -1;
-			si_log1_todo("miss %d\n", DSV_TYPE(rhs1_val));
-			break;
-		}
-		}
-		if (!held)
-			analysis__sibuf_drop(b);
+
 		break;
 	}
 	case MIN_EXPR:
@@ -10958,17 +11146,18 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 			break;
 		}
 
-		if (DSV_TYPE(rhs1_val) != DSV_TYPE(rhs2_val)) {
+		int idx0, idx1, idx2;
+		idx0 = dsv_arg_find(&larg, DSVT_INT_CST, 1);
+		idx1 = dsv_arg_find(&rarg1, DSVT_INT_CST, 1);
+		idx2 = dsv_arg_find(&rarg2, DSVT_INT_CST, 1);
+		if ((idx0 == -1) || (idx1 == -1) || (idx2 == -1)) {
+			si_log1_todo("dsv_arg_find DSVT_INT_CST err\n");
 			err = -1;
-			si_log1_warn("rhs1 rhs2 have different vtype\n");
 			break;
 		}
-
-		if (DSV_TYPE(rhs1_val) != DSVT_INT_CST) {
-			err = -1;
-			si_log1_todo("rhs1 rhs2 are not INT_CST");
-			break;
-		}
+		lhs_val = larg.vals[idx0].dsv;
+		rhs1_val = rarg1.vals[idx1].dsv;
+		rhs2_val = rarg2.vals[idx2].dsv;
 
 		dsv_extend(rhs1_val);
 		dsv_extend(rhs2_val);
@@ -11013,11 +11202,29 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 			break;
 		}
 
-		dsv_extend(rhs1_val);
-		err = dsv_copy_data(lhs_val, rhs1_val);
-		if (err == -1) {
-			si_log1_warn("dsv_copy_data err\n");
+		err = -1;
+		int types[4] = {DSVT_CONSTRUCTOR, DSVT_ADDR, DSVT_REF,
+				DSVT_INT_CST};
+		for (int i = 0; i < 4; i++) {
+			if (types[i] == DSVT_UNK)
+				break;
+
+			int idx0, idx1;
+			idx0 = dsv_arg_find(&larg, types[i], 1);
+			idx1 = dsv_arg_find(&rarg1, types[i], 1);
+			if ((idx0 == -1) || (idx1 == -1)) {
+				continue;
+			}
+			lhs_val = larg.vals[idx0].dsv;
+			rhs1_val = rarg1.vals[idx1].dsv;
+
+			dsv_extend(rhs1_val);
+
+			err = dsv_copy_data(lhs_val, rhs1_val);
+			if (!err)
+				break;
 		}
+
 		break;
 	}
 	case INTEGER_CST:
@@ -11028,11 +11235,28 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 			break;
 		}
 
-		dsv_extend(rhs1_val);
-		err = dsv_copy_data(lhs_val, rhs1_val);
-		if (err == -1) {
-			si_log1_warn("dsv_copy_data err\n");
+		err = -1;
+		int types[1] = {DSVT_INT_CST};
+		for (int i = 0; i < 1; i++) {
+			if (types[i] == DSVT_UNK)
+				break;
+
+			int idx0, idx1;
+			idx0 = dsv_arg_find(&larg, types[i], 1);
+			idx1 = dsv_arg_find(&rarg1, types[i], 1);
+			if ((idx0 == -1) || (idx1 == -1)) {
+				continue;
+			}
+			lhs_val = larg.vals[idx0].dsv;
+			rhs1_val = rarg1.vals[idx1].dsv;
+
+			dsv_extend(rhs1_val);
+
+			err = dsv_copy_data(lhs_val, rhs1_val);
+			if (!err)
+				break;
 		}
+
 		break;
 	}
 	case STRING_CST:
@@ -11049,14 +11273,26 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 		 * the value is represented as a STRING_CST, but the
 		 * lhs_state is an ARRAY.
 		 */
-		if (DSV_TYPE(lhs_val) != DSV_TYPE(rhs1_val)) {
-			si_log1_warn("Should not happen, (%d %d)\n",
-					DSV_TYPE(lhs_val), DSV_TYPE(rhs1_val));
-		} else {
-			err = dsv_copy_data(lhs_val, rhs1_val);
-			if (err == -1) {
-				si_log1_warn("dsv_copy_data err\n");
+		err = -1;
+		int types[1] = {DSVT_CONSTRUCTOR};
+		for (int i = 0; i < 1; i++) {
+			if (types[i] == DSVT_UNK)
+				break;
+
+			int idx0, idx1;
+			idx0 = dsv_arg_find(&larg, types[i], 1);
+			idx1 = dsv_arg_find(&rarg1, types[i], 1);
+			if ((idx0 == -1) || (idx1 == -1)) {
+				continue;
 			}
+			lhs_val = larg.vals[idx0].dsv;
+			rhs1_val = rarg1.vals[idx1].dsv;
+
+			dsv_extend(rhs1_val);
+
+			err = dsv_copy_data(lhs_val, rhs1_val);
+			if (!err)
+				break;
 		}
 
 		break;
@@ -11073,20 +11309,29 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 		 * FIXME: I can not remember why
 		 * `do not use rhs1_val as the src`
 		 */
+		int idx1;
+		idx1 = dsv_arg_find(&rarg1, DSVT_ADDR, 1);
+		if (idx1 == -1) {
+			si_log1_todo("dsv_arg_find DSVT_ADDR err\n");
+			err = -1;
+			break;
+		}
+		rhs1_val = rarg1.vals[idx1].dsv;
+
 		int _rv;
 		_rv = dec_gassign_array_to_pointer(lhs, rhs1, rhs1_val);
 		if (!_rv) {
-			err = dsv_copy_data(lhs_val, &rhs1_state->val);
+			err = dsv_copy_to_arg(&larg, &rhs1_state->val);
 			if (err == -1) {
-				si_log1_warn("dsv_copy_data err\n");
+				si_log1_warn("dsv_copy_to_arg err\n");
 			}
 		} else if (_rv == -1) {
 			err = -1;
 			break;
 		} else {
-			err = dsv_copy_data(lhs_val, rhs1_val);
+			err = dsv_copy_to_arg(&larg, rhs1_val);
 			if (err == -1) {
-				si_log1_warn("dsv_copy_data err\n");
+				si_log1_warn("dsv_copy_to_arg err\n");
 			}
 		}
 		break;
@@ -11099,10 +11344,19 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 			break;
 		}
 
+		int idx1;
+		idx1 = dsv_arg_find(&rarg1, DSVT_INT_CST, 1);
+		if (idx1 == -1) {
+			si_log1_todo("dsv_arg_find DSVT_INT_CST err\n");
+			err = -1;
+			break;
+		}
+		rhs1_val = rarg1.vals[idx1].dsv;
+
 		dsv_extend(rhs1_val);
-		err = dsv_copy_data(lhs_val, rhs1_val);
+		err = dsv_copy_to_arg(&larg, rhs1_val);
 		if (err == -1) {
-			si_log1_warn("dsv_copy_data err\n");
+			si_log1_warn("dsv_copy_to_arg err\n");
 		}
 		break;
 	}
@@ -11116,15 +11370,26 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 
 		if ((DSV_TYPE(&rhs1_state->val) == DSVT_CONSTRUCTOR) &&
 				DSV_SEC3_VAL(&rhs1_state->val)) {
-			err = dsv_copy_data(lhs_val, &rhs1_state->val);
+			err = dsv_copy_to_arg(&larg, &rhs1_state->val);
 			if (err == -1) {
-				si_log1_warn("dsv_copy_data err\n");
+				si_log1_warn("dsv_copy_to_arg err\n");
 			}
-		} else if ((DSV_TYPE(rhs1_val) == DSVT_CONSTRUCTOR) &&
-				DSV_SEC3_VAL(rhs1_val)) {
-			err = dsv_copy_data(lhs_val, rhs1_val);
-			if (err == -1) {
-				si_log1_warn("dsv_copy_data err\n");
+		} else {
+			int idx1;
+			idx1 = dsv_arg_find(&rarg1, DSVT_CONSTRUCTOR, 1);
+			if (idx1 == -1) {
+				si_log1_todo("dsv_arg_find DSVT_CONSTRUCTOR"
+						" err\n");
+				err = -1;
+				break;
+			}
+			rhs1_val = rarg1.vals[idx1].dsv;
+			if ((DSV_TYPE(rhs1_val) == DSVT_CONSTRUCTOR) &&
+			    DSV_SEC3_VAL(rhs1_val)) {
+				err = dsv_copy_to_arg(&larg, rhs1_val);
+				if (err == -1) {
+					si_log1_warn("dsv_copy_data err\n");
+				}
 			}
 		}
 		break;
@@ -11137,18 +11402,27 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 			break;
 		}
 
-		if (DSV_TYPE(lhs_val) == DSV_TYPE(rhs1_val)) {
-			err = dsv_copy_data(lhs_val, rhs1_val);
-			if (err == -1) {
-				si_log1_warn("dsv_copy_data err\n");
+		err = -1;
+		int types[4] = {DSVT_CONSTRUCTOR, DSVT_ADDR, DSVT_REF,
+				DSVT_INT_CST};
+		for (int i = 0; i < 4; i++) {
+			if (types[i] == DSVT_UNK)
+				break;
+
+			int idx0, idx1;
+			idx0 = dsv_arg_find(&larg, types[i], 1);
+			idx1 = dsv_arg_find(&rarg1, types[i], 1);
+			if ((idx0 == -1) || (idx1 == -1)) {
+				continue;
 			}
-		} else {
-			si_log1_todo("not handled. "
-					"lhs_state: %p, rhs1_state: %p\n",
-					lhs_state, rhs1_state);
-			err = -1;
-			break;
+			lhs_val = larg.vals[idx0].dsv;
+			rhs1_val = rarg1.vals[idx1].dsv;
+
+			err = dsv_copy_data(lhs_val, rhs1_val);
+			if (!err)
+				break;
 		}
+
 		break;
 	}
 	default:
@@ -11167,8 +11441,8 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 	if ((!err) && ssa_write) {
 		if (lhs_val == &lhs_state->val) {
 			si_log1_warn("Should not happen\n");
-		} else {
-			err = dsv_copy_data(&lhs_state->val, lhs_val);
+		} else if (lhs_val) {
+			err = dsv_copy_data_force(&lhs_state->val, lhs_val);
 			if (err == -1) {
 				si_log1_warn("dsv_copy_data err\n");
 			}
@@ -11235,6 +11509,7 @@ static int dec_gimple_cond(struct sample_set *sset, int idx,
 	tree rhs = gimple_cond_rhs(gs);
 	struct data_state_rw *lhs_state = NULL, *rhs_state = NULL;
 	struct data_state_val *lhs_dsv = NULL, *rhs_dsv = NULL;
+	struct dsv_find_arg larg = {NULL}, rarg = {NULL};
 
 	/* XXX: decide which cp to go */
 	struct code_path *this_cp = find_cp_by_gs(fnl->fn, gs);
@@ -11260,26 +11535,43 @@ static int dec_gimple_cond(struct sample_set *sset, int idx,
 		}
 
 		if (next_cp) {
-			lhs_dsv = get_ds_val(sset, idx, fnl,
-						&lhs_state->val, 0, 0);
-			rhs_dsv = get_ds_val(sset, idx, fnl,
-						&rhs_state->val, 0, 0);
-			if ((!lhs_dsv) || (!rhs_dsv)) {
+			if (get_ds_val(sset, idx, fnl,
+					&lhs_state->val, 0, 0, &larg) == -1) {
+				si_log1_warn("get_ds_val NULL\n");
+				err = -1;
+			} else if (get_ds_val(sset, idx, fnl,
+					&rhs_state->val, 0, 0, &rarg) == -1) {
 				si_log1_warn("get_ds_val NULL\n");
 				err = -1;
 			} else {
-				int _err;
-				_err = analysis__sample_state_check_loop(sset,
-							idx, lhs_dsv, rhs_dsv,
-							next_cp);
-				if (_err == -1) {
-					si_log1_warn(
-					      "analysis__sample_state_check_loop"
-					      " err\n");
-					err = -1;
-				} else if (_err == 1) {
-					sample_set_set_flag(sset,
-							    SAMPLE_SF_INFLOOP);
+				err = -1;
+				int types[4] = {DSVT_CONSTRUCTOR, DSVT_ADDR,
+						DSVT_REF, DSVT_INT_CST};
+				for (int i = 0; i < 4; i++) {
+					if (types[i] == DSVT_UNK)
+						break;
+
+					int idx0, idx1;
+					idx0 = dsv_arg_find(&larg, types[i], 1);
+					idx1 = dsv_arg_find(&rarg, types[i], 1);
+					if ((idx0 == -1) || (idx1 == -1)) {
+						continue;
+					}
+					lhs_dsv = larg.vals[idx0].dsv;
+					rhs_dsv = rarg.vals[idx1].dsv;
+
+					int _err;
+					_err = analysis__sample_state_check_loop(
+							sset, idx, lhs_dsv,
+							rhs_dsv, next_cp);
+					if (_err == -1)
+						continue;
+
+					if (_err == 1)
+						sample_set_set_flag(sset,
+							      SAMPLE_SF_INFLOOP);
+					err = 0;
+					break;
 				}
 			}
 		}
@@ -11317,7 +11609,8 @@ static int dec_gimple_switch(struct sample_set *sset, int idx,
 	struct gswitch *stmt = (struct gswitch *)gs;
 	tree index = gimple_switch_index(stmt);
 	struct data_state_rw *index_ds;
-	struct data_state_val *index_dsv;
+	struct data_state_val *index_dsv = NULL;
+	struct dsv_find_arg index_arg = {NULL};
 	index_ds = get_ds_via_tree(sset, idx, fnl, index, NULL, NULL);
 	if (index && (!index_ds)) {
 		si_log1_todo("not handled\n");
@@ -11327,12 +11620,19 @@ static int dec_gimple_switch(struct sample_set *sset, int idx,
 	/* get the index value first */
 	u64 val = 0;
 	u32 bits = get_type_bits(index);
-	index_dsv = get_ds_val(sset, idx, fnl, &index_ds->val, 0, 0);
-	if (!index_dsv) {
+	if (get_ds_val(sset, idx, fnl, &index_ds->val, 0, 0, &index_arg) == -1) {
 		si_log1_warn("get_ds_val NULL\n");
 		ds_drop(index_ds);
 		return -1;
 	}
+	int idx0;
+	idx0 = dsv_arg_find(&index_arg, DSVT_INT_CST, 1);
+	if (idx0 == -1) {
+		si_log1_todo("dsv_arg_find DSVT_INT_CST err\n");
+		ds_drop(index_ds);
+		return -1;
+	}
+	index_dsv = index_arg.vals[idx0].dsv;
 
 	BUG_ON(DSV_TYPE(index_dsv) != DSVT_INT_CST);
 	clib_memcpy_bits(&val, sizeof(val) * BITS_PER_UNIT,
@@ -11381,7 +11681,9 @@ static int dec_gimple_phi(struct sample_set *sset, int idx,
 	int complete_type_p;
 	tree result = gimple_phi_result(gs);
 	struct data_state_rw *result_ds, *src_ds = NULL;
-	struct data_state_val *result_dsv, *src_dsv;
+	struct data_state_val *result_dsv = NULL, *src_dsv = NULL;
+	struct dsv_find_arg result_arg = {NULL}, src_arg = {NULL};
+	int types[4] = {DSVT_CONSTRUCTOR, DSVT_ADDR, DSVT_REF, DSVT_INT_CST};
 	unsigned nargs = gimple_phi_num_args(gs);
 	unsigned i = 0;
 	tree def;
@@ -11437,51 +11739,67 @@ static int dec_gimple_phi(struct sample_set *sset, int idx,
 		return -1;
 	}
 
-	result_dsv = get_ds_val(sset, idx, fnl, &result_ds->val, 0, 0);
-	src_dsv = get_ds_val(sset, idx, fnl, &src_ds->val, 0, 0);
-	if ((!result_dsv) || (!src_dsv)) {
+	if (get_ds_val(sset, idx, fnl,
+			&result_ds->val, 0, 0, &result_arg) == -1) {
+		si_log1_warn("get_ds_val NULL\n");
+		ds_drop(src_ds);
+		ds_drop(result_ds);
+		return -1;
+	} else if (get_ds_val(sset, idx, fnl,
+				&src_ds->val, 0, 0, &src_arg) == -1) {
 		si_log1_warn("get_ds_val NULL\n");
 		ds_drop(src_ds);
 		ds_drop(result_ds);
 		return -1;
 	}
 
-	/*
-	 * If assign an ARRAY to a pointer, we should get the [0] element's
-	 * offset and bits.
-	 */
-	if (dec_gassign_array_to_pointer(result, def, src_dsv) == -1) {
-		ds_drop(src_ds);
-		ds_drop(result_ds);
-		return -1;
-	}
+	err = -1;
+	for (int i = 0; i < 4; i++) {
+		if (types[i] == DSVT_UNK)
+			break;
 
-	err = dsv_copy_data(result_dsv, src_dsv);
-	if (err == -1) {
-		si_log1_warn("dsv_copy_data err\n");
-		ds_drop(src_ds);
-		ds_drop(result_ds);
-		return -1;
-	}
-	if (ssa_write) {
-		if (result_dsv == &result_ds->val) {
-			si_log1_warn("Should not happen\n");
-		} else {
-			err = dsv_copy_data(&result_ds->val, result_dsv);
-			if (err == -1) {
-				si_log1_warn("dsv_copy_data err\n");
-				ds_drop(src_ds);
-				ds_drop(result_ds);
-				return -1;
+		int idx0, idx1;
+		idx0 = dsv_arg_find(&result_arg, types[i], 1);
+		idx1 = dsv_arg_find(&src_arg, types[i], 1);
+		if ((idx0 == -1) || (idx1 == -1)) {
+			continue;
+		}
+		result_dsv = result_arg.vals[idx0].dsv;
+		src_dsv = src_arg.vals[idx1].dsv;
+
+		/*
+		 * If assign an ARRAY to a pointer, we should get the [0]
+		 * element's offset and bits.
+		 */
+		if (dec_gassign_array_to_pointer(result, def, src_dsv) == -1) {
+			continue;
+		}
+
+		err = dsv_copy_data(result_dsv, src_dsv);
+		if (err == -1) {
+			continue;
+		}
+		if (ssa_write) {
+			if (result_dsv == &result_ds->val) {
+				si_log1_warn("Should not happen\n");
+			} else {
+				err = dsv_copy_data_force(&result_ds->val,
+							  result_dsv);
+				if (err == -1) {
+					continue;
+				}
 			}
 		}
+
+		err = 0;
+		break;
 	}
 
 out:
 	ds_drop(src_ds);
 	ds_drop(result_ds);
 	fnl->curpos = (void *)cp_next_gimple(fnl->fn, gs);
-	return 0;
+	return err;
 }
 
 static int dec_ignore(struct sample_set *sset, int idx,

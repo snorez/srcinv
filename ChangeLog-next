@@ -1,3 +1,6 @@
+2021-01-14
+	* analysis/gcc/c.cc: handle union
+
 2021-01-03
 	* analysis/sample.c: update sample_set_flag_string init format
 

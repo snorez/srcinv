@@ -797,6 +797,17 @@ enum dsv_subtype {
 	DSV_SUBTYPE_UNION,
 };
 
+#define	DSV_FIND_ARG_MAX_RESULT	0x10
+struct dsv_find_arg {
+	struct {
+		struct data_state_val1	*dsv1;
+		struct data_state_val	*dsv;
+	} vals[DSV_FIND_ARG_MAX_RESULT];
+	struct data_state_val	*union_dsv;
+	u8			ret_cnt;
+	u8			cur_idx;
+};
+
 struct data_state_val {
 	union {
 		void				*v1;	/* section 1 */

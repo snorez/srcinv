@@ -262,92 +262,108 @@ static inline void ds_drop(struct data_state_rw *ds)
 	return;
 }
 
-static inline
-int dsv_find_constructor_elem(struct data_state_val *dsv,
-			      s32 offset, u32 bits,
-			      struct data_state_val1 **ret_dsv1,
-			      struct data_state_val **ret_dsv,
-			      struct data_state_val **union_dsv)
+static void dsv_find_arg_add(struct dsv_find_arg *arg,
+				struct data_state_val *union_dsv,
+				struct data_state_val1 *dsv1,
+				struct data_state_val *dsv)
 {
-	*ret_dsv1 = NULL;
-	*ret_dsv = NULL;
-	*union_dsv = NULL;
-	if ((!offset) && (!bits))
-		return 0; 
+	s8 cnt = arg->ret_cnt;
+	arg->ret_cnt++;
+	if (cnt >= DSV_FIND_ARG_MAX_RESULT)
+		return;
+	arg->union_dsv = union_dsv;
+	arg->vals[cnt].dsv = dsv;
+	arg->vals[cnt].dsv1 = dsv1;
+}
 
-	struct data_state_val *_dsv = dsv;
-	int done = 0;
+static inline
+int __dsv_find_constructor_elem(struct data_state_val *cur_dsv,
+				s32 offset, u32 bits,
+				struct dsv_find_arg *arg)
+{
 	int err = 0;
-	while (1) {
-		if ((DSV_TYPE(_dsv) != DSVT_CONSTRUCTOR) ||
-		    (!DSV_SEC1_VAL(_dsv))) {
+	struct data_state_val *_dsv = cur_dsv;
+
+	if ((DSV_TYPE(_dsv) != DSVT_CONSTRUCTOR) || (!DSV_SEC1_VAL(_dsv))) {
+		return -1;
+	}
+
+	/*
+	 * it is almost impossible to get the target field in
+	 * this union.
+	 * Although the COMPONENT_REF has a FIELD_DECL, the
+	 * MEM_REF only contains the offset of the union to
+	 * access.
+	 *
+	 * The main problem here is how to handle two fields
+	 * with same offset and bits but different types, e.g.
+	 * union {
+	 *	unsigned long	a;
+	 *	char		(*b)(void);
+	 * };
+	 * another one:
+	 * union {
+	 *	int		a;
+	 *	struct {
+	 *		int	b: 1;
+	 *		int	c: 1;
+	 *	};
+	 * };
+	 *
+	 * Maybe we should search for all matched offset-bits field,
+	 * which one to use is up to the caller.
+	 */
+
+	/* check if the requested area is the whole constructor */
+	if ((offset == 0) &&
+	    (bits == _dsv->info.v3_info.total_bytes * BITS_PER_UNIT)) {
+		dsv_find_arg_add(arg, NULL, NULL, _dsv);
+	}
+
+	struct data_state_val1 *tmp;
+	slist_for_each_entry(tmp, DSV_SEC3_VAL(_dsv), sibling) {
+		/*
+		 * [offset, offset+bits] must be a subset of
+		 * [tmp->offset, tmp->offset+tmp->bits]
+		 */
+		s32 fieldoffset = tmp->offset;
+		u32 fieldbits = tmp->bits;
+		if (!((offset >= fieldoffset) &&
+		      ((offset + bits) <= (fieldoffset + fieldbits))))
+			continue;
+
+		if (DSV_TYPE(&tmp->val) == DSVT_CONSTRUCTOR) {
+			_dsv = &tmp->val;
+			offset -= fieldoffset;
+			err = __dsv_find_constructor_elem(_dsv, offset, bits,
+							  arg);
+		} else if ((offset == fieldoffset) && (bits == fieldbits)) {
+			dsv_find_arg_add(arg, NULL, tmp, &tmp->val);
+		} else {
 			err = -1;
-			break;
 		}
-
-		/* record the outer union */
-		if ((DSV_TYPE(_dsv) == DSVT_CONSTRUCTOR) &&
-		    (_dsv->subtype == DSV_SUBTYPE_UNION)) {
-			/* TODO: as of now, we return err on UNION type. */
-			*union_dsv = _dsv;
-			err = -1;
-			break;
-		}
-
-		if ((offset == 0) &&
-		    (bits == _dsv->info.v3_info.total_bytes * BITS_PER_UNIT)) {
-			*ret_dsv = _dsv;
-			break;
-		}
-
-		struct data_state_val1 *tmp;
-		int has_match = 0;
-		slist_for_each_entry(tmp, DSV_SEC3_VAL(_dsv), sibling) {
-			/*
-			 * [offset, offset+bits] must be a subset of
-			 * [tmp->offset, tmp->offset+tmp->bits]
-			 *
-			 * FIXME: How to find the right field?
-			 * for union, it return the first match, which
-			 * could be quite a issue.
-			 */
-			s32 fieldoffset = tmp->offset;
-			u32 fieldbits = tmp->bits;
-			if (!((offset >= fieldoffset) &&
-			      ((offset + bits) <= (fieldoffset + fieldbits))))
-				continue;
-
-			has_match = 1;
-
-			if ((DSV_TYPE(&tmp->val) == DSVT_CONSTRUCTOR) &&
-			    (tmp->val.subtype == DSV_SUBTYPE_UNION)) {
-				/* TODO: has to check UNION_TYPE first */
-				_dsv = &tmp->val;
-				offset -= fieldoffset;
-			} else if ((offset == fieldoffset) &&
-				   (bits == fieldbits)) {
-				done = 1;
-				*ret_dsv1 = tmp;
-				*ret_dsv = &tmp->val;
-			} else if (DSV_TYPE(&tmp->val) == DSVT_CONSTRUCTOR) {
-				_dsv = &tmp->val;
-				offset -= fieldoffset;
-			} else {
-				err = -1;
-			}
-
-			break;
-		}
-		if (!has_match)
-			err = -1;
 
 		if (err == -1)
 			break;
-		if (done)
+
+		if (cur_dsv->subtype == DSV_SUBTYPE_UNION)
+			continue;
+		else
 			break;
 	}
 
 	return err;
+}
+
+static inline
+int dsv_find_constructor_elem(struct data_state_val *dsv,
+			      s32 offset, u32 bits,
+			      struct dsv_find_arg *arg)
+{
+	if ((!offset) && (!bits))
+		return 0; 
+
+	return __dsv_find_constructor_elem(dsv, offset, bits, arg);
 }
 
 static inline
@@ -455,7 +471,7 @@ int __dsv_copy_data(struct data_state_val *dst, struct data_state_val *src)
 			struct data_state_val1 *_tmp;
 			void *raw = (void *)(long)tmp->val.raw;
 			_tmp = dsv1_alloc(raw, tmp->offset, tmp->bits);
-			ret = dsv_copy_data(&_tmp->val, &tmp->val);
+			ret = __dsv_copy_data(&_tmp->val, &tmp->val);
 			if (ret == -1) {
 				dsv1_free(_tmp, src->subtype);
 				break;
@@ -482,23 +498,87 @@ int __dsv_copy_data(struct data_state_val *dst, struct data_state_val *src)
 static inline
 int dsv_copy_data(struct data_state_val *dst, struct data_state_val *src)
 {
-	int ret = 0;
-
 	if (dst == src)
-		return ret;
+		return 0;
 
-	struct data_state_val *_dst = dst;
-	if ((DSV_TYPE(_dst) == DSVT_CONSTRUCTOR) &&
-			(_dst->subtype == DSV_SUBTYPE_UNION)) {
-		/* TODO: we should do the sync here */
-	}
-
-	if ((DSV_TYPE(_dst) == DSVT_CONSTRUCTOR) &&
+	if ((DSV_TYPE(dst) == DSVT_CONSTRUCTOR) &&
 			(DSV_TYPE(src) != DSVT_CONSTRUCTOR)) {
 		return -1;
 	}
 
-	return __dsv_copy_data(_dst, src);
+	if ((DSV_TYPE(src) == DSVT_CONSTRUCTOR) &&
+			(DSV_TYPE(dst) != DSVT_CONSTRUCTOR)) {
+		return -1;
+	}
+
+	if ((DSV_TYPE(src) == DSVT_CONSTRUCTOR) &&
+			(dst->subtype != src->subtype)) {
+		return -1;
+	}
+
+	return __dsv_copy_data(dst, src);
+}
+
+static inline
+int dsv_copy_data_force(struct data_state_val *dst, struct data_state_val *src)
+{
+	return __dsv_copy_data(dst, src);
+}
+
+static inline
+int dsv_copy_to_arg(struct dsv_find_arg *arg, struct data_state_val *src)
+{
+	int err = 0;
+	for (int i = 0; i < arg->ret_cnt; i++) {
+		struct data_state_val *dst;
+		dst = arg->vals[i].dsv;
+		err = dsv_copy_data(dst, src);
+		if (!err) {
+			if (arg->union_dsv) {
+				/* TODO: sync the union */
+				;
+			}
+			return i;
+		}
+	}
+	return -1;
+}
+
+static inline
+int dsv_copy_from_arg(struct data_state_val *dst, struct dsv_find_arg *arg)
+{
+	int err = 0;
+	for (int i = 0; i < arg->ret_cnt; i++) {
+		struct data_state_val *src;
+		src = arg->vals[i].dsv;
+		err = dsv_copy_data(dst, src);
+		if (!err)
+			return i;
+	}
+	return -1;
+}
+
+static inline int dsv_arg_find(struct dsv_find_arg *arg, int type, int times)
+{
+	for (int i = 0; i < arg->ret_cnt; i++) {
+		if (DSV_TYPE(arg->vals[i].dsv) == type) {
+			times--;
+			if (!times)
+				return i;
+		}
+	}
+	return -1;
+}
+
+static inline int dsv_arg_first_int_or_real(struct dsv_find_arg *arg)
+{
+	int idx;
+	idx = dsv_arg_find(arg, DSVT_INT_CST, 1);
+	if (idx != -1)
+		return idx;
+
+	idx = dsv_arg_find(arg, DSVT_REAL_CST, 1);
+	return idx;
 }
 
 static inline
