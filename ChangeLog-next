@@ -2,6 +2,7 @@
 	* analysis/gcc/c.cc: handle union
 	* analysis/gcc/c.cc: mishandled check_loop in dec_gimple_cond()
 	* analysis/gcc/c.cc: carefully check return value of dsv_copy_to_arg()
+	* include/si_ds.h: fix an integer overflow in dsv_find_arg_add()
 
 2021-01-03
 	* analysis/sample.c: update sample_set_flag_string init format

@@ -267,7 +267,7 @@ static void dsv_find_arg_add(struct dsv_find_arg *arg,
 				struct data_state_val1 *dsv1,
 				struct data_state_val *dsv)
 {
-	s8 cnt = arg->ret_cnt;
+	u8 cnt = arg->ret_cnt;
 	arg->ret_cnt++;
 	if (cnt >= DSV_FIND_ARG_MAX_RESULT)
 		return;
