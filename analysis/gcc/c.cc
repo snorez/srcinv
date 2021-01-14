@@ -10144,13 +10144,13 @@ static int dec_gimple_call(struct sample_set *sset, int idx,
 				return -1;
 			}
 
-			err = dsv_copy_to_arg(&arg, &orig_ds->val);
-			if (err == -1) {
+			int idx = dsv_copy_to_arg(&arg, &orig_ds->val);
+			if (idx == -1) {
 				si_log1_warn("dsv_copy_to_arg err\n");
 				ds_drop(dstmp);
 				return -1;
 			}
-			dsvtmp = arg.vals[err].dsv;
+			dsvtmp = arg.vals[idx].dsv;
 			if (ssa_write) {
 				if (dsvtmp == &dstmp->val) {
 					si_log1_warn("Should not happen\n");
@@ -11325,17 +11325,17 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 		int _rv;
 		_rv = dec_gassign_array_to_pointer(lhs, rhs1, rhs1_val);
 		if (!_rv) {
-			err = dsv_copy_to_arg(&larg, &rhs1_state->val);
-			if (err == -1) {
+			if (dsv_copy_to_arg(&larg, &rhs1_state->val) == -1) {
 				si_log1_warn("dsv_copy_to_arg err\n");
+				err = -1;
 			}
 		} else if (_rv == -1) {
 			err = -1;
 			break;
 		} else {
-			err = dsv_copy_to_arg(&larg, rhs1_val);
-			if (err == -1) {
+			if (dsv_copy_to_arg(&larg, rhs1_val) == -1) {
 				si_log1_warn("dsv_copy_to_arg err\n");
+				err = -1;
 			}
 		}
 		break;
@@ -11358,9 +11358,9 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 		rhs1_val = rarg1.vals[idx1].dsv;
 
 		dsv_extend(rhs1_val);
-		err = dsv_copy_to_arg(&larg, rhs1_val);
-		if (err == -1) {
+		if (dsv_copy_to_arg(&larg, rhs1_val) == -1) {
 			si_log1_warn("dsv_copy_to_arg err\n");
+			err = -1;
 		}
 		break;
 	}
@@ -11374,9 +11374,9 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 
 		if ((DSV_TYPE(&rhs1_state->val) == DSVT_CONSTRUCTOR) &&
 				DSV_SEC3_VAL(&rhs1_state->val)) {
-			err = dsv_copy_to_arg(&larg, &rhs1_state->val);
-			if (err == -1) {
+			if (dsv_copy_to_arg(&larg, &rhs1_state->val) == -1) {
 				si_log1_warn("dsv_copy_to_arg err\n");
+				err = -1;
 			}
 		} else {
 			int idx1;
@@ -11390,9 +11390,9 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 			rhs1_val = rarg1.vals[idx1].dsv;
 			if ((DSV_TYPE(rhs1_val) == DSVT_CONSTRUCTOR) &&
 			    DSV_SEC3_VAL(rhs1_val)) {
-				err = dsv_copy_to_arg(&larg, rhs1_val);
-				if (err == -1) {
-					si_log1_warn("dsv_copy_data err\n");
+				if (dsv_copy_to_arg(&larg, rhs1_val) == -1) {
+					si_log1_warn("dsv_copy_to_arg err\n");
+					err = -1;
 				}
 			}
 		}
