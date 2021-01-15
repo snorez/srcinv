@@ -1,0 +1,53 @@
+2021-01-15
+	* analysis/gcc/c.cc: hold target sibuf in dec
+	* analysis/gcc/c.cc: rewrite some comments
+	* NEW RELEASE: v0.9: have union handled(partial)
+
+2021-01-14
+	* analysis/gcc/c.cc: handle union
+	* analysis/gcc/c.cc: mishandled check_loop in dec_gimple_cond()
+	* analysis/gcc/c.cc: carefully check return value of dsv_copy_to_arg()
+	* include/si_ds.h: fix an integer overflow in dsv_find_arg_add()
+
+2021-01-03
+	* analysis/sample.c: update sample_set_flag_string init format
+
+2020-12-31
+	* analysis/gcc/c.cc: handle no data_state_rw exists in fnl when the
+	node is PARM_DECL in get_ds_via_tree()
+
+2020-12-29
+	* analysis/gcc/c.cc: init params in fnl_init()
+
+2020-12-14
+	* analysis/gcc/c.cc: check return value of get_ds_val() in
+	dec_gimple_switch()
+
+2020-12-12
+	* analysis/gcc/c.cc: set v3_info while allocating DSVT_CONSTRUCTOR data
+	* analysis/gcc/c.cc: check return value of get_ds_val()
+
+2020-12-09
+	* analysis/gcc/c.cc: fix a typo in get_dsv_via_constructor()
+	* include/si_ds.h: remove _union_dsv, return error immediately if
+	UNION_TYPE is met
+
+2020-12-08
+	* analysis/gcc/c.cc: get_ds_via_tree() MEM_REF mishandled
+
+2020-11-25
+	* hacking: add submodule print_cfg_func.cc
+	* analysis/mark-entry.c: callees are callf_list, not id_list
+	* hacking/print_cfg_func.cc: fix issues
+
+2020-11-19
+	* hacking/staticchk.cc: dump sample_set if nonzero flag, not only when
+	no error occurred
+	* analysis/gcc/c.cc: dec_gimple_call(): handle functions with alias
+						attribute
+
+2020-11-18
+	* analysis/gcc/c.cc: dec_gimple_assign(): handle BIT_NOT_EXPR
+	* analysis/gcc/c.cc: dec_gimple_assign(): handle PARM_DECL
+	* analysis/gcc/c.cc: dsv_fill(): handle boolean_type enumeral_type
+					 nop_exp string_cst
