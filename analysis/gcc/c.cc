@@ -11935,22 +11935,33 @@ static int dec(struct sample_set *sset, int idx, struct func_node *start_fn)
 	}
 
 	int ret = 0;
+	struct sibuf *b;
+	int held;
+
+	b = find_target_sibuf((void *)fnl->fn->node);
+	held = analysis__sibuf_hold(b);
+
 	gimple_seq gs = (gimple_seq)fnl->curpos;
 	if (!gs) {
 		/* XXX: we may reach the end of a basic block gimple seqs */
 		if (dec_adjust_cp(sset, idx, fnl)) {
 			si_log1_todo("dec_adjust_cp failed\n");
-			return -1;
+			ret = -1;
+			goto out;
 		} else {
 			gs = (gimple_seq)fnl->curpos;
 		}
 	}
 	if (!gs) {
 		si_log1_todo("curpos still NULL\n");
-		return -1;
+		ret = -1;
+		goto out;
 	}
 
 	ret = do_dec(sset, idx, fnl, gs);
 
+out:
+	if (!held)
+		analysis__sibuf_drop(b);
 	return ret;
 }
