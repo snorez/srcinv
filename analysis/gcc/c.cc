@@ -17,9 +17,8 @@
  *	TREE_INT_CST_LOW may not be enough to represent the INT_CST
  *	ARRAY_REF size is quite different. array_ref_element_size().
  *	dsv_init:
- *		use possible_list
- *		give a condition, and a proposed result, gen the value
- *		lookup the related functions, to init some kinds of objects.
+ *		A->B, given B, what is A?
+ *		Check all callers, find out the params
  *
  * phase 1-3 are solid now, 4-6 are bad.
  * phase4: init value, mark var parm function ONLY
@@ -10007,8 +10006,11 @@ static int fnl_init(struct sample_set *sset, int idx, struct fn_list *fnl)
 	}
 	if (!has_greturn) {
 		/*
-		 * Some functions may not have a GIMPLE_RETURN stmt.
-		 * e.g. call siglongjmp(), exit(), ...
+		 * Function that do not have GIMPLE_RETURN:
+		 *	endless loop
+		 *	__noreturn__ attribute
+		 *	call a function that do not have GIMPLE_RETURN
+		 *	some part.X?
 		 */
 		si_log1_todo("%s has no GIMPLE_RETURN\n", fnl->fn->name);
 		err = -1;
@@ -10073,7 +10075,7 @@ out:
 
 static void fnl_deinit(struct sample_set *sset, int idx, struct fn_list *fnl)
 {
-	/* TODO: decrease some refcounts, etc. */
+	/* TODO: decrease reference count, etc. */
 }
 
 static int dec_gimple_asm(struct sample_set *sset, int idx,
@@ -10089,7 +10091,12 @@ static int dec_gimple_asm(struct sample_set *sset, int idx,
 static int dec_internal_call(struct sample_set *sset, int idx,
 				struct fn_list *fnl, gimple_seq gs)
 {
-	/* TODO: handle the internal call */
+	/*
+	 * TODO: handle the internal call.
+	 * No need to push the new function, when this internal function
+	 * returns, the caller will do dec_gimple_call() again, and
+	 * handle the retval.
+	 */
 	sset->samples[idx]->retval = (struct data_state_rw *)VOID_RETVAL;
 	return 0;
 }
@@ -11119,7 +11126,7 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 			}
 			case DSVT_CONSTRUCTOR:
 			{
-				/* TODO: be careful */
+				/* XXX: be careful */
 				err = dsv_copy_data(lhs_val, rhs1_val);
 				if (err == -1) {
 					si_log1_warn("dsv_copy_data err\n");

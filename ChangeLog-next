@@ -1,5 +1,7 @@
 2021-01-15
 	* analysis/gcc/c.cc: hold target sibuf in dec
+	* analysis/gcc/c.cc: rewrite some comments
+	* NEW RELEASE: v0.9: have union handled(partial)
 
 2021-01-14
 	* analysis/gcc/c.cc: handle union
