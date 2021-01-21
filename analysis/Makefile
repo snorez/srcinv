@@ -9,8 +9,8 @@ CC_SRCS = analysis.c \
        sibuf.c \
        resfile.c \
        parse.c \
-       mark-entry.c \
-       dec.c \
+       entry.c \
+       simulator.c \
        sys-bootup.c \
        trace.c \
        sample.c \

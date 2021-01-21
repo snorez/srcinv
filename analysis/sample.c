@@ -30,8 +30,6 @@ static const char *sample_set_flag_string[SAMPLE_SF_MAX] = {
 	[SAMPLE_SF_DEADLK] = "dead lock",
 	[SAMPLE_SF_NULLREF] = "NULL-deref(maybe not init well?)",
 	[SAMPLE_SF_INFLOOP] = "infinite loop",
-
-	[SAMPLE_SF_DECERR] = "dec*() mishandled data_states?",
 };
 
 const char *sample_set_flag_str(int nr)
@@ -290,3 +288,55 @@ int sample_set_select_entries(struct sample_set *sset)
 	si_log1_todo("not implemented yet\n");
 	return 0;
 }
+
+/*
+ * Find out the next suggest code path to run. One thread, one entry.
+ *
+ * We need to save every code path to src, with the test result.
+ *
+ * https://raw.githubusercontent.com/snorez/srcinv/fb08c7f65e98054d3dbb59410e53d113e6767465/analysis/utils.c
+ */
+#if 0
+struct sample_set *sample_set_gen_base_tests(void)
+{
+	struct sample_set *ret = NULL;
+	struct code_path *tmp, *next = NULL;
+	struct sample_set *saved_sset, *prev_sset = NULL;
+	int depth = 0;
+	struct sinode *new_entry = NULL;
+
+	si_lock_w();
+
+	if (si->base_sample_done)
+		goto out;
+
+	/*
+	 * search the saved sample set, find the next code path to run.
+	 */
+	slist_for_each_entry(saved_sset, &si->sample_set_head, sibling) {
+		if (!sample_set_is_base(saved_sset))
+			continue;
+
+		prev_sset = saved_sset;
+
+		/* TODO */
+		struct sample_state *sstate;
+		sstate = saved_sset->samples[0];
+		if (sstate->test_result == SSTATE_RES_UNREACHABLE) {
+			struct sample_state *prev_sstate;
+			prev_sstate = prev_sset->samples[0];
+			continue;
+		}
+	}
+
+	/* If no code_path found, get a new entry */
+	new_entry = untested_entry();
+	/* TODO */
+
+	/* save the new sample set here */
+
+out:
+	si_unlock_w();
+	return ret;
+}
+#endif

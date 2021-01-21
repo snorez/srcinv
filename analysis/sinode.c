@@ -711,13 +711,48 @@ void sinode_iter(struct rb_node *node, void (*cb)(struct rb_node *arg))
 	cb(node);
 	sinode_iter(node->rb_right, cb);
 	return;
-}
+} 
 
 /*
  * ************************************************************************
  * find sinode, if match() return true, do callback()
  * ************************************************************************
  */
+struct sinode *sinode_find_by_fn(struct func_node *fn)
+{
+	unsigned long id_;
+	int type;
+	union siid *id = (union siid *)&id_;
+
+	id_ = 0;
+	type = TYPE_FUNC_GLOBAL;
+	id->id0.id_type = type;
+	for (; id_ < si->id_idx[type].id1; id_++) {
+		struct sinode *sn;
+		sn = sinode_search(type, SEARCH_BY_ID, id);
+		if (!sn)
+			continue;
+
+		if ((void *)(sn->data) == (void *)fn)
+			return sn;
+	}
+
+	id_ = 0;
+	type = TYPE_FUNC_STATIC;
+	id->id0.id_type = TYPE_FUNC_STATIC;
+	for (; id_ < si->id_idx[type].id1; id_++) {
+		struct sinode *sn;
+		sn = sinode_search(TYPE_FUNC_STATIC, SEARCH_BY_ID, id);
+		if (!sn)
+			continue;
+
+		if ((void *)(sn->data) == (void *)fn)
+			return sn;
+	}
+
+	return NULL;
+}
+
 static void __sinode_match(enum sinode_type type,
 			void (*match)(struct sinode *, void *),
 			void *match_arg)

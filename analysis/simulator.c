@@ -1,5 +1,5 @@
 /*
- * decode code in sinode.
+ * simulate specific code in sinode.
  *	SI_TYPE_DF_GIMPLE: gimple
  *	SI_TYPE_DF_ASM: binary
  *
@@ -23,7 +23,7 @@
  */
 #include "si_core.h"
 
-int dec_next(struct sample_set *sset, int idx)
+int sl_next_insn(struct sample_set *sset, int idx)
 {
 	int ret = 0;
 	struct sibuf *buf;
@@ -32,18 +32,18 @@ int dec_next(struct sample_set *sset, int idx)
 	struct sinode *entry_fsn = sample_state_cur_entry(sset->samples[idx]);
 
 	if ((!entry_fsn) || (!entry_fsn->data))
-		return 0;
+		return SSTATE_RES_OK;
 
 	if (!sset) {
 		si_log1_err("Param sample_state must not be NULL\n");
-		return -1;
+		return -SSTATE_RES_DECERR;
 	}
 
 	struct func_node *entry_fn = (struct func_node *)entry_fsn->data;
 	buf = find_target_sibuf(entry_fn->node);
 	if (!buf) {
 		si_log1_todo("find_target_sibuf return NULL\n");
-		return -1;
+		return -SSTATE_RES_DECERR;
 	}
 
 	fc = (struct file_content *)buf->load_addr;
@@ -53,17 +53,17 @@ int dec_next(struct sample_set *sset, int idx)
 		analysis__sibuf_drop(buf);
 	if (!ops) {
 		si_log1_todo("lang_ops_find return NULL\n");
-		return -1;
+		return -SSTATE_RES_DECERR;
 	}
 
-	ret = ops->dec(sset, idx, entry_fn);
+	ret = ops->sl_next_insn(sset, idx, entry_fn);
 	return ret;
 }
 
 #define	SPECIAL_CALL_HANDLED	(0)
 #define	SPECIAL_CALL_NOTHANDLED	(-1)
 
-static int dec_linux_kernel_kmalloc(struct sample_set *sset, int idx,
+static int sl_linux_kernel_kmalloc(struct sample_set *sset, int idx,
 				    struct fn_list *fnl,
 				    struct func_node *call_fn)
 {
@@ -71,7 +71,7 @@ static int dec_linux_kernel_kmalloc(struct sample_set *sset, int idx,
 	return SPECIAL_CALL_NOTHANDLED;
 }
 
-static int dec_linux_kernel_kzalloc(struct sample_set *sset, int idx,
+static int sl_linux_kernel_kzalloc(struct sample_set *sset, int idx,
 				    struct fn_list *fnl,
 				    struct func_node *call_fn)
 {
@@ -79,7 +79,7 @@ static int dec_linux_kernel_kzalloc(struct sample_set *sset, int idx,
 	return SPECIAL_CALL_NOTHANDLED;
 }
 
-static int dec_linux_kernel_kmem_cache_alloc(struct sample_set *sset, int idx,
+static int sl_linux_kernel_kmem_cache_alloc(struct sample_set *sset, int idx,
 					     struct fn_list *fnl,
 					     struct func_node *call_fn)
 {
@@ -87,7 +87,7 @@ static int dec_linux_kernel_kmem_cache_alloc(struct sample_set *sset, int idx,
 	return SPECIAL_CALL_NOTHANDLED;
 }
 
-static int dec_linux_kernel_kfree(struct sample_set *sset, int idx,
+static int sl_linux_kernel_kfree(struct sample_set *sset, int idx,
 				  struct fn_list *fnl,
 				  struct func_node *call_fn)
 {
@@ -95,7 +95,7 @@ static int dec_linux_kernel_kfree(struct sample_set *sset, int idx,
 	return SPECIAL_CALL_NOTHANDLED;
 }
 
-static int dec_linux_kernel_kzfree(struct sample_set *sset, int idx,
+static int sl_linux_kernel_kzfree(struct sample_set *sset, int idx,
 				   struct fn_list *fnl,
 				   struct func_node *call_fn)
 {
@@ -103,7 +103,7 @@ static int dec_linux_kernel_kzfree(struct sample_set *sset, int idx,
 	return SPECIAL_CALL_NOTHANDLED;
 }
 
-static int dec_linux_kernel_kmem_cache_free(struct sample_set *sset, int idx,
+static int sl_linux_kernel_kmem_cache_free(struct sample_set *sset, int idx,
 					    struct fn_list *fnl,
 					    struct func_node *call_fn)
 {
@@ -116,16 +116,16 @@ static struct {
 	int	(*cb)(struct sample_set *sset, int idx,
 			struct fn_list *fnl, struct func_node *call_fn);
 } linux_kernel_special_call_cbs[] = {
-	{"kmalloc", dec_linux_kernel_kmalloc},
-	{"kzalloc", dec_linux_kernel_kzalloc},
-	{"kmem_cache_alloc", dec_linux_kernel_kmem_cache_alloc},
+	{"kmalloc", sl_linux_kernel_kmalloc},
+	{"kzalloc", sl_linux_kernel_kzalloc},
+	{"kmem_cache_alloc", sl_linux_kernel_kmem_cache_alloc},
 
-	{"kfree", dec_linux_kernel_kfree},
-	{"kzfree", dec_linux_kernel_kzfree},
-	{"kmem_cache_free", dec_linux_kernel_kmem_cache_free},
+	{"kfree", sl_linux_kernel_kfree},
+	{"kzfree", sl_linux_kernel_kzfree},
+	{"kmem_cache_free", sl_linux_kernel_kmem_cache_free},
 };
 
-static int dec_linux_kernel_special_call(struct sample_set *sset, int idx,
+static int sl_linux_kernel_special_call(struct sample_set *sset, int idx,
 					 struct fn_list *fnl,
 					 struct func_node *call_fn)
 {
@@ -148,7 +148,7 @@ static int dec_linux_kernel_special_call(struct sample_set *sset, int idx,
 }
 
 /*
- * @dec_special_call: handle some special calls.
+ * @sl_special_call: handle some special calls.
  * Return value:
  *	0: this call is properly handled.
  *	-1: this call is not handled, caller handle it itself.
@@ -157,13 +157,13 @@ static int dec_linux_kernel_special_call(struct sample_set *sset, int idx,
  * The retval is a data_state_rw.
  * Check the refcount if freeing an object.
  */
-int dec_special_call(struct sample_set *sset, int idx, struct fn_list *fnl,
+int sl_special_call(struct sample_set *sset, int idx, struct fn_list *fnl,
 			struct func_node *call_fn)
 {
 	int ret = SPECIAL_CALL_NOTHANDLED;
 
 	if (src_is_linux_kernel()) {
-		ret = dec_linux_kernel_special_call(sset, idx, fnl, call_fn);
+		ret = sl_linux_kernel_special_call(sset, idx, fnl, call_fn);
 	}
 
 	return ret;

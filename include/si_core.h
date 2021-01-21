@@ -294,6 +294,9 @@ struct src {
 	 * add type for src, actually, we only concern the KERN & OS
 	 */
 	struct si_type		type;
+
+	/* single-thread single-entry tests done or not */
+	u8			base_sample_done: 1;
 };
 
 enum si_module_category {
@@ -488,7 +491,6 @@ struct type_node {
 	uint16_t		reserved: 13;
 };
 
-struct varnode_lft;
 struct var_node {
 	rwlock_t		lock;
 	struct type_node	*type;
@@ -500,8 +502,6 @@ struct var_node {
 
 	struct slist_head	used_at;
 	struct slist_head	possible_values;
-
-	struct varnode_lft	*vn_lft;
 
 	/* the memory size of this var */
 	uint32_t		size;
@@ -841,6 +841,12 @@ struct data_state_val {
 	} info;
 };
 
+#define	COND_ARG_MAX		0x10
+struct cond_arg {
+	struct data_state_val	args[COND_ARG_MAX];
+	u8			cnt;
+};
+
 /*
  * This is the runtime data_state.
  * If it is in some slist, then should remove it first then free it.
@@ -875,9 +881,20 @@ struct arg_record {
 	void			*raw;
 };
 #define	VOID_RETVAL		((void *)-1)
+enum sample_state_result {
+	SSTATE_RES_OK,
+
+	/* not implemented or other situations not handled */
+	SSTATE_RES_DECERR,
+
+	/* the specific code path it unreachable */
+	SSTATE_RES_UNREACHABLE,
+};
 struct sample_state {
-	struct slist_head	fn_list_head;
+	struct slist_head	fn_list_head;	/* runtime function stack */
 	struct slist_head	cp_list_head;	/* saved into src */
+
+	struct slist_head	called_f_head;	/* suggest called functions */
 
 	struct slist_head	arg_head;
 	struct data_state_rw	*retval;
@@ -895,6 +912,7 @@ struct sample_state {
 	struct sinode		**entries;
 	u8			entry_count;
 	s8			entry_curidx;
+	u8			test_result;
 };
 
 enum sample_set_flag {
@@ -918,7 +936,6 @@ enum sample_set_flag {
 	SAMPLE_SF_DEADLK,	/* dead lock */
 	SAMPLE_SF_INFLOOP,	/* infinite loop */
 
-	SAMPLE_SF_DECERR = 31,	/* dec_*() mishandled the data states */
 	SAMPLE_SF_MAX = 32,
 };
 
@@ -926,13 +943,16 @@ enum sample_set_flag {
  * sample_set saved in struct src.
  * use the index in the list_head as the id of the sample set.
  */
-#define	SAMPLE_SET_STATICCHK_MODE_FULL		0
-#define	SAMPLE_SET_STATICCHK_MODE_QUICK		1
+enum simulate_mode {
+	SL_MODE_FULL,
+	SL_MODE_QUICK,
+};
 struct sample_set {
 	struct slist_head	sibling;
 	struct slist_head	allocated_data_states;
 
 	u64			id;
+
 	u32			flag;
 	u8			count;
 	u8			staticchk_mode: 1;	/* 0: full, 1: quick */
@@ -942,10 +962,6 @@ struct sample_set {
 
 	/* XXX: must be last field */
 	struct sample_state	*samples[0];
-};
-
-struct varnode_lft {
-	u64			todo;
 };
 
 #include "si_helper.h"

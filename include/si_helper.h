@@ -1254,7 +1254,8 @@ enum sample_set_flag check_dsv_flag(struct data_state_val *dsv, int action)
 	case DS_F_ACT_DECREF:
 	{
 		if (atomic_read(&dsv->flag.refcount) == 0) {
-			ret = SAMPLE_SF_DECERR;
+			/* FIXME: is SAMPLE_SF_MEMLK appropriate */
+			ret = SAMPLE_SF_MEMLK;
 			break;
 		}
 
@@ -1362,6 +1363,11 @@ static inline void sample_set_free(struct sample_set *sset)
 		sset->samples[i] = NULL;
 	}
 	free(sset);
+}
+
+static inline int sample_set_is_base(struct sample_set *sset)
+{
+	return ((sset->count == 1) && (sset->samples[0]->entry_count == 1));
 }
 
 static inline void save_sample_state(struct sample_state *dst,

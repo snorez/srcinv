@@ -84,7 +84,7 @@ enum jxx_2 {
 };
 
 static int parse(struct sibuf *, int);
-static int dec(struct sample_set *, int, struct func_node *);
+static int sl_next_insn(struct sample_set *, int, struct func_node *);
 static struct lang_ops ops;
 
 CLIB_MODULE_NAME(asm);
@@ -93,7 +93,7 @@ CLIB_MODULE_NEEDED0();
 CLIB_MODULE_INIT()
 {
 	ops.parse = parse;
-	ops.dec = dec;
+	ops.sl_next_insn = sl_next_insn;
 	ops.type.binary = SI_TYPE_SRC;
 	ops.type.kernel = SI_TYPE_BOTH;
 	ops.type.os_type = SI_TYPE_OS_LINUX;
@@ -1106,7 +1106,8 @@ static int parse(struct sibuf *buf, int parse_mode)
 	return 0;
 }
 
-static int dec(struct sample_set *sset, int idx, struct func_node *start_fn)
+static int sl_next_insn(struct sample_set *sset, int idx,
+			struct func_node *start_fn)
 {
 	/* TODO */
 	return 0;

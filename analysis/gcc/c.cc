@@ -63,7 +63,7 @@
  * ************************************************************************
  */
 static int c_parse(struct sibuf *, int);
-static int dec(struct sample_set *, int idx, struct func_node *);
+static int sl_next_insn(struct sample_set *, int idx, struct func_node *);
 static void *get_global(struct sibuf *b, const char *string, int *);
 static struct lang_ops c_ops;
 
@@ -73,7 +73,7 @@ CLIB_MODULE_NEEDEDx(0);
 CLIB_MODULE_INIT()
 {
 	c_ops.parse = c_parse;
-	c_ops.dec = dec;
+	c_ops.sl_next_insn = sl_next_insn;
 	c_ops.get_global = get_global;
 	c_ops.type.binary = SI_TYPE_SRC;
 	c_ops.type.kernel = SI_TYPE_BOTH;
@@ -8641,7 +8641,7 @@ static int c_parse(struct sibuf *buf, int parse_mode)
 
 /*
  * ************************************************************************
- * dec functions
+ * simulate functions
  * ************************************************************************
  */
 static struct data_state_rw *get_ds_via_tree(struct sample_set *sset, int idx,
@@ -9963,7 +9963,37 @@ static int __dec_gimple_assign(struct sample_set *sset, int idx,
 				struct data_state_rw *rhs3_state,
 				tree lhs, tree rhs1, tree rhs2, tree rhs3,
 				gimple_seq gs);
-static int fnl_init(struct sample_set *sset, int idx, struct fn_list *fnl)
+static int chkmode_call(struct sample_set *sset, int idx, struct fn_list *fnl,
+			gimple_seq gs,
+			int (*full)(struct sample_set *sset, int idx,
+					struct fn_list *fnl, gimple_seq gs),
+			int (*quick)(struct sample_set *sset, int idx,
+					struct fn_list *fnl, gimple_seq gs))
+{
+	if (sset->staticchk_mode == SL_MODE_FULL) {
+		if (full)
+			return full(sset, idx, fnl, gs);
+		else
+			return -SSTATE_RES_DECERR;
+	} else if (sset->staticchk_mode == SL_MODE_QUICK) {
+		if (quick)
+			return quick(sset, idx, fnl, gs);
+		else
+			return -SSTATE_RES_DECERR;
+	} else {
+		return -SSTATE_RES_DECERR;
+	}
+}
+
+static int fnl_init_full(struct sample_set *sset, int idx,
+			struct fn_list *fnl, gimple_seq _gs)
+{
+	/* TODO */
+	return -SSTATE_RES_DECERR;
+}
+
+static int fnl_init_quick(struct sample_set *sset, int idx,
+			struct fn_list *fnl, gimple_seq _gs)
 {
 	int err = 0;
 	struct sample_state *sample = sset->samples[idx];
@@ -10073,6 +10103,12 @@ out:
 	return err;
 }
 
+static int fnl_init(struct sample_set *sset, int idx, struct fn_list *fnl)
+{
+	return chkmode_call(sset, idx, fnl, NULL,
+				fnl_init_full, fnl_init_quick);
+}
+
 static void fnl_deinit(struct sample_set *sset, int idx, struct fn_list *fnl)
 {
 	/* TODO: decrease reference count, etc. */
@@ -10082,7 +10118,7 @@ static int dec_gimple_asm(struct sample_set *sset, int idx,
 				struct fn_list *fnl, gimple_seq gs)
 {
 	/* TODO: parse_ssa_operands() get_asm_stmt_operands() */
-	int err = -1;
+	int err = -SSTATE_RES_DECERR;
 	si_log1_todo("GIMPLE_ASM in %s\n", fnl->fn->name);
 	fnl->curpos = (void *)cp_next_gimple(fnl->fn, gs);
 	return err;
@@ -10098,7 +10134,7 @@ static int dec_internal_call(struct sample_set *sset, int idx,
 	 * handle the retval.
 	 */
 	sset->samples[idx]->retval = (struct data_state_rw *)VOID_RETVAL;
-	return 0;
+	return SSTATE_RES_OK;
 }
 
 static int dec_gimple_call(struct sample_set *sset, int idx,
@@ -10140,7 +10176,7 @@ static int dec_gimple_call(struct sample_set *sset, int idx,
 						&ssa_write);
 			if (!dstmp) {
 				si_log1_warn("Should not happen\n");
-				return -1;
+				return -SSTATE_RES_DECERR;
 			}
 
 			struct dsv_find_arg arg = {NULL};
@@ -10148,14 +10184,14 @@ static int dec_gimple_call(struct sample_set *sset, int idx,
 					&dstmp->val, 0, 0, &arg) == -1) {
 				si_log1_warn("get_ds_val NULL\n");
 				ds_drop(dstmp);
-				return -1;
+				return -SSTATE_RES_DECERR;
 			}
 
 			int idx = dsv_copy_to_arg(&arg, &orig_ds->val);
 			if (idx == -1) {
 				si_log1_warn("dsv_copy_to_arg err\n");
 				ds_drop(dstmp);
-				return -1;
+				return -SSTATE_RES_DECERR;
 			}
 			dsvtmp = arg.vals[idx].dsv;
 			if (ssa_write) {
@@ -10167,7 +10203,7 @@ static int dec_gimple_call(struct sample_set *sset, int idx,
 						si_log1_warn("dsv_copy_data "
 								"err\n");
 						ds_drop(dstmp);
-						return -1;
+						return -SSTATE_RES_DECERR;
 					}
 				}
 			}
@@ -10178,7 +10214,7 @@ static int dec_gimple_call(struct sample_set *sset, int idx,
 			ds_drop(orig_ds);
 		sample->retval = NULL;
 		fnl->curpos = (void *)cp_next_gimple(fnl->fn, gs);
-		return 0;
+		return SSTATE_RES_OK;
 	}
 
 	if (gimple_call_internal_p(stmt))
@@ -10257,7 +10293,7 @@ static int dec_gimple_call(struct sample_set *sset, int idx,
 	{
 		si_log1_todo("miss callee[%s]\n",
 				tree_code_name[TREE_CODE(callee)]);
-		return -1;
+		return -SSTATE_RES_DECERR;
 	}
 	}
 
@@ -10323,7 +10359,7 @@ static int dec_gimple_call(struct sample_set *sset, int idx,
 		}
 		si_log1_todo("target func_node not found. %s, %s\n",
 				tree_code_name[TREE_CODE(callee)], name);
-		return -1;
+		return -SSTATE_RES_DECERR;
 	}
 
 	struct sibuf *b = find_target_sibuf((void *)target_fn->node);
@@ -10340,7 +10376,7 @@ static int dec_gimple_call(struct sample_set *sset, int idx,
 		tmpds = get_ds_via_tree(sset, idx, fnl, arg, NULL, NULL);
 		if (!tmpds) {
 			si_log1_todo("data state not found\n");
-			return -1;
+			return -SSTATE_RES_DECERR;
 		}
 
 		new_arg = arg_record_alloc();
@@ -10351,15 +10387,15 @@ static int dec_gimple_call(struct sample_set *sset, int idx,
 		ds_drop(tmpds);
 	}
 
-	if (!analysis__dec_special_call(sset, idx, fnl, target_fn))
-		return 0;
+	if (!analysis__sl_special_call(sset, idx, fnl, target_fn))
+		return SSTATE_RES_OK;
 
 	struct fn_list *fnl_callee;
 	fnl_callee = sample_add_new_fn(sample, target_fn);
 	if (fnl_init(sset, idx, fnl_callee))
 		err = -1;
 
-	return err;
+	return (!err) ? SSTATE_RES_OK : -SSTATE_RES_DECERR;
 }
 
 static int dec_gimple_return(struct sample_set *sset, int idx,
@@ -10371,7 +10407,7 @@ static int dec_gimple_return(struct sample_set *sset, int idx,
 
 	if ((!sample) || (!fnl)) {
 		si_log1_todo("sample and fnl should not be NULL\n");
-		return -1;
+		return -SSTATE_RES_DECERR;
 	}
 
 	/*
@@ -10392,7 +10428,7 @@ static int dec_gimple_return(struct sample_set *sset, int idx,
 	fnl_deinit(sset, idx, fnl);
 	fn_list_free(fnl);
 
-	return 0;
+	return SSTATE_RES_OK;
 }
 
 /*
@@ -11491,7 +11527,7 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 			(rhs2 && (!rhs2_state)) ||
 			(rhs3 && (!rhs3_state))) {
 		si_log1_todo("not handled\n");
-		return -1;
+		return -SSTATE_RES_DECERR;
 	}
 
 	err = __dec_gimple_assign(sset, idx, fnl, rhs_code, bytes, ssa_write,
@@ -11503,16 +11539,25 @@ static int dec_gimple_assign(struct sample_set *sset, int idx,
 	ds_drop(rhs2_state);
 	ds_drop(rhs3_state);
 
-	if (!err)
+	if (!err) {
 		fnl->curpos = (void *)cp_next_gimple(fnl->fn, gs);
-
-	return err;
+		return SSTATE_RES_OK;
+	} else {
+		return -SSTATE_RES_DECERR;
+	}
 }
 
-static int dec_gimple_cond(struct sample_set *sset, int idx,
+static int dec_gimple_cond_full(struct sample_set *sset, int idx,
 				struct fn_list *fnl, gimple_seq gs)
 {
-	int err = 0;
+	/* TODO */
+	return -SSTATE_RES_DECERR;
+}
+
+static int dec_gimple_cond_quick(struct sample_set *sset, int idx,
+				struct fn_list *fnl, gimple_seq gs)
+{
+	int err = SSTATE_RES_OK;
 	struct gcond *stmt;
 	stmt = (struct gcond *)gs;
 	enum tree_code cond_code;
@@ -11534,22 +11579,25 @@ static int dec_gimple_cond(struct sample_set *sset, int idx,
 		rhs_state = get_ds_via_tree(sset, idx, fnl, rhs, NULL, NULL);
 		if ((lhs && (!lhs_state)) || (rhs && (!rhs_state))) {
 			si_log1_warn("Should not happen\n");
-			return -1;
+			return -SSTATE_RES_DECERR;
 		}
 
-		err = gimple_cond_compare(sset, idx, fnl,
+		int _err;
+		_err = gimple_cond_compare(sset, idx, fnl,
 					  lhs_state, rhs_state, cond_code,
 					  &lhs_dsv, &rhs_dsv);
-		if (err == 1) {
+		if (_err == 1) {
 			next_cp = this_cp->next[1];
-		} else if (err == 0) {
+		} else if (_err == 0) {
 			next_cp = this_cp->next[0];
+		} else if (_err == -1) {
+			err = -SSTATE_RES_DECERR;
 		}
 
 		if (next_cp) {
 			if ((!lhs_dsv) || (!rhs_dsv)) {
 				si_log1_warn("get_ds_val NULL\n");
-				err = -1;
+				err = -SSTATE_RES_DECERR;
 			} else {
 				int _err;
 				_err = analysis__sample_state_check_loop(sset,
@@ -11558,7 +11606,7 @@ static int dec_gimple_cond(struct sample_set *sset, int idx,
 					si_log1_warn("analysis__"
 						     "sample_state_check_loop"
 						     " err\n");
-					err = -1;
+					err = -SSTATE_RES_DECERR;
 				} else if (_err == 1) {
 					sample_set_set_flag(sset,
 						      SAMPLE_SF_INFLOOP);
@@ -11575,7 +11623,7 @@ static int dec_gimple_cond(struct sample_set *sset, int idx,
 		gimple_loc_string(loc, 1024, gs);
 		si_log1_todo("next_cp NULL(gimple_cond_compare err?), %s\n",
 				loc);
-		return -1;
+		return -SSTATE_RES_DECERR;
 	}
 
 	/*
@@ -11593,7 +11641,21 @@ static int dec_gimple_cond(struct sample_set *sset, int idx,
 	return err;
 }
 
-static int dec_gimple_switch(struct sample_set *sset, int idx,
+static int dec_gimple_cond(struct sample_set *sset, int idx,
+				struct fn_list *fnl, gimple_seq gs)
+{
+	return chkmode_call(sset, idx, fnl, gs,
+			dec_gimple_cond_full, dec_gimple_cond_quick);
+}
+
+static int dec_gimple_switch_full(struct sample_set *sset, int idx,
+				struct fn_list *fnl, gimple_seq gs)
+{
+	/* TODO */
+	return -SSTATE_RES_DECERR;
+}
+
+static int dec_gimple_switch_quick(struct sample_set *sset, int idx,
 				struct fn_list *fnl, gimple_seq gs)
 {
 	struct gswitch *stmt = (struct gswitch *)gs;
@@ -11604,7 +11666,7 @@ static int dec_gimple_switch(struct sample_set *sset, int idx,
 	index_ds = get_ds_via_tree(sset, idx, fnl, index, NULL, NULL);
 	if (index && (!index_ds)) {
 		si_log1_todo("not handled\n");
-		return -1;
+		return -SSTATE_RES_DECERR;
 	}
 
 	/* get the index value first */
@@ -11613,14 +11675,14 @@ static int dec_gimple_switch(struct sample_set *sset, int idx,
 	if (get_ds_val(sset, idx, fnl, &index_ds->val, 0, 0, &index_arg) == -1) {
 		si_log1_warn("get_ds_val NULL\n");
 		ds_drop(index_ds);
-		return -1;
+		return -SSTATE_RES_DECERR;
 	}
 	int idx0;
 	idx0 = dsv_arg_find(&index_arg, DSVT_INT_CST, 1);
 	if (idx0 == -1) {
 		si_log1_todo("dsv_arg_find DSVT_INT_CST err\n");
 		ds_drop(index_ds);
-		return -1;
+		return -SSTATE_RES_DECERR;
 	}
 	index_dsv = index_arg.vals[idx0].dsv;
 
@@ -11639,27 +11701,34 @@ static int dec_gimple_switch(struct sample_set *sset, int idx,
 						(tree)&fake_tree);
 	if (!t) {
 		si_log1_todo("target edge not found\n");
-		return -1;
+		return -SSTATE_RES_DECERR;
 	}
 
 	struct code_path *next_cp;
 	next_cp = find_cp_by_bb(fnl->fn, t->dest);
 	if (!next_cp) {
 		si_log1_todo("next_cp not found\n");
-		return -1;
+		return -SSTATE_RES_DECERR;
 	}
 
 	fnl->curpos = (void *)cp_first_gimple(next_cp);
 	sample_add_new_cp(sset->samples[idx], next_cp);
 	fnl_add_new_cp(fnl, next_cp);
 
-	return 0;
+	return SSTATE_RES_OK;
+}
+
+static int dec_gimple_switch(struct sample_set *sset, int idx,
+				struct fn_list *fnl, gimple_seq gs)
+{
+	return chkmode_call(sset, idx, fnl, gs,
+				dec_gimple_switch_full, dec_gimple_switch_quick);
 }
 
 static int dec_gimple_phi(struct sample_set *sset, int idx,
 				struct fn_list *fnl, gimple_seq gs)
 {
-	int err = 0;
+	int err = SSTATE_RES_OK;
 	struct gphi *stmt;
 	stmt = (struct gphi *)gs;
 
@@ -11687,7 +11756,7 @@ static int dec_gimple_phi(struct sample_set *sset, int idx,
 		goto out;
 	} else if (!result_ds) {
 		si_log1_warn("result_ds not found\n");
-		return -1;
+		return -SSTATE_RES_DECERR;
 	}
 
 	for (i = 0; i < nargs; i++) {
@@ -11726,7 +11795,7 @@ static int dec_gimple_phi(struct sample_set *sset, int idx,
 	if (!src_ds) {
 		si_log1_warn("src_ds not found\n");
 		ds_drop(result_ds);
-		return -1;
+		return -SSTATE_RES_DECERR;
 	}
 
 	if (get_ds_val(sset, idx, fnl,
@@ -11734,16 +11803,16 @@ static int dec_gimple_phi(struct sample_set *sset, int idx,
 		si_log1_warn("get_ds_val NULL\n");
 		ds_drop(src_ds);
 		ds_drop(result_ds);
-		return -1;
+		return -SSTATE_RES_DECERR;
 	} else if (get_ds_val(sset, idx, fnl,
 				&src_ds->val, 0, 0, &src_arg) == -1) {
 		si_log1_warn("get_ds_val NULL\n");
 		ds_drop(src_ds);
 		ds_drop(result_ds);
-		return -1;
+		return -SSTATE_RES_DECERR;
 	}
 
-	err = -1;
+	err = -SSTATE_RES_DECERR;
 	for (int i = 0; i < 4; i++) {
 		if (types[i] == DSVT_UNK)
 			break;
@@ -11765,23 +11834,23 @@ static int dec_gimple_phi(struct sample_set *sset, int idx,
 			continue;
 		}
 
-		err = dsv_copy_data(result_dsv, src_dsv);
-		if (err == -1) {
+		if (dsv_copy_data(result_dsv, src_dsv) == -1) {
+			err = -SSTATE_RES_DECERR;
 			continue;
 		}
 		if (ssa_write) {
 			if (result_dsv == &result_ds->val) {
 				si_log1_warn("Should not happen\n");
 			} else {
-				err = dsv_copy_data_force(&result_ds->val,
-							  result_dsv);
-				if (err == -1) {
+				if (dsv_copy_data_force(&result_ds->val,
+							  result_dsv) == -1) {
+					err = -SSTATE_RES_DECERR;
 					continue;
 				}
 			}
 		}
 
-		err = 0;
+		err = SSTATE_RES_OK;
 		break;
 	}
 
@@ -11796,7 +11865,7 @@ static int dec_ignore(struct sample_set *sset, int idx,
 				struct fn_list *fnl, gimple_seq gs)
 {
 	fnl->curpos = (void *)cp_next_gimple(fnl->fn, gs);
-	return 0;
+	return SSTATE_RES_OK;
 }
 
 static int dec_nop(struct sample_set *sset, int idx, struct fn_list *fnl,
@@ -11805,7 +11874,15 @@ static int dec_nop(struct sample_set *sset, int idx, struct fn_list *fnl,
 	return dec_ignore(sset, idx, fnl, gs);
 }
 
-static int dec_adjust_cp(struct sample_set *sset, int idx, struct fn_list *fnl)
+static int dec_adjust_cp_full(struct sample_set *sset, int idx,
+				struct fn_list *fnl, gimple_seq _gs)
+{
+	/* TODO */
+	return -SSTATE_RES_DECERR;
+}
+
+static int dec_adjust_cp_quick(struct sample_set *sset, int idx,
+				struct fn_list *fnl, gimple_seq _gs)
 {
 	struct code_path *prev_cp;
 	struct code_path *dest_cp;
@@ -11856,6 +11933,12 @@ static int dec_adjust_cp(struct sample_set *sset, int idx, struct fn_list *fnl)
 	return 0;
 }
 
+static int dec_adjust_cp(struct sample_set *sset, int idx, struct fn_list *fnl)
+{
+	return chkmode_call(sset, idx, fnl, NULL,
+				dec_adjust_cp_full, dec_adjust_cp_quick);
+}
+
 static struct {
 	enum gimple_code	gc;
 	int			(*cb)(struct sample_set *, int,
@@ -11865,10 +11948,16 @@ static struct {
 	{GIMPLE_CALL,			dec_gimple_call},
 	{GIMPLE_RETURN,			dec_gimple_return},
 	{GIMPLE_ASSIGN,			dec_gimple_assign},
-	{GIMPLE_COND,			dec_gimple_cond},
 	{GIMPLE_PHI,			dec_gimple_phi},
 	{GIMPLE_GOTO,			NULL},
+
+	/*
+	 * these two need to check sample_set staticchk_mode.
+	 * All functions call *_add_new_cp() as well.
+	 */
+	{GIMPLE_COND,			dec_gimple_cond},
 	{GIMPLE_SWITCH,			dec_gimple_switch},
+
 	{GIMPLE_OMP_PARALLEL,		NULL},
 	{GIMPLE_OMP_TASK,		NULL},
 	{GIMPLE_OMP_ATOMIC_LOAD,	NULL},
@@ -11905,7 +11994,7 @@ static struct {
 static int do_dec(struct sample_set *sset, int idx, struct fn_list *fnl,
 		  gimple_seq gs)
 {
-	int ret = 0;
+	int ret = SSTATE_RES_OK;
 	enum gimple_code gc = gimple_code(gs);
 	struct func_node *fn = fnl->fn;
 	unsigned i = 0;
@@ -11925,23 +12014,24 @@ static int do_dec(struct sample_set *sset, int idx, struct fn_list *fnl,
 	if (i == (sizeof(dec_cbs) / sizeof(dec_cbs[0]))) {
 		si_log1_todo("miss %s in %s at %p\n",
 				gimple_code_name[gc], fn->name, gs);
-		ret = -1;
+		ret = -SSTATE_RES_DECERR;
 	}
 
 	return ret;
 }
 
-static int dec(struct sample_set *sset, int idx, struct func_node *start_fn)
+static int sl_next_insn(struct sample_set *sset, int idx,
+			struct func_node *start_fn)
 {
 	struct sample_state *sample = sset->samples[idx];
 	struct fn_list *fnl = sample_state_last_fnl(sample);
 	if (!fnl) {
 		fnl = sample_add_new_fn(sample, start_fn);
 		if (fnl_init(sset, idx, fnl))
-			return -1;
+			return -SSTATE_RES_DECERR;
 	}
 
-	int ret = 0;
+	int ret = SSTATE_RES_OK;
 	struct sibuf *b;
 	int held;
 
@@ -11953,7 +12043,7 @@ static int dec(struct sample_set *sset, int idx, struct func_node *start_fn)
 		/* XXX: we may reach the end of a basic block gimple seqs */
 		if (dec_adjust_cp(sset, idx, fnl)) {
 			si_log1_todo("dec_adjust_cp failed\n");
-			ret = -1;
+			ret = -SSTATE_RES_DECERR;
 			goto out;
 		} else {
 			gs = (gimple_seq)fnl->curpos;
@@ -11961,7 +12051,7 @@ static int dec(struct sample_set *sset, int idx, struct func_node *start_fn)
 	}
 	if (!gs) {
 		si_log1_todo("curpos still NULL\n");
-		ret = -1;
+		ret = -SSTATE_RES_DECERR;
 		goto out;
 	}
 

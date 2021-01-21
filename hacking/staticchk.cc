@@ -1,6 +1,6 @@
 /*
  * hacking module, do static checks.
- * It pick up some random function as an entry, and for each call dec_next(),
+ * It pick up some random function as an entry, and for each call sl_next_insn(),
  * give the static check submodules a chance to check the data states.
  *
  * Copyright (C) 2020  zerons
@@ -44,9 +44,10 @@ static int staticchk_sample_set(struct sample_set *sset, char *modname)
 		if (!analysis__sample_can_run(sset, i))
 			continue;
 
-		err = analysis__dec_next(sset, i);
-		if (err == -1) {
-			si_log2_todo("analysis__dec_next(%d) err\n", i);
+		err = analysis__sl_next_insn(sset, i);
+		if (err < 0) {
+			sset->samples[i]->test_result = err;
+			si_log2_todo("analysis__sl_next_insn(%d) err\n", i);
 			goto out;
 		}
 
@@ -86,11 +87,6 @@ out:
 	return err;
 }
 
-/*
- * return value:
- * 0: sample_set not saved
- * 1: sample_set saved
- */
 static int _do_staticchk(int threads, char *modname)
 {
 	struct sample_set *sset;
@@ -98,17 +94,18 @@ static int _do_staticchk(int threads, char *modname)
 	int err = 0;
 	sset = sample_set_alloc(1, threads);
 	sset->id = src_get_sset_curid();
-	sset->staticchk_mode = SAMPLE_SET_STATICCHK_MODE_FULL;
+	sset->staticchk_mode = SL_MODE_FULL;
 
 	err = analysis__sample_set_select_entries(sset);
 	if (err == -1)
 		goto out;
 
 	err = staticchk_sample_set(sset, modname);
+	(void)err;
 
 out:
 	sample_set_free(sset);
-	return (err == 1) ? 1 : 0;
+	return 0;
 }
 
 static void staticchk_usage(void)
@@ -152,12 +149,10 @@ static long staticchk_cb(int argc, char *argv[])
 	if (argc == 4)
 		how_many_sset = atol(argv[3]);
 
-	int saved = 0;
 	size_t num_saved = 0;
 	while (1) {
-		saved = _do_staticchk(threads, modname);
-		if (saved)
-			num_saved++;
+		_do_staticchk(threads, modname);
+		num_saved++;
 
 		if (!how_many_sset)
 			continue;
@@ -188,7 +183,7 @@ static void staticchk_quick_single_func(unsigned long funcid)
 
 	sset = sample_set_alloc(1, threads);
 	entries = sample_state_entry_alloc(entry_count, 1);
-	sset->staticchk_mode = SAMPLE_SET_STATICCHK_MODE_QUICK;
+	sset->staticchk_mode = SL_MODE_QUICK;
 
 	entries[0] = target_fsn;
 	sset->samples[0]->entries = entries;

@@ -45,7 +45,7 @@ struct lang_ops {
 	struct slist_head	sibling;
 	struct si_type		type;
 	int			(*parse)(struct sibuf *buf, int parse_mode);
-	int			(*dec)(struct sample_set *, int idx,
+	int			(*sl_next_insn)(struct sample_set *, int idx,
 					struct func_node *start_fn);
 	void			*(*get_global)(struct sibuf *, const char *,
 					int *);
@@ -92,6 +92,9 @@ CLIB_MODULE_CALL_FUNC(analysis, sinode_iter, void,
 		(struct rb_node *node, void (*cb)(struct rb_node *n)),
 		2, node, cb);
 
+CLIB_MODULE_CALL_FUNC(analysis, sinode_find_by_fn, struct sinode *,
+		(struct func_node *fn),
+		1, fn);
 CLIB_MODULE_CALL_FUNC(analysis, sinode_match, void,
 		(const char *type, void (*match)(struct sinode *, void *),
 		 void *match_arg),
@@ -180,11 +183,19 @@ CLIB_MODULE_CALL_FUNC(analysis, resfile_get_fc, struct file_content *,
 
 CLIB_MODULE_CALL_FUNC0(analysis, mark_entry, int);
 
-CLIB_MODULE_CALL_FUNC(analysis, dec_next, int,
+CLIB_MODULE_CALL_FUNC(analysis, tested_entry, int,
+		(struct sinode *sn),
+		1, sn);
+
+CLIB_MODULE_CALL_FUNC(analysis, untested_entry, int,
+		(struct sinode **ret_sn),
+		1, ret_sn);
+
+CLIB_MODULE_CALL_FUNC(analysis, sl_next_insn, int,
 		(struct sample_set *sset, int idx),
 		2, sample, idx);
 
-CLIB_MODULE_CALL_FUNC(analysis, dec_special_call, int,
+CLIB_MODULE_CALL_FUNC(analysis, sl_special_call, int,
 		(struct sample_set *sset, int idx, struct fn_list *fnl,
 		 struct func_node *call_fn),
 		4, sset, idx, fnl, call_fn);

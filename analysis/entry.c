@@ -145,3 +145,94 @@ int mark_entry(void)
 		return mark_unknown_entry();
 	}
 }
+
+static int linux_tested_entry(struct sinode *_sn)
+{
+	struct sample_set *tmp_sset;
+	slist_for_each_entry(tmp_sset, &si->sample_set_head, sibling) {
+		if (!sample_set_is_base(tmp_sset))
+			continue;
+
+		struct sample_state *sstate;
+		struct code_path *cp;
+		struct sinode *sn;
+
+		sstate = tmp_sset->samples[0];
+		cp = slist_first_entry_or_null(&sstate->cp_list_head,
+						struct cp_list, sibling)->cp;
+		sn = sinode_find_by_fn(cp->func);
+		if (_sn == sn)
+			return 1;
+	}
+
+	return 0;
+}
+
+static int unknown_tested_entry(struct sinode *_sn)
+{
+	/* TODO */
+	return 0;
+}
+
+/*
+ * Called with si lock held.
+ */
+int tested_entry(struct sinode *sn)
+{
+	if (src_is_linux_kernel()) {
+		return linux_tested_entry(sn);
+	} else {
+		return unknown_tested_entry(sn);
+	}
+}
+
+static int linux_untested_entry(struct sinode **ret_sn)
+{
+	unsigned long id_ = 0;
+	int type = TYPE_FUNC_GLOBAL;
+	union siid *id = (union siid *)&id_;
+
+	id->id0.id_type = type;
+	for (; id_ < si->id_idx[type].id1; id_++) {
+		struct sinode *sn;
+		struct func_node *fn;
+		sn = sinode_search(type, SEARCH_BY_ID, id);
+		if (!sn)
+			continue;
+
+		fn = (struct func_node *)sn->data;
+		if (!fn)
+			continue;
+
+		if (fn->call_depth != 1)
+			continue;
+
+		if (!tested_entry(sn)) {
+			*ret_sn = sn;
+			return 0;
+		}
+	}
+
+	*ret_sn = NULL;
+	return -1;
+}
+
+static int unknown_untested_entry(struct sinode **ret_sn)
+{
+	/* TODO */
+	*ret_sn = NULL;
+	return -1;
+}
+
+/*
+ * Only care about one thread and one entry.
+ * Called with si lock held.
+ */
+int untested_entry(struct sinode **ret_sn)
+{
+	if (src_is_linux_kernel()) {
+		return linux_untested_entry(ret_sn);
+	} else {
+		return unknown_untested_entry(ret_sn);
+	}
+}
