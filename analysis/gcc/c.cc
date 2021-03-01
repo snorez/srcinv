@@ -9003,7 +9003,7 @@ static int dsv_init(struct sample_set *sset, int idx, struct fn_list *fnl,
 	case BOOLEAN_TYPE:
 	{
 		dsv_alloc_data(dsv, DSVT_INT_CST, 0, sizeof(int));
-		*(int *)DSV_SEC1_VAL(dsv) = s_random() % 2;
+		*(int *)DSV_SEC1_VAL(dsv) = s_rand32() % 2;
 		break;
 	}
 	case ENUMERAL_TYPE:
@@ -9016,10 +9016,10 @@ static int dsv_init(struct sample_set *sset, int idx, struct fn_list *fnl,
 			enum_list = TREE_CHAIN(enum_list);
 		}
 
-		int idx = cnt ? (s_random() % cnt) : 0;
+		int idx = cnt ? (s_rand32() % cnt) : 0;
 		cnt = 0;
 		enum_list = TYPE_VALUES(type);
-		long value = s_random();
+		long value = s_rand64();
 		dsv_alloc_data(dsv, DSVT_INT_CST, 0, sizeof(int));
 		*(int *)DSV_SEC1_VAL(dsv) = (int)value;
 		while (enum_list) {

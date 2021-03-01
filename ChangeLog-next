@@ -1,3 +1,6 @@
+2021-03-01
+	* srcinv: use s_rand*() instead of the deprecated s_random()
+
 2021-01-21
 	* srcinv: ideas to generate as many paths as possible while this can
 	take a significant time. This project may take a halt.

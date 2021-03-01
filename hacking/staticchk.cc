@@ -31,7 +31,7 @@ static int staticchk_sample_set(struct sample_set *sset, char *modname)
 	int err = 0;
 
 	while (1) {
-		int i = s_random() % threads;
+		int i = s_rand32() % threads;
 		int done = 0;
 		struct hacking_module *tmp_mod;
 
