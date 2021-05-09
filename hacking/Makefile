@@ -23,6 +23,8 @@ CXX_SRCS = \
 	   replay_sset.cc \
 	   uaf.cc \
 	   print_cfg_func.cc \
+	   list-fn-call_level.cc \
+	   find-extern-call.cc \
 	   test.cc
 CXX_EXTRA_SRCS = 
 CXX_SRCS += $(wildcard $(CXX_EXTRA_SRCS))

@@ -1,5 +1,5 @@
 #include "./core.cc"
-#include <c-tree.h>
+#include <cp/cp-tree.h>
 
 struct GTY((chain_next ("%h.outer"))) c_scope { /* gcc/c/c-decl.c */
 	struct c_scope *outer;
@@ -377,7 +377,6 @@ static void do_answer(struct answer *node, int flag)
 	}
 }
 
-static void do_common(tree node, int flag);
 static void do_c_common_identifier(struct c_common_identifier *node, int flag)
 {
 	if (!node)
@@ -390,34 +389,20 @@ static void do_c_common_identifier(struct c_common_identifier *node, int flag)
 	do_cpp_hashnode(&node->node, 0);
 }
 
-#if __GNUC__ >= 8
-struct GTY(()) sorted_fields_type {
-	int len;
-	tree GTY((length("%h.len"))) elts[1];
-};
-#endif
-
-static void do_sorted_fields_type(struct sorted_fields_type *node, int flag)
+static void do_specific_identifier(tree node, int flag)
 {
+	struct lang_identifier *node0 = (struct lang_identifier *)node;
 	if (!node)
 		return;
 	if (flag && is_obj_checked(node))
 		return;
-	BUG_ON(!node->len);
-	int cnt = node->len;
 	if (flag)
-		mem_write((void *)node, sizeof(*node) + (cnt-1)*sizeof(tree));
-	for (int i = 0; i < cnt; i++) {
-		do_tree(node->elts[i]);
-	}
+		mem_write((void *)node, sizeof(*node0));
+
+	do_c_common_identifier(&node0->c_common, 0);
+	/* TODO: cxx_binding *bindings; */
 }
 
-struct GTY(()) c_lang_type {
-	struct sorted_fields_type * GTY ((reorder("resort_sorted_fields"))) s;
-	tree enum_min;
-	tree enum_max;
-	tree objc_info;
-};
 static void do_specific_lang_type(void *node, int flag)
 {
 	if (!node)
@@ -425,27 +410,142 @@ static void do_specific_lang_type(void *node, int flag)
 	if (flag && is_obj_checked(node))
 		return;
 
-	struct c_lang_type *node0 = (struct c_lang_type *)node;
+	struct lang_type *node0 = (struct lang_type *)node;
 	if (flag)
 		mem_write(node, sizeof(*node0));
-	do_sorted_fields_type(node0->s, 1);
-	do_tree(node0->enum_min);
-	do_tree(node0->enum_max);
+	do_tree(node0->primary_base);
+	/* TODO: vec<tree_pair_s, va_gc> *vcall_indices; */
+	do_tree(node0->vtables);
+	do_tree(node0->typeinfo_var);
+	do_vec_tree(node0->vbases, 1);
+	/* TODO: binding_table nested_udts; */
+	do_tree(node0->as_base);
+	do_vec_tree(node0->pure_virtuals, 1);
+	do_tree(node0->friend_classes);
+	do_vec_tree(node0->members, 1);
+	do_tree(node0->key_method);
+	do_tree(node0->decl_list);
+	do_tree(node0->befriending_classes);
 	do_tree(node0->objc_info);
+	do_tree(node0->lambda_expr);
 }
 
-struct GTY(()) c_lang_decl {
-	char dummy;
-};
-static void do_specific_lang_decl(void *node, int flag)
+static void do_lang_decl_base(struct lang_decl_base *n, int flag)
 {
-	struct c_lang_decl *node0 = (struct c_lang_decl *)node;
+	if (!n)
+		return;
+	if (flag && is_obj_checked(n))
+		return;
+	if (flag)
+		mem_write((void *)n, sizeof(*n));
+	return;
+}
+
+static void do_lang_decl_min(struct lang_decl_min *n, int flag)
+{
+	if (!n)
+		return;
+	if (flag && is_obj_checked(n))
+		return;
+	if (flag)
+		mem_write((void *)n, sizeof(*n));
+
+	do_tree(n->template_info);
+	do_tree(n->access);
+	return;
+}
+
+static void do_lang_decl_fn(struct lang_decl_fn *n, int flag)
+{
+	if (!n)
+		return;
+	if (flag && is_obj_checked(n))
+		return;
+	if (flag)
+		mem_write((void *)n, sizeof(*n));
+
+	do_lang_decl_min(&n->min, 0);
+	do_tree(n->befriending_classes);
+	do_tree(n->context);
+	if (n->thunk_p == 0)
+		do_tree(n->u5.cloned_function);
+	/* TODO: lang_decl_u3 */
+}
+
+static void do_lang_decl_ns(struct lang_decl_ns *n, int flag)
+{
+	if (!n)
+		return;
+	if (flag && is_obj_checked(n))
+		return;
+	if (flag)
+		mem_write((void *)n, sizeof(*n));
+
+	do_lang_decl_base(&n->base, 0);
+	/* TODO: cp_binding_level *level; */
+	do_vec_tree(n->usings, 1);
+	do_vec_tree(n->inlinees, 1);
+	/* TODO: hash_table<named_label_hash> *bindings; */
+}
+
+static void do_lang_decl_parm(struct lang_decl_parm *n, int flag)
+{
+	if (!n)
+		return;
+	if (flag && is_obj_checked(n))
+		return;
+	if (flag)
+		mem_write((void *)n, sizeof(*n));
+
+	do_lang_decl_base(&n->base, 0);
+	return;
+}
+
+static void do_lang_decl_decomp(struct lang_decl_decomp *n, int flag)
+{
+	if (!n)
+		return;
+	if (flag && is_obj_checked(n))
+		return;
+	if (flag)
+		mem_write((void *)n, sizeof(*n));
+
+	do_lang_decl_min(&n->min, 0);
+	do_tree(n->base);
+	return;
+}
+
+static void do_specific_lang_decl(void *n, int flag)
+{
+	struct lang_decl *node = (struct lang_decl *)n;
 	if (!node)
 		return;
 	if (flag && is_obj_checked(node))
 		return;
 	if (flag)
-		mem_write((void *)node, sizeof(*node0));
+		mem_write((void *)node, sizeof(*node));
+
+	struct lang_decl *node0 = (struct lang_decl *)node;
+	switch (node0->u.base.selector) {
+	case lds_min:
+		do_lang_decl_min(&node0->u.min, 0);
+		break;
+	case lds_fn:
+		do_lang_decl_fn(&node0->u.fn, 0);
+		break;
+	case lds_ns:
+		do_lang_decl_ns(&node0->u.ns, 0);
+		break;
+	case lds_parm:
+		do_lang_decl_parm(&node0->u.parm, 0);
+		break;
+	case lds_decomp:
+		do_lang_decl_decomp(&node0->u.decomp, 0);
+		break;
+	default:
+		do_lang_decl_base(&node0->u.base, 0);
+		break;
+	}
 }
 
 #if 0
@@ -554,80 +654,6 @@ static void do_c_switch(struct c_switch *node, int flag)
 	do_c_switch(node->next, 1);
 }
 
-#if 0
-struct c_arg_tag { /* gcc/c/c-tree.h */
-	tree id;
-	tree type;
-};
-#endif
-static void do_c_arg_tag(c_arg_tag *node, int flag)
-{
-	if (!node)
-		return;
-	if (flag && is_obj_checked(node))
-		return;
-	if (flag)
-		mem_write((void *)node, sizeof(*node));
-	do_tree(node->id);
-	do_tree(node->type);
-}
-static void do_vec_c_arg_tag(vec<c_arg_tag, va_gc> *node, int flag)
-{
-	if (!node)
-		return;
-	if (flag && is_obj_checked(node))
-		return;
-
-	unsigned long len = node->length();
-	c_arg_tag *addr = node->address();
-	if (flag) {
-		if (len)
-			mem_write((void *)node, sizeof(*node)+
-					(len-1)*sizeof(*addr));
-		else
-			mem_write((void *)node, sizeof(*node));
-	}
-	for (unsigned long i = 0; i < len; i++) {
-		do_c_arg_tag(&addr[i], 0);
-	}
-}
-
-#if 0
-struct c_arg_info { /* gcc/c/c-tree.h */
-	tree parms;
-	vec<c_arg_tag, va_gc> *tags;
-	tree types;
-	tree others;
-	tree pending_sizes;
-	BOOL_BITFIELD had_vla_unspec : 1;
-};
-#endif
-static void do_c_arg_info(struct c_arg_info *node, int flag)
-{
-	if (!node)
-		return;
-	if (flag && is_obj_checked(node))
-		return;
-	if (flag)
-		mem_write((void *)node, sizeof(*node));
-	do_tree(node->parms);
-	do_vec_c_arg_tag(node->tags, 1);
-	do_tree(node->types);
-	do_tree(node->others);
-	do_tree(node->pending_sizes);
-}
-
-struct GTY(()) language_function {
-	struct c_language_function base;
-	tree x_break_label;
-	tree x_cont_label;
-	struct c_switch * GTY((skip)) x_switch_stack;
-	struct c_arg_info * GTY((skip)) arg_info;
-	int returns_value;
-	int returns_null;
-	int returns_abnormally;
-	int warn_about_return_type;
-};
 static void do_specific_language_function(void *n, int flag)
 {
 	struct language_function *node = (struct language_function *)n;
@@ -639,79 +665,159 @@ static void do_specific_language_function(void *n, int flag)
 	if (flag)
 		mem_write((void *)node, sizeof(*node));
 	do_c_language_function(&node->base, 0);
-	do_tree(node->x_break_label);
-	do_tree(node->x_cont_label);
-	do_c_switch(node->x_switch_stack, 1);
-	do_c_arg_info(node->arg_info, 1);
-}
+	do_tree(node->x_cdtor_label);
+	do_tree(node->x_current_class_ptr);
+	do_tree(node->x_current_class_ref);
+	do_tree(node->x_eh_spec_block);
+	do_tree(node->x_in_charge_parm);
+	do_tree(node->x_vtt_parm);
+	do_tree(node->x_return_value);
+	do_tree(node->x_auto_return_pattern);
 
-struct GTY(()) c_lang_identifier { /* gcc/c/c-decl.c */
-	struct c_common_identifier common_id;
-	struct c_binding *symbol_binding;
-	struct c_binding *tag_binding;
-	struct c_binding *label_binding;
-};
-static void do_specific_identifier(tree node, int flag)
-{
-	if (!node)
-		return;
-	if (flag && is_obj_checked(node))
-		return;
-	if (flag)
-		mem_write((void *)node, sizeof(struct c_lang_identifier));
-
-	struct c_lang_identifier *node0 = (struct c_lang_identifier *)node;
-	do_c_common_identifier(&node0->common_id, 0);
-#ifdef COLLECT_MORE
-	do_c_binding(node0->symbol_binding, 1);
-	do_c_binding(node0->tag_binding, 1);
-	do_c_binding(node0->label_binding, 1);
-#endif
+	/* TODO: hash_table<named_label_hash> *x_named_labels; */
+	/* TODO: cp_binding_level *bindings; */
+	/* TODO: vec<tree, va_gc> *infinite_loops; */
+	/* TODO: hash_table<cxx_int_tree_map_hasher> *extern_decl_map; */
 }
 
 static void do_template_parm_index(tree node, int flag)
 {
-	BUG();
+	if (!node)
+		return;
+	if (flag && is_obj_checked((void *)node))
+		return;
+	if (flag)
+		node_write(node);
+
+	struct template_parm_index *n;
+	n = (struct template_parm_index *)node;
+	do_common((tree)&n->common, 0);
+	do_tree(n->decl);
+	return;
 }
 
 static void do_template_info(tree node, int flag)
 {
-	BUG();
+	if (!node)
+		return;
+	if (flag && is_obj_checked((void *)node))
+		return;
+	if (flag)
+		node_write(node);
+
+	struct tree_template_info *n;
+	n = (struct tree_template_info *)node;
+	do_common((tree)&n->common, 0);
+	/* TODO: vec<qualified_typedef_usage_t, va_gc> *xxx; */
+	return;
 }
 
 static void do_template_decl(tree node, int flag)
 {
-	BUG();
+	if (!node)
+		return;
+	if (flag && is_obj_checked((void *)node))
+		return;
+	if (flag)
+		node_write(node);
+
+	struct tree_template_decl *n;
+	n = (struct tree_template_decl *)node;
+	do_decl_common((tree)&n->common, 0);
+	do_tree(n->arguments);
+	do_tree(n->result);
 }
 
 static void do_using_decl(tree node, int flag)
 {
-	BUG();
+	if (!node)
+		return;
+	if (flag && is_obj_checked((void *)node))
+		return;
+	if (flag)
+		node_write(node);
+
+	/* TODO */
 }
 
 static void do_overload(tree node, int flag)
 {
-	BUG();
+	if (!node)
+		return;
+	if (flag && is_obj_checked((void *)node))
+		return;
+	if (flag)
+		node_write(node);
+
+	struct tree_overload *node0 = (struct tree_overload *)node;
+	do_common((tree)&node0->common, 0);
+	do_tree(node0->function);
 }
 
 static void do_deferred_noexcept(tree node, int flag)
 {
-	BUG();
+	if (!node)
+		return;
+	if (flag && is_obj_checked((void *)node))
+		return;
+	if (flag)
+		node_write(node);
+
+	struct tree_deferred_noexcept *node0;
+	node0 = (struct tree_deferred_noexcept *)node;
+	do_base((tree)&node0->base, 0);
+	do_tree(node0->pattern);
+	do_tree(node0->args);
 }
 
 static void do_baselink(tree node, int flag)
 {
-	BUG();
+	if (!node)
+		return;
+	if (flag && is_obj_checked((void *)node))
+		return;
+	if (flag)
+		node_write(node);
+
+	struct tree_baselink *node0;
+	node0 = (struct tree_baselink *)node;
+	do_common((tree)&node0->common, 0);
+	do_tree(node0->binfo);
+	do_tree(node0->functions);
+	do_tree(node0->access_binfo);
 }
 
 static void do_static_assert(tree node, int flag)
 {
-	BUG();
+	if (!node)
+		return;
+	if (flag && is_obj_checked((void *)node))
+		return;
+	if (flag)
+		node_write(node);
+
+	struct tree_static_assert *node0;
+	node0 = (struct tree_static_assert *)node;
+	do_location(node0->location);
+	do_common((tree)&node0->common, 0);
+	do_tree(node0->condition);
+	do_tree(node0->message);
 }
 
 static void do_trait_expr(tree node, int flag)
 {
-	BUG();
+	if (!node)
+		return;
+	if (flag && is_obj_checked((void *)node))
+		return;
+	if (flag)
+		node_write(node);
+
+	struct tree_trait_expr *node0;
+	node0 = (struct tree_trait_expr *)node;
+	do_common((tree)&node0->common, 0);
+	do_tree(node0->type1);
+	do_tree(node0->type2);
 }
 
 int plugin_init(struct plugin_name_args *plugin_info,
@@ -745,32 +851,15 @@ int plugin_init(struct plugin_name_args *plugin_info,
 	outpath = plugin_info->argv[0].value;
 	is_kernel = !!atoi(plugin_info->argv[1].value);
 
-	if (tree_code_size(IDENTIFIER_NODE) != 0x50)
-		BUG();
-
 	const char *file = main_input_filename;
-	/* this is for linux kernel modules .mod.c detection */
-	if ((strlen(file) > 6) &&
-			(strncmp(&file[strlen(file)-6], ".mod.c", 6) == 0))
-		return 0;
-	if (strcmp(&file[strlen(file)-2], ".c"))
+	if (strcmp(&file[strlen(file)-3], ".cc") &&
+		strcmp(&file[strlen(file)-3], ".CC"))
 		return 0;
 
-	err = get_compiling_args(SI_TYPE_DF_GCC_C);
+	err = get_compiling_args(SI_TYPE_DF_GCC_CPP);
 	if (err) {
 		fprintf(stderr, "get_compiling_args err\n");
 		return -1;
-	}
-
-	/* kicking out some folders */
-	const char *exclude_folders[] = {
-		"scripts/", "Documentation/", "debian/", "debian.master/",
-		"tools/", "samples/", "spl/", "usr/",
-	};
-	unsigned int i = 0;
-	for (i = 0; i < sizeof(exclude_folders) / sizeof(char *); i++) {
-		if (strstr(write_ctx->path, exclude_folders[i]))
-			return 0;
 	}
 
 	err = prepare_outfile();

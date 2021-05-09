@@ -182,6 +182,10 @@ CLIB_MODULE_CALL_FUNC(analysis, resfile_get_fc, struct file_content *,
 		3, path, targetfile, idx);
 
 CLIB_MODULE_CALL_FUNC0(analysis, mark_entry, int);
+CLIB_MODULE_CALL_FUNC(analysis, list_entry_at_level, int,
+		(int entry_level, FILE *s,
+		 void (*cb)(FILE *, union siid *, struct func_node *)),
+		3, entry_level, s, cb);
 
 CLIB_MODULE_CALL_FUNC(analysis, tested_entry, int,
 		(struct sinode *sn),

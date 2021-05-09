@@ -7,6 +7,7 @@ LIBDIR = $(SRCINV_BIN)
 COMPILER_GCC_SO = compiler_gcc
 
 CXX_SRCS = c.cc \
+	   c++.cc \
 	   asm.cc
 
 CXX_OBJS = $(CXX_SRCS:%.cc=%.o)

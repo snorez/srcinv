@@ -146,6 +146,55 @@ int mark_entry(void)
 	}
 }
 
+/* list all entries at entry_level */
+int list_entry_at_level(int entry_level, FILE *s,
+		void (*cb)(FILE *s, union siid *id, struct func_node *fn))
+{
+	unsigned long id_ = 0;
+	int type = TYPE_FUNC_GLOBAL;
+	union siid *id = (union siid *)&id_;
+
+	id->id0.id_type = type;
+	for (; id_ < si->id_idx[type].id1; id_++) {
+		struct sinode *sn;
+		struct func_node *fn;
+		sn = sinode_search(type, SEARCH_BY_ID, id);
+		if (!sn)
+			continue;
+
+		fn = (struct func_node *)sn->data;
+		if (!fn)
+			continue;
+
+		if (fn->call_depth != entry_level)
+			continue;
+
+		cb(s, id, fn);
+	}
+
+	id_ = 0;
+	type = TYPE_FUNC_STATIC;
+	id->id0.id_type = type;
+	for (; id_ < si->id_idx[type].id1; id_++) {
+		struct sinode *sn;
+		struct func_node *fn;
+		sn = sinode_search(type, SEARCH_BY_ID, id);
+		if (!sn)
+			continue;
+
+		fn = (struct func_node *)sn->data;
+		if (!fn)
+			continue;
+
+		if (fn->call_depth != entry_level)
+			continue;
+
+		cb(s, id, fn);
+	}
+
+	return 0;
+}
+
 static int linux_tested_entry(struct sinode *_sn)
 {
 	struct sample_set *tmp_sset;

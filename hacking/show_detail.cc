@@ -21,10 +21,11 @@
 CLIB_MODULE_NAME(show_detail);
 CLIB_MODULE_NEEDED0();
 static char modname[] = "show_detail";
+FILE *s = NULL;
 
 static void usage(void)
 {
-	fprintf(stdout, "\t(name) (var|func|type) [extra opts]\n"
+	fprintf(stdout, "\t(name) (var|func|type) (outfile) [extra opts]\n"
 			"\tShow detail of var, func, or data type maybe?\n"
 			"\tIf type, the name could be xxx.yyy.zzz\n"
 			"\tSupported extra options now:\n"
@@ -53,16 +54,30 @@ static long cb(int argc, char *argv[])
 {
 	long err = 0;
 
-	if ((argc != 3) && (argc != 4)) {
+	if ((argc != 4) && (argc != 5)) {
 		err_msg("argc invalid");
 		return -1;
 	}
 
 	argv_name = argv[1];
 	char *type = argv[2];
+	s = NULL;
+	int need_fclose = 0;
 	argv_opt = (char *)"all";
-	if (argc == 4)
-		argv_opt = argv[3];
+	if (!strcmp(argv[3], "stderr")) {
+		s = stderr;
+	} else if (!strcmp(argv[3], "stdout")) {
+		s = stdout;
+	} else {
+		s = fopen(argv[3], "w+");
+		if (!s) {
+			err_dbg(1, "fopen");
+			return -1;
+		}
+		need_fclose = 1;
+	}
+	if (argc == 5)
+		argv_opt = argv[4];
 
 	if (!strcmp(type, "type")) {
 		/* split argv_name */
@@ -91,6 +106,9 @@ out:
 	for (int i = 0; i < TYPE_MAX_DEPTH; i++) {
 		split_names[i] = NULL;
 	}
+	if (need_fclose)
+		fclose(s);
+	s = NULL;
 	return err;
 }
 
@@ -113,7 +131,7 @@ static int __match(struct sinode *sn)
 
 static inline void output_src(struct sinode *sn)
 {
-	fprintf(stdout, "src: %s %d %d\n",
+	fprintf(s, "src: %s %d %d\n",
 		sn->loc_file ? sn->loc_file->name : "NULL",
 		sn->loc_line, sn->loc_col);
 }
@@ -131,7 +149,7 @@ static void output_func(struct sinode *sn)
 	}
 
 	if (fn && (all || (!strcmp(argv_opt, "caller")))) {
-		fprintf(stdout, "Callers:\n");
+		fprintf(s, "Callers:\n");
 
 		struct callf_list *tmp;
 		slist_for_each_entry(tmp, &fn->callers, sibling) {
@@ -142,14 +160,14 @@ static void output_func(struct sinode *sn)
 			struct sinode *caller_sn;
 			caller_sn = analysis__sinode_search(siid_type(id),
 							SEARCH_BY_ID, id);
-			fprintf(stdout, "\t0x%lx %s\n",
+			fprintf(s, "\t0x%lx %s\n",
 					tmp->value,
 					caller_sn ? caller_sn->name : "NULL");
 		}
 	}
 
 	if (fn && (all || (!strcmp(argv_opt, "callee")))) {
-		fprintf(stdout, "Callees:\n");
+		fprintf(s, "Callees:\n");
 
 		struct callf_list *tmp;
 		slist_for_each_entry(tmp, &fn->callees, sibling) {
@@ -160,40 +178,42 @@ static void output_func(struct sinode *sn)
 			struct sinode *caller_sn;
 			caller_sn = analysis__sinode_search(siid_type(id),
 							SEARCH_BY_ID, id);
-			fprintf(stdout, "\t0x%lx %s\n",
+			fprintf(s, "\t0x%lx %s\n",
 					tmp->value,
 					caller_sn ? caller_sn->name : "NULL");
 		}
 	}
 
 	if (all || (!strcmp(argv_opt, "body"))) {
-		fprintf(stdout, "Body:\n"
+		fprintf(s, "Body:\n"
 				"\t%p\n", fn);
 	}
 
-	fprintf(stdout, "Call depth: %d\n", fn->call_depth);
+	fprintf(s, "Call depth: %d\n", fn->call_depth);
 }
 
 static void output_used_at(struct slist_head *head, char *name)
 {
-	fprintf(stdout, "Used at(%s):\n", name);
+	fprintf(s, "Used at(%s):\n", name);
 
 	struct use_at_list *tmp;
 	slist_for_each_entry(tmp, head, sibling) {
 		struct sinode *fsn;
-		expanded_location *xloc;
+		expanded_location *xloc __maybe_unused;
 
 		fsn = analysis__sinode_search(siid_type(&tmp->func_id),
 				SEARCH_BY_ID, &tmp->func_id);
 
-		if (tmp->type == SI_TYPE_DF_GIMPLE) {
+		if ((tmp->type == SI_TYPE_DF_GCC_C) ||
+			(tmp->type == SI_TYPE_DF_GCC_CPP)) {
 			gimple_seq gs;
 			gs = (gimple_seq)tmp->where;
 			int held = analysis__sibuf_hold(fsn->buf);
 			xloc = get_gimple_loc(fsn->buf->payload, &gs->location);
 			if (!held)
 				analysis__sibuf_drop(fsn->buf);
-			fprintf(stdout, "\tFunction: %s(), gimple: %p %ld\n"
+#ifdef OUTPUT_MORE
+			fprintf(s, "\tFunction: %s(), gimple: %p %ld\n"
 					"\t________: %s %d %d\n",
 					fsn ? fsn->name : "NULL",
 					tmp->where,
@@ -201,6 +221,10 @@ static void output_used_at(struct slist_head *head, char *name)
 					xloc ? xloc->file : NULL,
 					xloc ? xloc->line : 0,
 					xloc ? xloc->column : 0);
+#else
+			fprintf(s, "\t%s()\n",
+					fsn ? fsn->name : "NULL");
+#endif
 		}
 	}
 }
@@ -302,7 +326,7 @@ static void output_type(struct sinode *sn)
 		}
 
 		if (all || (!strcmp(argv_opt, "offset"))) {
-			fprintf(stdout, "Offset(in bits):\n");
+			fprintf(s, "Offset(in bits):\n");
 
 			unsigned long offset;
 			tree field;
@@ -317,17 +341,17 @@ static void output_type(struct sinode *sn)
 			if (!held)
 				analysis__sibuf_drop(b);
 
-			fprintf(stdout, "\t%ld\n", offset);
+			fprintf(s, "\t%ld\n", offset);
 		}
 
 		if (all || (!strcmp(argv_opt, "size"))) {
-			fprintf(stdout, "Size(in bits):\n");
+			fprintf(s, "Size(in bits):\n");
 
 			unsigned long sz = 0;
 			if (vl->var.type)
 				sz = vl->var.type->ofsize * BITS_PER_UNIT;
 
-			fprintf(stdout, "\t%ld\n", sz);
+			fprintf(s, "\t%ld\n", sz);
 		}
 	}
 

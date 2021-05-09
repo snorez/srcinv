@@ -5,6 +5,7 @@ OUTDIR=$(SRCINV_BIN)/collect
 
 CXX_SRCS = c.cc \
 	   asm.cc \
+	   c++.cc \
 	   test.cc
 
 CXX_OBJS = $(CXX_SRCS:%.cc=%.o)

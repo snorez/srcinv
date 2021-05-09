@@ -86,8 +86,9 @@ enum si_type_os {
 };
 enum si_type_data_fmt {
 	SI_TYPE_DF_NONE = 0,
-	SI_TYPE_DF_GIMPLE = 1,	/* data is from gcc, format GIMPLE */
+	SI_TYPE_DF_GCC_C = 1,	/* data is from gcc c, format GIMPLE */
 	SI_TYPE_DF_ASM,		/* data is from asm, format binary */
+	SI_TYPE_DF_GCC_CPP,	/* data is from gcc c++, format GIMPLE */
 	SI_TYPE_DF_ANY = 0xff,
 };
 struct si_type {

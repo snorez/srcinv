@@ -30,8 +30,21 @@
 		"category": "collect",
 	},
 	{
+		"name": "gcc_c++",
+		"path": "gcc_c++.so",
+		"comment": "make EXTRA_CXXFLAGS+='-fplugin=${SOPATH} -fplugin-arg-gcc_c++-output=${RESFILE} -fplugin-arg-gcc_c++-kernel=[0|1]' -jx ...",
+		"category": "collect",
+	},
+	{
 		"name": "gcc_c",
 		"path": "gcc_c.so",
+		"comment": "analysis the collected information",
+		"category": "analysis",
+		"autoload": "1"
+	},
+	{
+		"name": "gcc_c++",
+		"path": "gcc_c++.so",
 		"comment": "analysis the collected information",
 		"category": "analysis",
 		"autoload": "1"
@@ -47,6 +60,20 @@
 		"name": "staticchk",
 		"path": "staticchk.so",
 		"comment": "call all static check modules for all sinode",
+		"category": "hacking",
+		"autoload": "1"
+	},
+	{
+		"name": "list-fn-call_level",
+		"path": "list-fn-call_level.so",
+		"comment": "list functions at call level",
+		"category": "hacking",
+		"autoload": "1"
+	},
+	{
+		"name": "find-extern-call",
+		"path": "find-extern-call.so",
+		"comment": "find functions calls specific extern function",
 		"category": "hacking",
 		"autoload": "1"
 	},

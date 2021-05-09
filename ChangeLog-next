@@ -1,3 +1,7 @@
+2021-05-09
+	* collect: add gcc c++ support. TODO: analysis part is not done.
+	* collect: do not collect global datas if the file is empty.
+
 2021-03-01
 	* srcinv: use s_rand*() instead of the deprecated s_random()
 

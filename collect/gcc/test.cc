@@ -32,6 +32,7 @@ struct plugin_gcc_version version_needed = {
 
 int plugin_is_GPL_compatible;
 
+#if 0
 namespace {
 	const pass_data plugin_pass_data = {
 		GIMPLE_PASS,
@@ -89,6 +90,7 @@ namespace {
 		}
 	};
 }
+#endif
 
 #define	DEF_CB_FUNC(name) \
 void name(void *gcc_data, void *user_data) \
@@ -143,6 +145,7 @@ DEF_CB_FUNC(all_ipa_passes_end);
 DEF_CB_FUNC(early_gimple_passes_start);
 DEF_CB_FUNC(early_gimple_passes_end);
 DEF_CB_FUNC(new_pass);
+#if 0
 namespace {
 const pass_data pass_data_before_cfg = {
 	GIMPLE_PASS,
@@ -213,7 +216,9 @@ static tree callback_op(tree *t, int *arg, void *data)
 };	/* class pass_before_cfg */
 
 }	/* namespace */
+#endif
 
+#if 0
 void all_ipa_passes_hook(void *gcc_data, void *user_data)
 {
 	fprintf(stderr, "all_ipa_passes_hook hit\n");
@@ -293,6 +298,7 @@ void all_ipa_passes_hook(void *gcc_data, void *user_data)
 		node = node->next;
 	}
 }
+#endif
 
 int plugin_init(struct plugin_name_args *plugin_info,
 		struct plugin_gcc_version *version)
@@ -313,7 +319,7 @@ int plugin_init(struct plugin_name_args *plugin_info,
 	register_callback(plugin_info->base_name, PLUGIN_INFO, NULL,
 				&this_plugin_info);
 
-#if 0
+#if 1
 	register_callback(plugin_info->base_name, PLUGIN_START_PARSE_FUNCTION,
 			start_parse_function, NULL);
 	register_callback(plugin_info->base_name, PLUGIN_FINISH_PARSE_FUNCTION,
@@ -353,6 +359,8 @@ int plugin_init(struct plugin_name_args *plugin_info,
 	register_callback(plugin_info->base_name, PLUGIN_NEW_PASS,
 			new_pass, NULL);
 
+#endif
+#if 0
 	struct register_pass_info pass_info;
 	pass_info.pass = new pass_before_cfg(g);
 	pass_info.reference_pass_name = "cfg";
@@ -361,8 +369,8 @@ int plugin_init(struct plugin_name_args *plugin_info,
 
 	register_callback(plugin_info->base_name, PLUGIN_PASS_MANAGER_SETUP,
 				NULL, &pass_info);
-#endif
 	register_callback(plugin_info->base_name, PLUGIN_ALL_IPA_PASSES_START,
 			all_ipa_passes_hook, NULL);
+#endif
 	return 0;
 }

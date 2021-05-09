@@ -1,6 +1,6 @@
 /*
  * simulate specific code in sinode.
- *	SI_TYPE_DF_GIMPLE: gimple
+ *	SI_TYPE_DF_GCC_C | SI_TYPE_DF_GCC_CPP: gimple
  *	SI_TYPE_DF_ASM: binary
  *
  * We need to know what the code does, the input should be a code_path, and

@@ -40,7 +40,6 @@
 #include <gcc-plugin.h>
 //#include <plugin-version.h>
 #include <tree.h>
-#include <c-tree.h>
 #include <context.h>
 #include <function.h>
 #include <internal-fn.h>
@@ -518,17 +517,12 @@ C_SYM edge si_find_taken_edge_switch_expr(struct func_node *fn,
 				    const gswitch *switch_stmt, tree val);
 C_SYM edge si_find_taken_edge(struct func_node *fn, basic_block bb, tree val);
 
-#if __GNUC__ >= 8
-struct GTY(()) sorted_fields_type {
-	int len;
-	tree GTY((length("%h.len"))) elts[1];
-};
-#endif
-
+#if 0
 #if __GNUC__ < 8
 void symtab_node::dump_table(FILE *f)
 {
 }
+#endif
 #endif
 
 static inline int check_tree_code(tree n)
@@ -601,29 +595,24 @@ static inline int check_file_var(tree node)
 	}
 }
 
-/*
- * Now, we collect data at IPA_ALL_PASSES_END, which is after cfg,
- * the gimple_body is cleared, and the cfg is set.
- * FIXME: is this right?
- */
 static inline int check_file_func(tree node)
 {
 	BUG_ON(TREE_CODE(node) != FUNCTION_DECL);
 	BUG_ON(!DECL_NAME(node));
 
-	/*
-	 * update: we ignore DECL_SAVED_TREE check here, just
-	 * check functions with f->cfg
-	 * in the meanwhile, we should handle the caller
-	 */
 	if ((!DECL_EXTERNAL(node)) ||
 		(DECL_STRUCT_FUNCTION(node) &&
 		 (DECL_STRUCT_FUNCTION(node)->cfg))) {
 		if (TREE_PUBLIC(node)) {
 			return FUNC_IS_GLOBAL;
-		} else {
-			BUG_ON(!TREE_STATIC(node));
+		} else if (TREE_STATIC(node)) {
 			return FUNC_IS_STATIC;
+		} else {	
+			/*
+			 * XXX: in c, this branch should NOT happen;
+			 * in c++, return FUNC_IS_EXTERN;
+			 */
+			return FUNC_IS_EXTERN;
 		}
 	} else {
 		return FUNC_IS_EXTERN;

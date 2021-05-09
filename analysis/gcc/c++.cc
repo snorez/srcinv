@@ -1,38 +1,7 @@
 /*
- * this should match with collect/c.cc
- * NOTE: this should be able to used in multiple thread
- * handle the information collected in lower gimple at ALL_IPA_PASSES_END
- * We assume that a static inline function has the same body in separate source
- *	files.
+ * this should match with collect/core.cc
  *
- * the version of the code used in phase4 of gcc is 8.3.0
- * phase 4 may also be used in c++/... that compiled by gcc
- *
- * FIXME:
- *	PHASE3: is there any race condition?
- *
- * TODO:
- *	rewrite, get_target_field0(), use TERE_CHAIN()
- *	todos and si_log1_todo
- *	TREE_INT_CST_LOW may not be enough to represent the INT_CST
- *	ARRAY_REF size is quite different. array_ref_element_size().
- *	dsv_init:
- *		A->B, given B, what is A?
- *		Check all callers, find out the params
- *
- * phase 1-3 are solid now, 4-6 are bad.
- * phase4: init value, mark var parm function ONLY
- * phase5: do direct/indirect calls
- * phase6: do parm calls and some other check
- *
- * dump_function_to_file() in gcc/tree-cfg.c
- *	Dump function_decl fn to file using flags
- *
- * UPDATE:
- *   2020-08-07
- *     TYPE_SIZE in bits while TYPE_SIZE_UNIT in bytes
- *
- * Copyright (C) 2018  zerons
+ * Copyright (C) 2021  zerons
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -56,37 +25,37 @@
 #endif
 
 #include "si_gcc.h"
-#include <c-tree.h>
+#include <cp/cp-tree.h>
 
 /*
  * ************************************************************************
  * main
  * ************************************************************************
  */
-static int c_parse(struct sibuf *, int);
+static int gcc_parse(struct sibuf *, int);
 static int sl_next_insn(struct sample_set *, int idx, struct func_node *);
 static void *get_global(struct sibuf *b, const char *string, int *);
-static struct lang_ops c_ops;
+static struct lang_ops gcc_ops;
 
-CLIB_MODULE_NAME(c);
+CLIB_MODULE_NAME(c++);
 CLIB_MODULE_NEEDEDx(0);
 
 CLIB_MODULE_INIT()
 {
-	c_ops.parse = c_parse;
-	c_ops.sl_next_insn = sl_next_insn;
-	c_ops.get_global = get_global;
-	c_ops.type.binary = SI_TYPE_SRC;
-	c_ops.type.kernel = SI_TYPE_BOTH;
-	c_ops.type.os_type = SI_TYPE_OS_LINUX;
-	c_ops.type.data_fmt = SI_TYPE_DF_GCC_C;
-	register_lang_ops(&c_ops);
+	gcc_ops.parse = gcc_parse;
+	gcc_ops.sl_next_insn = sl_next_insn;
+	gcc_ops.get_global = get_global;
+	gcc_ops.type.binary = SI_TYPE_SRC;
+	gcc_ops.type.kernel = SI_TYPE_BOTH;
+	gcc_ops.type.os_type = SI_TYPE_OS_LINUX;
+	gcc_ops.type.data_fmt = SI_TYPE_DF_GCC_CPP;
+	register_lang_ops(&gcc_ops);
 	return 0;
 }
 
 CLIB_MODULE_EXIT()
 {
-	unregister_lang_ops(&c_ops);
+	unregister_lang_ops(&gcc_ops);
 	return;
 }
 
@@ -270,7 +239,7 @@ static void do_vector(tree node, int flag);
 static void do_string(tree node, int flag);
 static void do_complex(tree node, int flag);
 static void do_identifier(tree node, int flag);
-static void do_c_lang_identifier(tree node, int flag);
+static void do_specific_identifier(tree node, int flag);
 static void do_decl_minimal(tree node, int flag);
 static void do_decl_common(tree node, int flag);
 static void do_decl_with_rtl(tree node, int flag);
@@ -1044,13 +1013,7 @@ static void do_real_value(struct real_value *node, int flag)
 	return;
 }
 
-#if __GNUC__ >= 8
-struct GTY(()) sorted_fields_type {
-	int len;
-	tree GTY((length("%h.len"))) elts[1];
-};
-#endif
-
+#if 0
 static void do_sorted_fields_type(struct sorted_fields_type *node, int flag)
 {
 	if (!node)
@@ -1078,14 +1041,9 @@ static void do_sorted_fields_type(struct sorted_fields_type *node, int flag)
 		BUG();
 	}
 }
+#endif
 
-struct GTY(()) c_lang_type {
-	struct sorted_fields_type * GTY ((reorder("resort_sorted_fields"))) s;
-	tree enum_min;
-	tree enum_max;
-	tree objc_info;
-};
-static void do_c_lang_type(void *node, int flag)
+static void do_specific_identifier(tree node, int flag)
 {
 	if (!node)
 		return;
@@ -1096,11 +1054,9 @@ static void do_c_lang_type(void *node, int flag)
 	case MODE_ADJUST:
 	{
 		CLIB_DBG_FUNC_ENTER();
-		struct c_lang_type *node0 = (struct c_lang_type *)node;
-		do_real_addr(&node0->s, do_sorted_fields_type(node0->s, 1));
-		do_real_addr(&node0->enum_min, do_tree(node0->enum_min));
-		do_real_addr(&node0->enum_max, do_tree(node0->enum_max));
-		do_real_addr(&node0->objc_info, do_tree(node0->objc_info));
+		struct lang_identifier *node0;
+		node0 = (struct lang_identifier *)node;
+		do_c_common_identifier(&node0->c_common, 0);
 		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
@@ -1113,15 +1069,241 @@ static void do_c_lang_type(void *node, int flag)
 	}
 }
 
-struct GTY(()) c_lang_decl {
-	char dummy;
-};
-static void do_c_lang_decl(struct c_lang_decl *node, int flag)
+static void do_specific_lang_type(void *node, int flag)
 {
 	if (!node)
 		return;
 	if (flag && is_obj_checked(node))
 		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct lang_type *node0 = (struct lang_type *)node;
+		do_real_addr(&node0->primary_base, do_tree(node0->primary_base));
+		do_real_addr(&node0->vtables, do_tree(node0->vtables));
+		do_real_addr(&node0->typeinfo_var, do_tree(node0->typeinfo_var));
+		do_real_addr(&node0->vbases, do_vec_tree(node0->vbases, 1));
+		do_real_addr(&node0->as_base, do_tree(node0->as_base));
+		do_real_addr(&node0->pure_virtuals,
+				do_vec_tree(node0->pure_virtuals, 1));
+		do_real_addr(&node0->friend_classes,
+				do_tree(node0->friend_classes));
+		do_real_addr(&node0->members, do_vec_tree(node0->members, 1));
+		do_real_addr(&node0->key_method, do_tree(node0->key_method));
+		do_real_addr(&node0->decl_list, do_tree(node0->decl_list));
+		do_real_addr(&node0->befriending_classes,
+				do_tree(node0->befriending_classes));
+		do_real_addr(&node0->objc_info, do_tree(node0->objc_info));
+		do_real_addr(&node0->lambda_expr, do_tree(node0->lambda_expr));
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		return;
+	}
+	default:
+		BUG();
+	}
+}
+
+static void do_lang_decl_base(struct lang_decl_base *n, int flag)
+{
+	if (!n)
+		return;
+	if (flag && is_obj_checked(n))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		return;
+	}
+	default:
+		BUG();
+	}
+
+	return;
+}
+
+static void do_lang_decl_min(struct lang_decl_min *n, int flag)
+{
+	if (!n)
+		return;
+	if (flag && is_obj_checked(n))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		do_real_addr(&n->template_info, do_tree(n->template_info));
+		do_real_addr(&n->access, do_tree(n->access));
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		return;
+	}
+	default:
+		BUG();
+	}
+
+	return;
+}
+
+static void do_lang_decl_fn(struct lang_decl_fn *n, int flag)
+{
+	if (!n)
+		return;
+	if (flag && is_obj_checked(n))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		do_lang_decl_min(&n->min, 0);
+		do_real_addr(&n->befriending_classes,
+				do_tree(n->befriending_classes));
+		do_real_addr(&n->context, do_tree(n->context));
+		if (n->thunk_p)
+			do_real_addr(&n->u5.cloned_function,
+					do_tree(n->u5.cloned_function));
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		return;
+	}
+	default:
+		BUG();
+	}
+
+	return;
+}
+
+static void do_lang_decl_ns(struct lang_decl_ns *n, int flag)
+{
+	if (!n)
+		return;
+	if (flag && is_obj_checked(n))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		do_lang_decl_base(&n->base, 0);
+		do_real_addr(&n->usings, do_vec_tree(n->usings, 1));
+		do_real_addr(&n->inlinees, do_vec_tree(n->inlinees, 1));
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		return;
+	}
+	default:
+		BUG();
+	}
+
+	return;
+}
+
+static void do_lang_decl_parm(struct lang_decl_parm *n, int flag)
+{
+	if (!n)
+		return;
+	if (flag && is_obj_checked(n))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		do_lang_decl_base(&n->base, 0);
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		return;
+	}
+	default:
+		BUG();
+	}
+
+	return;
+}
+
+static void do_lang_decl_decomp(struct lang_decl_decomp *n, int flag)
+{
+	if (!n)
+		return;
+	if (flag && is_obj_checked(n))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		do_lang_decl_min(&n->min, 0);
+		do_real_addr(&n->base, do_tree(n->base));
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		return;
+	}
+	default:
+		BUG();
+	}
+
+	return;
+}
+
+static void do_specific_lang_decl(void *n, int flag)
+{
+	if (!n)
+		return;
+	if (flag && is_obj_checked(n))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		struct lang_decl *node = (struct lang_decl *)n;
+		CLIB_DBG_FUNC_ENTER();
+		switch (node->u.base.selector) {
+		case lds_min:
+			do_lang_decl_min(&node->u.min, 0);
+			break;
+		case lds_fn:
+			do_lang_decl_fn(&node->u.fn, 0);
+			break;
+		case lds_ns:
+			do_lang_decl_ns(&node->u.ns, 0);
+			break;
+		case lds_parm:
+			do_lang_decl_parm(&node->u.parm, 0);
+			break;
+		case lds_decomp:
+			do_lang_decl_decomp(&node->u.decomp, 0);
+			break;
+		default:
+			do_lang_decl_base(&node->u.base, 0);
+			break;
+		}
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		return;
+	}
+	default:
+		BUG();
+	}
 	return;
 }
 
@@ -1205,14 +1387,7 @@ static void do_stmt_tree_s(struct stmt_tree_s *node, int flag)
 	}
 }
 
-#if 0
-struct GTY(()) c_language_function {
-	struct stmt_tree_s x_stmt_tree;
-	vec<tree, va_gc> *local_typedefs;
-};
-#endif
-static void do_c_language_function(struct c_language_function *node,
-							int flag)
+static void do_c_language_function(struct c_language_function *node, int flag)
 {
 	if (!node)
 		return;
@@ -1238,17 +1413,6 @@ static void do_c_language_function(struct c_language_function *node,
 	}
 }
 
-#if 0
-typedef uintptr_t splay_tree_key;
-typedef uintptr_t splay_tree_value;
-struct splay_tree_node_s {
-	splay_tree_key key;
-	splay_tree_value value;
-	splay_tree_node left;
-	splay_tree_node right;
-};
-typedef struct splay_tree_node_s *splay_tree_node;
-#endif
 static void do_splay_tree_node_s(struct splay_tree_node_s *node,
 							int flag)
 {
@@ -1278,17 +1442,6 @@ static void do_splay_tree_node_s(struct splay_tree_node_s *node,
 }
 
 #if 0
-struct splay_tree_s {
-	splay_tree_node root;
-	splay_tree_compare_fn comp;
-	splay_tree_delete_key_fn delete_key;
-	splay_tree_delete_value_fn delete_value;
-	splay_tree_allocate_fn allocate;
-	splay_tree_deallocate_fn deallocate;
-	void *allocate_data;
-};
-typedef struct splay_tree_s *splay_tree;
-#endif
 static void do_splay_tree_s(struct splay_tree_s *node, int flag)
 {
 	if (!node)
@@ -1312,155 +1465,10 @@ static void do_splay_tree_s(struct splay_tree_s *node, int flag)
 	}
 	/* TODO, allocate_data */
 }
-
-struct c_switch {
-	tree switch_expr;
-	tree orig_type;
-	splay_tree cases;
-	struct c_spot_bindings *bindings;
-	struct c_switch *next;
-	bool bool_cond_p;
-	bool outside_range_p;
-};
-static void do_c_switch(struct c_switch *node, int flag)
-{
-	if (!node)
-		return;
-	if (flag && is_obj_checked(node))
-		return;
-
-	switch (mode) {
-	case MODE_ADJUST:
-	{
-		CLIB_DBG_FUNC_ENTER();
-		do_real_addr(&node->switch_expr, do_tree(node->switch_expr));
-		do_real_addr(&node->orig_type, do_tree(node->orig_type));
-		do_real_addr(&node->cases, do_splay_tree_s(node->cases, 1));
-		do_real_addr(&node->bindings,
-				do_c_spot_bindings(node->bindings, 1));
-		do_real_addr(&node->next, do_c_switch(node->next, 1));
-		CLIB_DBG_FUNC_EXIT();
-		return;
-	}
-	case MODE_GETSTEP4:
-	{
-		return;
-	}
-	default:
-		BUG();
-	}
-}
-
-#if 0
-struct c_arg_tag { /* gcc/c/c-tree.h */
-	tree id;
-	tree type;
-};
 #endif
-static void do_c_arg_tag(c_arg_tag *node, int flag)
-{
-	if (!node)
-		return;
-	if (flag && is_obj_checked(node))
-		return;
 
-	switch (mode) {
-	case MODE_ADJUST:
-	{
-		CLIB_DBG_FUNC_ENTER();
-		do_real_addr(&node->id, do_tree(node->id));
-		do_real_addr(&node->type, do_tree(node->type));
-		CLIB_DBG_FUNC_EXIT();
-		return;
-	}
-	case MODE_GETSTEP4:
-	{
-		return;
-	}
-	default:
-		BUG();
-	}
-}
-static void do_vec_c_arg_tag(vec<c_arg_tag, va_gc> *node, int flag)
-{
-	if (!node)
-		return;
-	if (flag && is_obj_checked(node))
-		return;
-
-	switch (mode) {
-	case MODE_ADJUST:
-	{
-		CLIB_DBG_FUNC_ENTER();
-		unsigned long len = node->vecpfx.m_num;
-		BUG_ON(len==0);
-		c_arg_tag *addr = node->vecdata;
-		for (unsigned long i = 0; i < len; i++) {
-			do_c_arg_tag(&addr[i], 0);
-		}
-		CLIB_DBG_FUNC_EXIT();
-		return;
-	}
-	case MODE_GETSTEP4:
-	{
-		return;
-	}
-	default:
-		BUG();
-	}
-}
-
-#if 0
-struct c_arg_info { /* gcc/c/c-tree.h */
-	tree parms;
-	vec<c_arg_tag, va_gc> *tags;
-	tree types;
-	tree others;
-	tree pending_sizes;
-	BOOL_BITFIELD had_vla_unspec : 1;
-};
-#endif
-static void do_c_arg_info(struct c_arg_info *node, int flag)
-{
-	if (!node)
-		return;
-	if (flag && is_obj_checked(node))
-		return;
-
-	switch (mode) {
-	case MODE_ADJUST:
-	{
-		CLIB_DBG_FUNC_ENTER();
-		do_real_addr(&node->parms, do_tree(node->parms));
-		do_real_addr(&node->tags, do_vec_c_arg_tag(node->tags, 1));
-		do_real_addr(&node->types, do_tree(node->types));
-		do_real_addr(&node->others, do_tree(node->others));
-		do_real_addr(&node->pending_sizes,
-				do_tree(node->pending_sizes));
-		CLIB_DBG_FUNC_EXIT();
-		return;
-	}
-	case MODE_GETSTEP4:
-	{
-		return;
-	}
-	default:
-		BUG();
-	}
-}
-
-struct GTY(()) language_function {
-	struct c_language_function base;
-	tree x_break_label;
-	tree x_cont_label;
-	struct c_switch * GTY((skip)) x_switch_stack;
-	struct c_arg_info * GTY((skip)) arg_info;
-	int returns_value;
-	int returns_null;
-	int returns_abnormally;
-	int warn_about_return_type;
-};
-static void do_language_function(struct language_function *node, int flag)
+static void do_specific_language_function(struct language_function *node,
+					  int flag)
 {
 	if (!node)
 		return;
@@ -1472,13 +1480,22 @@ static void do_language_function(struct language_function *node, int flag)
 	{
 		CLIB_DBG_FUNC_ENTER();
 		do_c_language_function(&node->base, 0);
-		do_real_addr(&node->x_break_label,
-				do_tree(node->x_break_label));
-		do_real_addr(&node->x_cont_label, do_tree(node->x_cont_label));
-		do_real_addr(&node->x_switch_stack,
-				do_c_switch(node->x_switch_stack, 1));
-		do_real_addr(&node->arg_info,
-				do_c_arg_info(node->arg_info, 1));
+		do_real_addr(&node->x_cdtor_label,
+				do_tree(node->x_cdtor_label));
+		do_real_addr(&node->x_current_class_ptr,
+				do_tree(node->x_current_class_ptr));
+		do_real_addr(&node->x_current_class_ref,
+				do_tree(node->x_current_class_ref));
+		do_real_addr(&node->x_eh_spec_block,
+				do_tree(node->x_eh_spec_block));
+		do_real_addr(&node->x_in_charge_parm,
+				do_tree(node->x_in_charge_parm));
+		do_real_addr(&node->x_vtt_parm,
+				do_tree(node->x_vtt_parm));
+		do_real_addr(&node->x_return_value,
+				do_tree(node->x_return_value));
+		do_real_addr(&node->x_auto_return_pattern,
+				do_tree(node->x_auto_return_pattern));
 		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
@@ -1489,6 +1506,257 @@ static void do_language_function(struct language_function *node, int flag)
 	default:
 		BUG();
 	}
+}
+
+static void do_template_parm_index(tree node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct template_parm_index *n;
+		n = (struct template_parm_index *)node;
+		do_common((tree)&n->common, 0);
+		do_real_addr(&n->decl, do_tree(n->decl));
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		return;
+	}
+	default:
+		BUG();
+	}
+}
+
+static void do_template_info(tree node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct tree_template_info *n;
+		n = (struct tree_template_info *)node;
+		do_common((tree)&n->common, 0);
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		return;
+	}
+	default:
+		BUG();
+	}
+	/* TODO */
+}
+
+static void do_template_decl(tree node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct tree_template_decl *n;
+		n = (struct tree_template_decl *)node;
+		do_decl_common((tree)&n->common, 0);
+		do_real_addr(&n->arguments, do_tree(n->arguments));
+		do_real_addr(&n->result, do_tree(n->result));
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		return;
+	}
+	default:
+		BUG();
+	}
+	/* TODO */
+}
+
+static void do_using_decl(tree node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		return;
+	}
+	default:
+		BUG();
+	}
+	/* TODO */
+}
+
+static void do_overload(tree node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct tree_overload *n;
+		n = (struct tree_overload *)node;
+		do_common((tree)&n->common, 0);
+		do_real_addr(&n->function, do_tree(n->function));
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		return;
+	}
+	default:
+		BUG();
+	}
+	/* TODO */
+}
+
+static void do_deferred_noexcept(tree node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct tree_deferred_noexcept *n;
+		n = (struct tree_deferred_noexcept *)node;
+		do_base((tree)&n->base, 0);
+		do_real_addr(&n->pattern, do_tree(n->pattern));
+		do_real_addr(&n->args, do_tree(n->args));
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		return;
+	}
+	default:
+		BUG();
+	}
+	/* TODO */
+}
+
+static void do_baselink(tree node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct tree_baselink *n;
+		n = (struct tree_baselink *)node;
+		do_common((tree)&n->common, 0);
+		do_real_addr(&n->binfo, do_tree(n->binfo));
+		do_real_addr(&n->functions, do_tree(n->functions));
+		do_real_addr(&n->access_binfo, do_tree(n->access_binfo));
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		return;
+	}
+	default:
+		BUG();
+	}
+	/* TODO */
+}
+
+static void do_static_assert(tree node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct tree_static_assert *n;
+		n = (struct tree_static_assert *)node;
+		do_location(&n->location);
+		do_common((tree)&n->common, 0);
+		do_real_addr(&n->condition, do_tree(n->condition));
+		do_real_addr(&n->message, do_tree(n->message));
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		return;
+	}
+	default:
+		BUG();
+	}
+	/* TODO */
+}
+
+static void do_trait_expr(tree node, int flag)
+{
+	if (!node)
+		return;
+	if (flag && is_obj_checked(node))
+		return;
+
+	switch (mode) {
+	case MODE_ADJUST:
+	{
+		CLIB_DBG_FUNC_ENTER();
+		struct tree_trait_expr *n;
+		n = (struct tree_trait_expr *)node;
+		do_common((tree)&n->common, 0);
+		do_real_addr(&n->type1, do_tree(n->type1));
+		do_real_addr(&n->type2, do_tree(n->type2));
+		CLIB_DBG_FUNC_EXIT();
+		return;
+	}
+	case MODE_GETSTEP4:
+	{
+		return;
+	}
+	default:
+		BUG();
+	}
+	/* TODO */
 }
 
 static void do_basic_block(void *node, int flag);
@@ -3253,7 +3521,7 @@ static void do_function(struct function *node, int flag)
 		do_location(&node->function_start_locus);
 		do_location(&node->function_end_locus);
 		do_real_addr(&node->language,
-				do_language_function(node->language, 1));
+			     do_specific_language_function(node->language, 1));
 		do_real_addr(&node->decl, do_tree(node->decl));
 		do_real_addr(&node->static_chain_decl,
 				do_tree(node->static_chain_decl));
@@ -3281,7 +3549,7 @@ static void do_function(struct function *node, int flag)
 	case MODE_GETSTEP4:
 	{
 		CLIB_DBG_FUNC_ENTER();
-		do_language_function(node->language, 1);
+		do_specific_language_function(node->language, 1);
 		do_tree(node->decl);
 		do_tree(node->static_chain_decl);
 		do_tree(node->nonlocal_goto_save_area);
@@ -3417,6 +3685,12 @@ static void do_tree(tree node)
 		case NAMELIST_DECL:
 			do_decl_non_common(node, 1);
 			goto out;
+		case TEMPLATE_DECL:
+			do_template_decl(node, 1);
+			goto out;
+		case USING_DECL:
+			do_using_decl(node, 1);
+			goto out;
 		default:
 			BUG();
 		}
@@ -3462,12 +3736,8 @@ static void do_tree(tree node)
 	{
 		switch (code) {
 		case IDENTIFIER_NODE:
-			do_c_lang_identifier(node, 1);
+			do_specific_identifier(node, 1);
 			goto out;
-#if 0
-			do_identifier(node, 1);
-			goto out;
-#endif
 		case TREE_LIST:
 			do_list(node, 1);
 			goto out;
@@ -3495,6 +3765,27 @@ static void do_tree(tree node)
 			goto out;
 		case TARGET_OPTION_NODE:
 			do_target_option(node, 1);
+			goto out;
+		case TEMPLATE_PARM_INDEX:
+			do_template_parm_index(node, 1);
+			goto out;
+		case TEMPLATE_INFO:
+			do_template_info(node, 1);
+			goto out;
+		case OVERLOAD:
+			do_overload(node, 1);
+			goto out;
+		case DEFERRED_NOEXCEPT:
+			do_deferred_noexcept(node, 1);
+			goto out;
+		case BASELINK:
+			do_baselink(node, 1);
+			goto out;
+		case STATIC_ASSERT:
+			do_static_assert(node, 1);
+			goto out;
+		case TRAIT_EXPR:
+			do_trait_expr(node, 1);
 			goto out;
 		default:
 			BUG();
@@ -3675,45 +3966,6 @@ static void __maybe_unused do_identifier(tree node, int flag)
 		struct tree_identifier *node0 = (struct tree_identifier *)node;
 		do_common((tree)&node0->common, 0);
 		do_ht_identifier(&node0->id, 0);
-		CLIB_DBG_FUNC_EXIT();
-		return;
-	}
-	case MODE_GETSTEP4:
-	{
-		return;
-	}
-	default:
-		BUG();
-	}
-}
-struct GTY(()) c_lang_identifier { /* gcc/c/c-decl.c */
-	struct c_common_identifier common_id;
-	struct c_binding *symbol_binding;
-	struct c_binding *tag_binding;
-	struct c_binding *label_binding;
-};
-static void do_c_lang_identifier(tree node, int flag)
-{
-	if (!node)
-		return;
-	if (flag && is_obj_checked(node))
-		return;
-
-	switch (mode) {
-	case MODE_ADJUST:
-	{
-		CLIB_DBG_FUNC_ENTER();
-		struct c_lang_identifier *node0;
-		node0 = (struct c_lang_identifier *)node;
-		do_c_common_identifier(&node0->common_id, 0);
-#ifdef COLLECT_MORE
-		do_real_addr(&node0->symbol_binding,
-				do_c_binding(node0->symbol_binding, 1));
-		do_real_addr(&node0->tag_binding,
-				do_c_binding(node0->tag_binding, 1));
-		do_real_addr(&node0->label_binding,
-				do_c_binding(node0->label_binding, 1));
-#endif
 		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
@@ -3977,7 +4229,7 @@ static void do_type_with_lang_specific(tree node, int flag)
 				(struct tree_type_with_lang_specific *)node;
 		do_type_common((tree)&node0->common, 0);
 		do_real_addr(&node0->lang_specific,
-			     do_c_lang_type((void *)node0->lang_specific, 1));
+			     do_specific_lang_type((void *)node0->lang_specific, 1));
 		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
@@ -4135,8 +4387,8 @@ static void do_decl_common(tree node, int flag)
 		do_real_addr(&node0->abstract_origin,
 				do_tree(node0->abstract_origin));
 		do_real_addr(&node0->lang_specific,
-				do_c_lang_decl((struct c_lang_decl*)
-						node0->lang_specific,1));
+			     do_specific_lang_decl((void*)node0->lang_specific,
+						   1));
 		CLIB_DBG_FUNC_EXIT();
 		return;
 	}
@@ -8449,7 +8701,7 @@ static void setup_gcc_globals(struct sibuf *buf)
 
 static int gcc_ver_major = __GNUC__;
 static int gcc_ver_minor = __GNUC_MINOR__;
-static int c_parse(struct sibuf *buf, int parse_mode)
+static int gcc_parse(struct sibuf *buf, int parse_mode)
 {
 	CLIB_DBG_FUNC_ENTER();
 
